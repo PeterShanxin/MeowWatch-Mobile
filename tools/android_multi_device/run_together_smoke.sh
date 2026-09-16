@@ -10,6 +10,7 @@ Usage:
 
 Options:
   --output <directory>  Role-specific output root
+  --driver-output <directory> Root written by the selected integration driver
   --server <hostname>   Syncplay server (default: syncplay.pl)
   --port <integer>      Syncplay port (default: 8995)
   --video-url <url>     URL compiled into the prebuilt APKs
@@ -32,6 +33,7 @@ port=8995
 video_url="${TOGETHER_VIDEO_URL:-http://10.0.2.2:18765/sync-fixture.mp4}"
 drive_timeout='330s'
 output_dir=''
+driver_output_root='build/android-multi-device-artifacts'
 
 while (( $# > 0 )); do
   case "$1" in
@@ -46,6 +48,7 @@ while (( $# > 0 )); do
     --video-url) video_url="${2:-}"; shift 2 ;;
     --timeout) drive_timeout="${2:-}"; shift 2 ;;
     --output) output_dir="${2:-}"; shift 2 ;;
+    --driver-output) driver_output_root="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -93,8 +96,8 @@ fi
 output_dir="${output_dir:-$SESSION_DIR/together-smoke}"
 host_output="$output_dir/host-$PHONE_SERIAL"
 guest_output="$output_dir/guest-$TABLET_SERIAL"
-host_driver_output='build/android-multi-device-artifacts/host'
-guest_driver_output='build/android-multi-device-artifacts/guest'
+host_driver_output="$driver_output_root/host"
+guest_driver_output="$driver_output_root/guest"
 mkdir -p "$output_dir"
 if find "$output_dir" -mindepth 1 -print -quit | grep -q .; then
   echo "Smoke output must be empty before a fresh run: $output_dir" >&2

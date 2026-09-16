@@ -1,0 +1,75 @@
+name: Production phone and tablet journey
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/production-together.yml'
+      - 'integration_test/production_together_test.dart'
+      - 'test_driver/production_together_driver.dart'
+      - 'tools/production_together/**'
+      - 'tools/android_multi_device/**'
+      - 'lib/**'
+      - 'android/**'
+      - 'pubspec.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-together-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  production-together:
+    name: Production UI on independent phone and tablet (API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify invite rendezvous and runner syntax
+        run: |
+          python3 -m unittest discover -s tools/production_together -p 'test_*.py'
+          bash -n tools/android_multi_device/ci_together.sh
+          bash -n tools/android_multi_device/build_together_apks.sh
+          bash -n tools/android_multi_device/run_together_smoke.sh
+      - name: Prepare native media fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh
+      - name: Build production UI host and guest
+        run: |
+          bash tools/android_multi_device/build_together_apks.sh \
+            --target integration_test/production_together_test.dart \
+            --room "mw-product-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --coordination-url http://10.0.2.2:18766/invite \
+            --video-url http://10.0.2.2:18765/sync-fixture.mp4
+      - name: Prepare Android system image and KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          "$sdk_root/cmdline-tools/latest/bin/sdkmanager" 'emulator' 'platforms;android-35' 'system-images;android-35;google_apis;x86_64'
+      - name: Record real Start, Join, playback and conversation
+        run: bash tools/android_multi_device/ci_together.sh --production-ui
+      - name: Upload production screenshots, observations and framed video
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: production-phone-tablet-${{ github.run_attempt }}
+          path: |
+            build/android-multi-device/
+            build/production-together-artifacts/
+            !build/android-multi-device/apks/*.apk
+            !build/android-multi-device/fixture/sync-fixture.mp4
+          retention-days: 14

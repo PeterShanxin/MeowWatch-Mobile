@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 from pathlib import Path
 import re
 import subprocess
@@ -76,6 +77,12 @@ def select_picker_target(
         node
         for node in nodes
         if fixture_name in {node.get("text", ""), node.get("content-desc", "")}
+        and node.get("class") not in {
+            "android.widget.EditText", "android.widget.AutoCompleteTextView",
+        }
+        and node.get("resource-id") not in {
+            "android:id/search_src_text", f"{package}:id/search_src_text",
+        }
     ]
     if len(files) == 1:
         return PickerTarget("fixture", _bounds(files[0]))
@@ -94,10 +101,15 @@ def select_picker_target(
         raise PickerNotReady("Exact picker fixture and Search control are absent")
 
     if phase == "search":
+        search_ids = {"android:id/search_src_text", f"{package}:id/search_src_text"}
         fields = [
             node
             for node in nodes
-            if node.get("class") == "android.widget.EditText"
+            if node.get("resource-id") in search_ids
+            and node.get("class") in {
+                "android.widget.EditText",
+                "android.widget.AutoCompleteTextView",
+            }
             and node.get("clickable", "true") == "true"
         ]
         if len(fields) == 1:
@@ -105,6 +117,28 @@ def select_picker_target(
         raise PickerNotReady("DocumentsUI search field is absent or ambiguous")
 
     raise PickerNotReady("Exact fixture is absent from DocumentsUI results")
+
+
+def search_field_diagnostics(xml: str) -> list[dict[str, object]]:
+    """Retain only search-control shape, never document names or URI values."""
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return []
+    return [
+        {
+            "class": node.get("class", "")[:120],
+            "clickable": node.get("clickable") == "true",
+            "enabled": node.get("enabled", "true") == "true",
+        }
+        for node in root.iter("node")
+        if node.get("package") in DOCUMENTS_PACKAGES
+        and node.get("resource-id") in {
+            "android:id/search_src_text",
+            "com.android.documentsui:id/search_src_text",
+            "com.google.android.documentsui:id/search_src_text",
+        }
+    ][:8]
 
 
 def image_size(png: bytes) -> tuple[int, int]:
@@ -195,6 +229,22 @@ class DocumentsUiSelector:
         self.selected = False
 
     def select(self) -> None:
+        self.artifacts.mkdir(parents=True, exist_ok=True)
+        self.diagnostics: dict[str, object] = {
+            "selected": False, "phase": "initial", "searchFields": [],
+        }
+        try:
+            self._select()
+        except BaseException as error:
+            self.diagnostics["errorType"] = type(error).__name__
+            raise
+        finally:
+            self.diagnostics["selected"] = self.selected
+            (self.artifacts / "documentsui-selector.json").write_text(
+                json.dumps(self.diagnostics, indent=2) + "\n", encoding="utf-8"
+            )
+
+    def _select(self) -> None:
         phase = "initial"
         deadline = time.monotonic() + self.timeout
         last_error = "DocumentsUI was not observed"
@@ -203,6 +253,8 @@ class DocumentsUiSelector:
                 raise RuntimeError("DocumentsUI selection was cancelled")
             try:
                 xml, window = self.adb.observe()
+                self.diagnostics["phase"] = phase
+                self.diagnostics["searchFields"] = search_field_diagnostics(xml)
                 target = select_picker_target(xml, window, self.fixture_name, phase)
                 png = self.adb.screenshot()
                 width, height = image_size(png)

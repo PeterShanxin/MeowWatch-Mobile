@@ -25,6 +25,18 @@ durations, positions, process IDs and emulator metadata. Content URI values and
 credential-like evidence keys are rejected, and Flutter drive logs redact any
 unexpected `content:` URI.
 
+The DocumentsUI search selector matches `search_src_text` in the focused system
+picker and accepts its `AutoCompleteTextView` accessibility class, as well as
+`EditText`. Android's [SearchView search field](https://android.googlesource.com/platform/frameworks/base/+/refs/heads/master/core/java/android/widget/SearchView.java)
+inherits `AutoCompleteTextView`, whose [API 35 accessibility class](https://android.googlesource.com/platform/prebuilts/fullsdk/sources/+/refs/heads/main/android-35/android/widget/AutoCompleteTextView.java)
+is distinct from `EditText`.
+
+`native/documentsui-selector.json` retains the last selector phase, search-control
+class/flags and completion status; it never includes query text or URI values.
+A selector failure stops the runner-owned Flutter drive process immediately,
+instead of being masked by its longer wall timeout. Successful selection still
+requires the exact fixture in focused DocumentsUI and the app regaining focus.
+
 This is API 35 x86_64 emulator evidence. It does not prove behavior for every
 document provider, OEM picker, codec or physical device.
 

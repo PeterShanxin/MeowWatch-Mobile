@@ -1,11 +1,16 @@
 import contextlib
 import io
+import json
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
-from tools.local_file_runtime.picker import PickerNotReady, select_picker_target
+from tools.local_file_runtime.picker import (
+    DocumentsUiSelector, PickerNotReady, search_field_diagnostics, select_picker_target,
+)
 from tools.local_file_runtime.run import (
     drive_command,
     redact_log,
@@ -30,10 +35,11 @@ def node(
     class_name: str = "android.widget.TextView",
     clickable: str = "true",
     bounds: str = "[10,20][210,80]",
+    resource_id: str = "",
 ) -> str:
     return (
         f'<node text="{text}" content-desc="{description}" package="{package}" '
-        f'class="{class_name}" clickable="{clickable}" enabled="true" '
+        f'class="{class_name}" resource-id="{resource_id}" clickable="{clickable}" enabled="true" '
         f'visible-to-user="true" bounds="{bounds}" />'
     )
 
@@ -80,7 +86,7 @@ class PickerSelectorTests(unittest.TestCase):
         )
         self.assertEqual(search.action, "search")
         query = select_picker_target(
-            hierarchy(node(class_name="android.widget.EditText")),
+            hierarchy(node(class_name="android.widget.EditText", resource_id=f"{DOCS}:id/search_src_text")),
             FOCUS,
             FIXTURE,
             "search",
@@ -93,6 +99,99 @@ class PickerSelectorTests(unittest.TestCase):
                 FIXTURE,
                 "initial",
             )
+
+    def test_android_search_autocomplete_is_an_exact_query_control(self) -> None:
+        # Android's SearchView.SearchAutoComplete reports this accessibility
+        # class, despite inheriting EditText. An EditText-only selector stalls.
+        xml = hierarchy(node(
+            class_name="android.widget.AutoCompleteTextView",
+            resource_id=f"{DOCS}:id/search_src_text",
+        ))
+        target = select_picker_target(xml, FOCUS, FIXTURE, "search")
+        self.assertEqual(target.action, "query")
+        self.assertEqual(target.center, (110, 50))
+        for foreign in [
+            node(class_name="android.widget.AutoCompleteTextView", resource_id="other:id/search_src_text"),
+            node(class_name="android.widget.EditText", resource_id=f"{DOCS}:id/rename"),
+            node(class_name="android.widget.AutoCompleteTextView", resource_id=f"{DOCS}:id/search_src_text", package="com.other"),
+        ]:
+            with self.assertRaises(PickerNotReady):
+                select_picker_target(hierarchy(foreign), FOCUS, FIXTURE, "search")
+
+    def test_search_diagnostics_never_retain_query_or_document_content(self) -> None:
+        fields = search_field_diagnostics(hierarchy(node(
+            text="content://private/document/secret",
+            description="private filename",
+            class_name="android.widget.AutoCompleteTextView",
+            resource_id=f"{DOCS}:id/search_src_text",
+        )))
+        self.assertEqual(fields, [{
+            "class": "android.widget.AutoCompleteTextView",
+            "clickable": True,
+            "enabled": True,
+        }])
+
+    def test_entered_search_query_is_not_mistaken_for_a_file_result(self) -> None:
+        query = node(
+            text=FIXTURE,
+            class_name="android.widget.AutoCompleteTextView",
+            resource_id=f"{DOCS}:id/search_src_text",
+        )
+        with self.assertRaises(PickerNotReady):
+            select_picker_target(hierarchy(query), FOCUS, FIXTURE, "results")
+        target = select_picker_target(
+            hierarchy(query, node(text=FIXTURE, bounds="[20,100][220,180]")),
+            FOCUS, FIXTURE, "results",
+        )
+        self.assertEqual(target.action, "fixture")
+        self.assertEqual(target.center, (120, 140))
+
+    def test_selector_enters_query_and_selects_fixture_after_search_opens(self) -> None:
+        search = hierarchy(node(description="Search"))
+        query = hierarchy(node(
+            class_name="android.widget.AutoCompleteTextView",
+            resource_id=f"{DOCS}:id/search_src_text",
+        ))
+        results = hierarchy(
+            node(text=FIXTURE, class_name="android.widget.AutoCompleteTextView",
+                 resource_id=f"{DOCS}:id/search_src_text"),
+            node(text=FIXTURE, bounds="[20,100][220,180]"),
+        )
+
+        class PickerAdb:
+            def __init__(self) -> None:
+                self.frames = iter([search, search, query, query, results, results])
+                self.commands: list[tuple[str, ...]] = []
+                self.app_focused = False
+
+            def observe(self) -> tuple[str, str]:
+                return next(self.frames), FOCUS
+
+            def screenshot(self) -> bytes:
+                return b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR" + (400).to_bytes(4, "big") + (300).to_bytes(4, "big")
+
+            def run(self, *arguments: str) -> None:
+                self.commands.append(arguments)
+
+            def wait_for_app_focus(self) -> None:
+                self.app_focused = True
+
+        adb = PickerAdb()
+        with tempfile.TemporaryDirectory() as directory, patch("tools.local_file_runtime.picker.time.sleep"):
+            selector = DocumentsUiSelector(adb, Path(directory), FIXTURE)
+            selector.select()
+            self.assertTrue(selector.selected)
+            self.assertTrue(adb.app_focused)
+            self.assertEqual(adb.commands, [
+                ("shell", "input", "tap", "110", "50"),
+                ("shell", "input", "tap", "110", "50"),
+                ("shell", "input", "text", FIXTURE),
+                ("shell", "input", "keyevent", "66"),
+                ("shell", "input", "tap", "120", "140"),
+            ])
+            evidence = json.loads((Path(directory) / "documentsui-selector.json").read_text())
+            self.assertTrue(evidence["selected"])
+            self.assertEqual(evidence["phase"], "results")
 
 
 class RunnerContractTests(unittest.TestCase):
@@ -181,6 +280,19 @@ class RunnerContractTests(unittest.TestCase):
                 wait_for_owned_process(process, log, timeout=1)
         self.assertIsNotNone(process.returncode)
         self.assertIn("started", log.getvalue())
+
+    def test_picker_failure_stops_owned_drive_without_waiting_wall_timeout(self) -> None:
+        process = subprocess.Popen(
+            [sys.executable, "-c", "import time; time.sleep(30)"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+        )
+        with contextlib.redirect_stdout(io.StringIO()):
+            with self.assertRaisesRegex(RuntimeError, "DocumentsUI selection failed: missing search field"):
+                wait_for_owned_process(
+                    process, io.StringIO(), timeout=10,
+                    abort_error=lambda: PickerNotReady("missing search field"),
+                )
+        self.assertIsNotNone(process.returncode)
 
 
 if __name__ == "__main__":

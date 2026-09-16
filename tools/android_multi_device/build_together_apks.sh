@@ -15,6 +15,7 @@ Options:
   --port <integer>       Syncplay port (default: 8995)
   --video-url <url>      Long-form media URL compiled into both APKs
                          (default: http://10.0.2.2:18765/sync-fixture.mp4)
+  --coordination-url <url> Test-only invite rendezvous for the production UI journey
 
 Builds the host APK completely before building the guest APK. Run this before
 launching two AVDs so Gradle does not compete with them for hosted-runner CPU.
@@ -27,6 +28,7 @@ output_dir='build/android-multi-device/apks'
 server='syncplay.pl'
 port=8995
 video_url="${TOGETHER_VIDEO_URL:-http://10.0.2.2:18765/sync-fixture.mp4}"
+coordination_url=''
 
 while (( $# > 0 )); do
   case "$1" in
@@ -36,6 +38,7 @@ while (( $# > 0 )); do
     --server) server="${2:-}"; shift 2 ;;
     --port) port="${2:-}"; shift 2 ;;
     --video-url) video_url="${2:-}"; shift 2 ;;
+    --coordination-url) coordination_url="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -61,6 +64,14 @@ if [[ ! -f "$target" ]]; then
   echo "Integration target does not exist: $target" >&2
   exit 2
 fi
+if [[ -n "$coordination_url" && "$coordination_url" != 'http://10.0.2.2:18766/invite' ]]; then
+  echo '--coordination-url must name the scoped emulator-to-loopback rendezvous.' >&2
+  exit 2
+fi
+if [[ "$target" == 'integration_test/production_together_test.dart' && -z "$coordination_url" ]]; then
+  echo 'The production UI journey requires --coordination-url.' >&2
+  exit 2
+fi
 
 mkdir -p "$output_dir"
 if find "$output_dir" -mindepth 1 -print -quit | grep -q .; then
@@ -77,7 +88,8 @@ build_role() {
     --dart-define="TOGETHER_ROOM=$room" \
     --dart-define="SYNCPLAY_SERVER=$server" \
     --dart-define="SYNCPLAY_PORT=$port" \
-    --dart-define="TOGETHER_VIDEO_URL=$video_url"
+    --dart-define="TOGETHER_VIDEO_URL=$video_url" \
+    --dart-define="TOGETHER_COORDINATION_URL=$coordination_url"
   cp build/app/outputs/flutter-apk/app-debug.apk "$output_dir/$role.apk"
   sha256sum "$output_dir/$role.apk" > "$output_dir/$role.apk.sha256"
 }
@@ -91,6 +103,7 @@ build_role guest
   printf 'server\t%s\n' "$server"
   printf 'port\t%s\n' "$port"
   printf 'video_url\t%s\n' "$video_url"
+  printf 'coordination_url\t%s\n' "$coordination_url"
   printf 'host_apk\t%s\n' "$output_dir/host.apk"
   printf 'guest_apk\t%s\n' "$output_dir/guest.apk"
   printf 'built_utc\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

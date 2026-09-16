@@ -83,6 +83,27 @@ require_device() {
 require_device "$PHONE_SERIAL"
 require_device "$TABLET_SERIAL"
 
+retry_exact_device_command() {
+  local serial="$1"
+  local command_timeout="$2"
+  shift 2
+  local attempt
+  local state
+  for attempt in 1 2 3; do
+    state="$(timeout --signal=TERM --kill-after=2s 5s \
+      "$ADB" -s "$serial" get-state 2>/dev/null || true)"
+    if [[ "$state" == device ]] && \
+       timeout --signal=TERM --kill-after=2s "${command_timeout}s" \
+         "$ADB" -s "$serial" "$@"; then
+      return 0
+    fi
+    if [[ "$attempt" -lt 3 ]]; then
+      sleep 1
+    fi
+  done
+  return 1
+}
+
 capture_before() {
   local label="$1"
   local serial="$2"
@@ -101,13 +122,28 @@ capture_before phone "$PHONE_SERIAL" "$phone_dir"
 capture_before tablet "$TABLET_SERIAL" "$tablet_dir"
 
 remote_suffix="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-phone_remote_prefix="/sdcard/meowwatch-evidence-$remote_suffix-phone"
-tablet_remote_prefix="/sdcard/meowwatch-evidence-$remote_suffix-tablet"
+phone_remote_dir="/sdcard/meowwatch-evidence-$remote_suffix-phone"
+tablet_remote_dir="/sdcard/meowwatch-evidence-$remote_suffix-tablet"
+for spec in \
+  "$PHONE_SERIAL:$phone_remote_dir:$phone_dir" \
+  "$TABLET_SERIAL:$tablet_remote_dir:$tablet_dir"; do
+  serial="${spec%%:*}"
+  remainder="${spec#*:}"
+  remote_dir="${remainder%%:*}"
+  destination="${remainder#*:}"
+  if ! "$ADB" -s "$serial" shell mkdir -p "$remote_dir" \
+      >> "$destination/screenrecord.log" 2>&1; then
+    echo "Could not create the owned Android recording directory on $serial." >&2
+    "$ADB" -s "$PHONE_SERIAL" shell rmdir "$phone_remote_dir" >/dev/null 2>&1 || true
+    "$ADB" -s "$TABLET_SERIAL" shell rmdir "$tablet_remote_dir" >/dev/null 2>&1 || true
+    exit 4
+  fi
+done
 
 record_segments() {
   local label="$1"
   local serial="$2"
-  local remote_prefix="$3"
+  local remote_dir="$3"
   local destination="$4"
   local stop_file="$control_dir/$label.stop"
   local pid_file="$control_dir/$label.pid"
@@ -118,7 +154,7 @@ record_segments() {
   while [[ ! -e "$stop_file" ]]; do
     local segment_name
     segment_name="$(printf '%s-%03d.mp4' "$label" "$segment")"
-    local remote_segment="$remote_prefix-$segment_name"
+    local remote_segment="$remote_dir/$segment_name"
     local command_ns
     command_ns="$(date +%s%N)"
     "$ADB" -s "$serial" shell screenrecord \
@@ -131,7 +167,8 @@ record_segments() {
     local remote_pid=''
     local deadline=$((SECONDS + 10))
     while (( SECONDS < deadline )); do
-      remote_pid="$($ADB -s "$serial" shell pidof screenrecord 2>/dev/null | tr -d '\r\n')"
+      remote_pid="$($ADB -s "$serial" shell pidof screenrecord 2>/dev/null \
+        | tr -d '\r\n' || true)"
       if [[ "$remote_pid" =~ ^[0-9]+$ ]]; then
         break
       fi
@@ -142,8 +179,10 @@ record_segments() {
         >> "$destination/screenrecord.log"
       touch "$control_dir/$label.failed"
       wait "$host_pid" 2>/dev/null || true
-      "$ADB" -s "$serial" shell rm -f "$remote_segment" \
-        >> "$destination/screenrecord.log" 2>&1 || true
+      if ! retry_exact_device_command "$serial" 8 shell rm -f "$remote_segment" \
+          >> "$destination/screenrecord.log" 2>&1; then
+        touch "$control_dir/$label.cleanup-warning"
+      fi
       return 1
     fi
 
@@ -155,39 +194,43 @@ record_segments() {
     fi
     wait "$host_pid" 2>/dev/null || true
     rm -f "$pid_file"
-    local transfer_failed=0
-    if ! "$ADB" -s "$serial" pull "$remote_segment" "$destination/segments/$segment_name" \
+    local local_segment="$destination/segments/$segment_name"
+    local partial_segment="$local_segment.partial"
+    rm -f "$partial_segment"
+    if ! retry_exact_device_command "$serial" 45 pull "$remote_segment" "$partial_segment" \
       >> "$destination/screenrecord.log" 2>&1; then
       echo "Could not pull owned Android recording: $remote_segment" \
         >> "$destination/screenrecord.log"
-      transfer_failed=1
-    fi
-    if ! "$ADB" -s "$serial" shell rm -f "$remote_segment" \
-      >> "$destination/screenrecord.log" 2>&1; then
-      echo "Could not remove owned Android recording: $remote_segment" \
-        >> "$destination/screenrecord.log"
-      transfer_failed=1
-    fi
-    if [[ "$transfer_failed" -ne 0 ]]; then
+      rm -f "$partial_segment"
       touch "$control_dir/$label.failed"
+      retry_exact_device_command "$serial" 8 shell rm -f "$remote_segment" \
+        >> "$destination/screenrecord.log" 2>&1 || \
+        touch "$control_dir/$label.cleanup-warning"
       return 1
+    fi
+    mv "$partial_segment" "$local_segment"
+    if ! retry_exact_device_command "$serial" 8 shell rm -f "$remote_segment" \
+      >> "$destination/screenrecord.log" 2>&1; then
+      echo "Recording was saved, but remote cleanup did not finish: $remote_segment" \
+        >> "$destination/screenrecord.log"
+      touch "$control_dir/$label.cleanup-warning"
     fi
     segment=$((segment + 1))
   done
 }
 
-record_segments phone "$PHONE_SERIAL" "$phone_remote_prefix" "$phone_dir" &
+record_segments phone "$PHONE_SERIAL" "$phone_remote_dir" "$phone_dir" &
 phone_recorder_loop_pid=$!
-record_segments tablet "$TABLET_SERIAL" "$tablet_remote_prefix" "$tablet_dir" &
+record_segments tablet "$TABLET_SERIAL" "$tablet_remote_dir" "$tablet_dir" &
 tablet_recorder_loop_pid=$!
 
 recorders_stopped=0
 stop_recorders() {
-  if [[ "$recorders_stopped" -eq 1 ]]; then
+  if [[ "$recorders_stopped" -eq 2 ]]; then
     return
   fi
   recorders_stopped=1
-  touch "$control_dir/phone.stop" "$control_dir/tablet.stop"
+  touch "$control_dir/phone.stop" "$control_dir/tablet.stop" || true
   last_phone_pid=''
   last_tablet_pid=''
   for _ in $(seq 1 80); do
@@ -205,10 +248,9 @@ stop_recorders() {
       active=1
       pid=''
       pid_file="$control_dir/$label.pid"
-      if [[ -f "$pid_file" ]]; then
-        pid="$(tr -d '\r\n' < "$pid_file")"
-      fi
-      current_pid="$($ADB -s "$serial" shell pidof screenrecord 2>/dev/null | tr -d '\r\n')"
+      pid="$(cat "$pid_file" 2>/dev/null | tr -d '\r\n' || true)"
+      current_pid="$($ADB -s "$serial" shell pidof screenrecord 2>/dev/null \
+        | tr -d '\r\n' || true)"
       last_pid_variable="last_${label}_pid"
       if [[ "$pid" =~ ^[0-9]+$ && "$current_pid" == "$pid" && \
             "$pid" != "${!last_pid_variable}" ]]; then
@@ -223,6 +265,7 @@ stop_recorders() {
   done
   wait "$phone_recorder_loop_pid" 2>/dev/null || true
   wait "$tablet_recorder_loop_pid" 2>/dev/null || true
+  recorders_stopped=2
 }
 trap 'stop_recorders' INT TERM EXIT
 
@@ -264,6 +307,22 @@ fi
 set -e
 stop_recorders
 trap - INT TERM EXIT
+retry_exact_device_command "$PHONE_SERIAL" 8 shell rmdir "$phone_remote_dir" \
+  >> "$phone_dir/screenrecord.log" 2>&1 || \
+  touch "$control_dir/phone.cleanup-warning"
+retry_exact_device_command "$TABLET_SERIAL" 8 shell rmdir "$tablet_remote_dir" \
+  >> "$tablet_dir/screenrecord.log" 2>&1 || \
+  touch "$control_dir/tablet.cleanup-warning"
+
+{
+  for label in phone tablet; do
+    if [[ -e "$control_dir/$label.cleanup-warning" ]]; then
+      printf '%s\twarning\n' "$label"
+    else
+      printf '%s\tclean\n' "$label"
+    fi
+  done
+} > "$output_dir/recording-cleanup.tsv"
 
 if [[ -e "$control_dir/phone.failed" || -e "$control_dir/tablet.failed" ]]; then
   echo 'At least one native recorder failed.' >&2

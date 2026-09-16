@@ -66,3 +66,7 @@ jobs:
           python3 -m unittest discover -s tools/nearby_runtime -p 'test_*.py'
           python3 -m unittest discover -s tools/android_multi_device -p 'test_*.py'
           python3 -m unittest discover -s tools/local_file_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/android_install -p 'test_*.py'
+          python3 -m unittest discover -s tools/production_together -p 'test_*.py'
+          bash tools/android_runtime/test_playback_smoke.sh
+          bash tools/android_multi_device/test_record_two_devices.sh

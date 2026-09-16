@@ -14,7 +14,7 @@ import subprocess
 import sys
 import threading
 import time
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from tools.local_file_runtime.picker import Adb, DocumentsUiSelector
 
@@ -101,6 +101,7 @@ def wait_for_owned_process(
     process: subprocess.Popen[str],
     log: Any,
     timeout: float = _DRIVE_TIMEOUT_SECONDS,
+    abort_error: Callable[[], BaseException | None] | None = None,
 ) -> int:
     """Stream output while bounding the runner-owned flutter process."""
     read_errors: list[BaseException] = []
@@ -118,19 +119,30 @@ def wait_for_owned_process(
 
     reader = threading.Thread(target=stream_output, daemon=True)
     reader.start()
+    deadline = time.monotonic() + timeout
     try:
-        exit_code = process.wait(timeout=timeout)
-    except subprocess.TimeoutExpired as error:
-        process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
-        raise RuntimeError(
-            f"flutter drive exceeded the {timeout:g}-second wall timeout"
-        ) from error
+        while True:
+            failure = abort_error() if abort_error is not None else None
+            if failure is not None:
+                raise RuntimeError(f"DocumentsUI selection failed: {failure}") from failure
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError(
+                    f"flutter drive exceeded the {timeout:g}-second wall timeout"
+                )
+            try:
+                exit_code = process.wait(timeout=min(remaining, 0.25))
+                break
+            except subprocess.TimeoutExpired:
+                continue
     finally:
+        if process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
         reader.join(timeout=10)
         if process.stdout is not None:
             process.stdout.close()
@@ -294,7 +306,10 @@ class Runner:
                     stderr=subprocess.STDOUT,
                     errors="replace",
                 )
-                exit_code = wait_for_owned_process(process, log)
+                exit_code = wait_for_owned_process(
+                    process, log,
+                    abort_error=lambda: picker_error[0] if picker_error else None,
+                )
             if picker_thread:
                 picker_thread.join(timeout=5)
                 if picker_thread.is_alive():

@@ -1,0 +1,111 @@
+name: Android normal application install
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/android-install.yml"
+      - "android/**"
+      - "assets/**"
+      - "lib/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "tools/android_install/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/android-install.yml"
+      - "android/**"
+      - "assets/**"
+      - "lib/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "tools/android_install/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-install-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  normal-app:
+    name: Normal release-mode APK clean install (API 35 x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+
+    steps:
+      - name: Check out clean repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter 3.44.0
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: "3.44.0"
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Check install runner contracts
+        run: |
+          python3 -m unittest tools.android_install.test_runner
+          python3 -m tools.android_install.runner --help
+
+      - name: Build normal release-mode application
+        run: >-
+          flutter build apk --release
+          --target=lib/main.dart
+          --dart-define=REVENUECAT_API_KEY=test_gjKDzmyNmHmuDfibegUnKQKTpRh
+
+      - name: Package installable debug-key release artifact
+        run: |
+          mkdir -p build/android-install-package
+          cp build/app/outputs/flutter-apk/app-release.apk \
+            build/android-install-package/meowwatch-debug-key-release.apk
+          sha256sum build/android-install-package/meowwatch-debug-key-release.apk \
+            > build/android-install-package/meowwatch-debug-key-release.apk.sha256
+          cat > build/android-install-package/BOUNDARY.txt <<'EOF'
+          Release-mode lib/main.dart APK signed with the Android debug key.
+          Uses the public RevenueCat Test Store SDK key.
+          Installable test evidence only; not Play production-signed.
+          EOF
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Clean-install and launch the normal application
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: >-
+            python3 -m tools.android_install.runner
+            --serial emulator-5554
+            --apk build/android-install-package/meowwatch-debug-key-release.apk
+
+      - name: Upload installable APK and native install evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: android-debug-key-release-install-${{ github.run_attempt }}
+          path: |
+            build/android-install-package/
+            build/android-install-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

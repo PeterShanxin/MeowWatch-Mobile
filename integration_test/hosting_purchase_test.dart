@@ -13,6 +13,7 @@ import 'package:meowwatch_mobile/core/billing/revenuecat_billing_service.dart';
 import 'package:meowwatch_mobile/core/connect/room_config.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
 import 'package:meowwatch_mobile/core/playback/local_mobile_target.dart';
+import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/session/playback_sync_bridge.dart';
 import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 import 'package:meowwatch_mobile/data/app_repository.dart';
@@ -93,7 +94,9 @@ void main() {
       binding.reportData ??= <String, dynamic>{};
       binding.reportData!['hostingPurchase'] = evidence;
 
-      evidence['decoderCoexistence'] = await _verifyDecoderCoexistence(tester);
+      final decoderEvidence = <String, Object?>{};
+      evidence['decoderCoexistence'] = decoderEvidence;
+      await _verifyDecoderCoexistence(tester, decoderEvidence);
       verified.add('two_native_decoders_advance_without_stealing_audio_focus');
 
       var host = await _Host.open(root);
@@ -396,8 +399,10 @@ Future<void> _until(
       throw TestFailure(
         '$stage timed out: connected=${host.app.isConnected}, '
         'peers=${host.app.peers.length}, playing=${host.target.snapshot.playing}, '
+        'buffering=${host.target.snapshot.buffering}, '
         'position=${host.target.snapshot.position}, error=${host.app.message}, '
         'peerPlaying=${peer?.target.snapshot.playing}, '
+        'peerBuffering=${peer?.target.snapshot.buffering}, '
         'peerPosition=${peer?.target.snapshot.position}, '
         'peerErrors=${peer?.errors}, '
         'roomPaused=${host.clients.last.lastObservedRoomState?.paused}, '
@@ -467,25 +472,68 @@ Future<void> _pauseTogether(WidgetTester tester, _Host host, _Peer peer) async {
 
 /// Isolate Android audio-focus behavior from Syncplay, quota and SDK purchases.
 /// Both targets are real native decoders; neither is attached to a bridge.
-Future<Map<String, Object>> _verifyDecoderCoexistence(
+Future<void> _verifyDecoderCoexistence(
   WidgetTester tester,
+  Map<String, Object?> evidence,
 ) async {
   final first = LocalMobileTarget();
   final second = LocalMobileTarget();
+  final elapsed = Stopwatch()..start();
+  final transitions = <Map<String, Object?>>[];
+  evidence['transitions'] = transitions;
+  final previous = <String, String>{};
+  void record(String name, PlaybackSnapshot state, {String? command}) {
+    final signature = '${state.playing}/${state.buffering}/${state.connection}';
+    if (command == null && previous[name] == signature) return;
+    previous[name] = signature;
+    final event = <String, Object?>{
+      'elapsedMs': elapsed.elapsedMilliseconds,
+      'target': name,
+      'command': ?command,
+      'playing': state.playing,
+      'buffering': state.buffering,
+      'positionMs': state.position.inMilliseconds,
+      'durationMs': state.duration.inMilliseconds,
+      'connection': state.connection.name,
+      'error': state.error,
+      'lifecycle': WidgetsBinding.instance.lifecycleState?.name,
+    };
+    if (transitions.length == 80) transitions.removeAt(0);
+    transitions.add(event);
+    debugPrint('HOSTING_DECODER ${jsonEncode(event)}');
+  }
+
+  final firstEvents = first.states.listen((state) => record('first', state));
+  final secondEvents = second.states.listen((state) => record('second', state));
   Future<void> advance(
     bool Function() ready,
     String stage, {
     bool bothPlaying = false,
   }) async {
     final timer = Stopwatch()..start();
+    final pausedSince = <String, Duration>{};
     while (!ready()) {
       if (bothPlaying) {
-        expect(first.snapshot.playing, isTrue, reason: '$stage: first paused');
-        expect(
-          second.snapshot.playing,
-          isTrue,
-          reason: '$stage: second paused',
-        );
+        for (final entry in {'first': first, 'second': second}.entries) {
+          final state = entry.value.snapshot;
+          if (state.playing || state.buffering) {
+            pausedSince.remove(entry.key);
+          } else {
+            // Native events can briefly trail play(). Explicit buffering is
+            // distinct from pause; an unbuffered pause must converge promptly.
+            final since = pausedSince.putIfAbsent(
+              entry.key,
+              () => timer.elapsed,
+            );
+            expect(
+              timer.elapsed - since,
+              lessThan(const Duration(seconds: 2)),
+              reason:
+                  '$stage: ${entry.key} stayed paused without buffering; '
+                  '${jsonEncode(transitions)}',
+            );
+          }
+        }
       }
       if (timer.elapsed > const Duration(seconds: 35)) {
         throw TestFailure(
@@ -504,6 +552,27 @@ Future<Map<String, Object>> _verifyDecoderCoexistence(
     await second.load(media);
     _expectMedia(first);
     _expectMedia(second);
+    // Consume both native textures just as the main runtime view does.
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Column(
+            children: [
+              for (final target in [first, second])
+                Expanded(
+                  child: Center(
+                    child: AspectRatio(
+                      aspectRatio: target.controller!.value.aspectRatio,
+                      child: VideoPlayer(target.controller!),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+    record('first', first.snapshot, command: 'play');
     await first.play();
     await advance(
       () => first.snapshot.position >= const Duration(milliseconds: 800),
@@ -511,9 +580,12 @@ Future<Map<String, Object>> _verifyDecoderCoexistence(
     );
     final firstStart = first.snapshot.position;
     final secondStart = second.snapshot.position;
+    record('second', second.snapshot, command: 'play');
     await second.play();
     await advance(
       () =>
+          first.snapshot.playing &&
+          second.snapshot.playing &&
           first.snapshot.position - firstStart >=
               const Duration(milliseconds: 1500) &&
           second.snapshot.position - secondStart >=
@@ -523,16 +595,21 @@ Future<Map<String, Object>> _verifyDecoderCoexistence(
     );
     expect(first.snapshot.playing, isTrue);
     expect(second.snapshot.playing, isTrue);
-    return {
-      'firstAdvanceMs': (first.snapshot.position - firstStart).inMilliseconds,
-      'secondAdvanceMs':
-          (second.snapshot.position - secondStart).inMilliseconds,
-    };
+    evidence['firstAdvanceMs'] =
+        (first.snapshot.position - firstStart).inMilliseconds;
+    evidence['secondAdvanceMs'] =
+        (second.snapshot.position - secondStart).inMilliseconds;
   } finally {
     try {
-      await second.close();
+      await tester.pumpWidget(const SizedBox.shrink());
     } finally {
-      await first.close();
+      await firstEvents.cancel();
+      await secondEvents.cancel();
+      try {
+        await second.close();
+      } finally {
+        await first.close();
+      }
     }
   }
 }

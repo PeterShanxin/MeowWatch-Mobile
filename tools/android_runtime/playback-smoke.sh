@@ -7,14 +7,21 @@ recording_control_dir="$artifact_dir/screenrecord-control-${GITHUB_RUN_ATTEMPT}"
 recording_stop_file="$recording_control_dir/stop"
 recording_pid_file="$recording_control_dir/remote-pid"
 recording_failure_file="$recording_control_dir/failed"
-remote_recording_prefix="/sdcard/meowwatch-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+remote_recording_dir="/sdcard/meowwatch-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 mkdir -p "$recording_dir" "$recording_control_dir"
+adb shell mkdir -p "$remote_recording_dir" \
+  >> "$artifact_dir/screenrecord.log" 2>&1
+if [ "$?" -ne 0 ]; then
+  echo "Could not create the owned Android recording directory." \
+    >> "$artifact_dir/screenrecord.log"
+  touch "$recording_failure_file"
+fi
 
 record_screen_segments() {
   segment=0
   while [ ! -e "$recording_stop_file" ]; do
     segment_name=$(printf 'playback-smoke-%03d.mp4' "$segment")
-    remote_segment="$remote_recording_prefix-$segment_name"
+    remote_segment="$remote_recording_dir/$segment_name"
     adb shell screenrecord \
       --bit-rate 4000000 \
       --time-limit 170 \
@@ -103,6 +110,8 @@ if [ -n "$recorder_loop_pid" ]; then
   fi
   wait "$recorder_loop_pid"
 fi
+adb shell rmdir "$remote_recording_dir" \
+  >> "$artifact_dir/screenrecord.log" 2>&1
 recording_count=$(find "$recording_dir" -type f -name 'playback-smoke-*.mp4' -size +4096c | wc -l)
 if [ "$recording_count" -eq 0 ] || \
    [ -e "$recording_failure_file" ]; then

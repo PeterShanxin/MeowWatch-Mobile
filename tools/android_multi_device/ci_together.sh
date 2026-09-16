@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
   cat <<'EOF'
-Usage: ci_together.sh
+Usage: ci_together.sh [--production-ui]
 
 Runs the prepared host/guest APKs on two task-owned AVDs, records both native
 displays for the full smoke, creates a side-by-side review video when possible,
@@ -11,8 +11,11 @@ and cleans up only the server and AVDs described by this run's state files.
 EOF
   exit 0
 fi
-if [[ $# -ne 0 ]]; then
-  echo 'ci_together.sh takes no arguments.' >&2
+production_ui=0
+if [[ $# -eq 1 && "$1" == '--production-ui' ]]; then
+  production_ui=1
+elif [[ $# -ne 0 ]]; then
+  echo 'Expected no arguments or --production-ui.' >&2
   exit 2
 fi
 
@@ -30,6 +33,21 @@ current_stage='preflight'
 launch_status='not-run'
 smoke_status='not-run'
 composition_status='not-run'
+coordination_pid=''
+driver='test_driver/together_smoke_driver.dart'
+target='integration_test/together_smoke_test.dart'
+driver_output='build/android-multi-device-artifacts'
+record_seconds=360
+drive_timeout='330s'
+if [[ "$production_ui" -eq 1 ]]; then
+  driver='test_driver/production_together_driver.dart'
+  target='integration_test/production_together_test.dart'
+  driver_output='build/production-together-artifacts'
+  # The production journey has an eight-minute integration-test deadline.
+  # Retain its entire execution plus application/VM-service startup time.
+  record_seconds=600
+  drive_timeout='540s'
+fi
 
 field() {
   local name="$1"
@@ -47,6 +65,14 @@ room="$(field room)"
 server="$(field server)"
 port="$(field port)"
 video_url="$(field video_url)"
+if [[ "$(field target)" != "$target" ]]; then
+  echo 'APK provenance does not match the requested acceptance target.' >&2
+  exit 3
+fi
+if [[ "$production_ui" -eq 1 && "$(field coordination_url)" != 'http://10.0.2.2:18766/invite' ]]; then
+  echo 'Production UI APKs require the scoped invite rendezvous.' >&2
+  exit 3
+fi
 if [[ ! "$room" =~ ^[A-Za-z0-9._-]+$ || -z "$server" || \
       ! "$port" =~ ^[0-9]+$ ]]; then
   echo 'APK build provenance is incomplete or invalid.' >&2
@@ -70,6 +96,12 @@ on_exit() {
   set +e
   local avd_cleanup_status=0
   local server_cleanup_status=0
+  if [[ -n "$coordination_pid" ]]; then
+    if kill -0 "$coordination_pid" 2>/dev/null; then
+      kill -TERM "$coordination_pid"
+    fi
+    wait "$coordination_pid" 2>/dev/null
+  fi
   if [[ -n "$session_file" && -f "$session_file" ]]; then
     bash tools/android_multi_device/stop_two_avds.sh \
       "$session_file" --delete-avds
@@ -109,6 +141,32 @@ bash tools/android_multi_device/start_fixture_server.sh \
   --state "$server_state" \
   --port 18765
 
+if [[ "$production_ui" -eq 1 ]]; then
+  current_stage='invite-rendezvous'
+  python3 tools/production_together/coordination_server.py \
+    --run-id "$room" --port 18766 --ttl-seconds 900 \
+    > "$runtime_root/coordination-server.log" 2>&1 &
+  coordination_pid=$!
+  coordination_ready=0
+  for attempt in {1..30}; do
+    if ! kill -0 "$coordination_pid" 2>/dev/null; then
+      echo 'Invite rendezvous exited before becoming ready.' >&2
+      exit 4
+    fi
+    response="$(curl --silent --max-time 1 --output /dev/null --write-out '%{http_code}' \
+      "http://127.0.0.1:18766/invite?run=$room" || true)"
+    if [[ "$response" == '404' ]]; then
+      coordination_ready=1
+      break
+    fi
+    sleep 1
+  done
+  if [[ "$coordination_ready" -ne 1 ]]; then
+    echo 'Invite rendezvous did not become ready.' >&2
+    exit 4
+  fi
+fi
+
 current_stage='avd-launch'
 set +e
 bash tools/android_multi_device/launch_two_avds.sh "$sessions_root" \
@@ -132,13 +190,15 @@ current_stage='recorded-smoke'
 set +e
 bash tools/android_multi_device/record_two_devices.sh \
   --session "$session_file" \
-  --seconds 360 \
+  --seconds "$record_seconds" \
   -- bash tools/android_multi_device/run_together_smoke.sh \
     --session "$session_file" \
     --host-apk "$host_apk" \
     --guest-apk "$guest_apk" \
-    --driver test_driver/together_smoke_driver.dart \
-    --target integration_test/together_smoke_test.dart \
+    --driver "$driver" \
+    --target "$target" \
+    --driver-output "$driver_output" \
+    --timeout "$drive_timeout" \
     --room "$room" \
     --server "$server" \
     --port "$port" \

@@ -7,6 +7,7 @@ from tools.android_install.runner import (
     Adb,
     PACKAGE,
     RuntimeFailure,
+    artifact_boundary,
     focused_component,
     install_command,
     install_output_succeeded,
@@ -14,6 +15,7 @@ from tools.android_install.runner import (
     parse_package_metadata,
     redact_log,
     verify_onboarding_semantics,
+    verify_build_mode,
 )
 
 
@@ -45,18 +47,58 @@ class RuntimeContractTests(unittest.TestCase):
         self.assertEqual(adb.remote_root, "/sdcard/meowwatch-install-run-42")
         self.assertEqual(adb.remote_prefix, f"{adb.remote_root}/")
 
-    def test_workflow_builds_only_the_normal_release_entrypoint(self) -> None:
+    def test_workflow_builds_normal_debug_and_release_entrypoints(self) -> None:
         workflow = Path(".github/workflows/android-install.yml").read_text(
             encoding="utf-8"
         )
+        services = Path("lib/app/app_services.dart").read_text(encoding="utf-8")
+        self.assertIn("variant: debug-test-store", workflow)
+        self.assertIn("variant: release-no-billing", workflow)
+        self.assertIn("flutter build apk --debug --target=lib/main.dart", workflow)
         self.assertIn("flutter build apk --release", workflow)
         self.assertIn("--target=lib/main.dart", workflow)
         self.assertIn(
-            "--dart-define=REVENUECAT_API_KEY=test_gjKDzmyNmHmuDfibegUnKQKTpRh",
+            "--dart-define=REVENUECAT_API_KEY=",
             workflow,
         )
+        self.assertNotRegex(workflow, r"REVENUECAT_API_KEY=test_")
+        self.assertRegex(
+            services,
+            r"defaultValue:\s*kDebugMode\s*\?\s*'test_[^']+'\s*:\s*''",
+        )
         self.assertNotIn("integration_test/", workflow)
-        self.assertIn("meowwatch-debug-key-release.apk.sha256", workflow)
+        self.assertIn("apk-name: meowwatch-debug-test-store.apk", workflow)
+        self.assertIn("apk-name: meowwatch-debug-key-release.apk", workflow)
+        self.assertIn(
+            'sha256sum "$packaged_apk" > "$packaged_apk.sha256"', workflow
+        )
+        self.assertIn("--build-mode ${{ matrix.build-mode }}", workflow)
+        self.assertIn("tools.incoming_media_runtime.run", workflow)
+        self.assertIn("android-normal-${{ matrix.variant }}-install", workflow)
+
+    def test_installed_debuggability_must_match_declared_mode(self) -> None:
+        debug_dump = "  flags=[ DEBUGGABLE HAS_CODE ALLOW_CLEAR_USER_DATA ]\n"
+        release_dump = "  pkgFlags=[ HAS_CODE ALLOW_CLEAR_USER_DATA ]\n"
+        self.assertTrue(verify_build_mode(debug_dump, "debug"))
+        self.assertFalse(verify_build_mode(release_dump, "release"))
+        with self.assertRaises(RuntimeFailure):
+            verify_build_mode(debug_dump, "release")
+        with self.assertRaises(RuntimeFailure):
+            verify_build_mode(release_dump, "debug")
+        with self.assertRaises(RuntimeFailure):
+            verify_build_mode("versionCode=1", "debug")
+
+    def test_build_mode_controls_truthful_billing_boundary(self) -> None:
+        debug = artifact_boundary("debug")
+        self.assertEqual(debug["revenueCatBackend"], "Test Store")
+        self.assertEqual(debug["revenueCatSdkKeyKind"], "public Test Store key")
+        self.assertTrue(debug["debuggable"])
+        release = artifact_boundary("release")
+        self.assertEqual(release["revenueCatBackend"], "disabled")
+        self.assertEqual(release["revenueCatSdkKeyKind"], "none")
+        self.assertFalse(release["debuggable"])
+        with self.assertRaises(ValueError):
+            artifact_boundary("profile")
 
     def test_install_is_clean_non_replacement_install(self) -> None:
         command = install_command("emulator-5554", Path("app-release.apk"))
@@ -164,6 +206,7 @@ class RuntimeContractTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--serial", result.stdout)
+        self.assertIn("--build-mode", result.stdout)
 
 
 if __name__ == "__main__":

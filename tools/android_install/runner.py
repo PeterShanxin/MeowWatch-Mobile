@@ -32,6 +32,7 @@ _FATAL_LOG = re.compile(
     r"FATAL EXCEPTION|Fatal signal|AndroidRuntime|Unhandled Exception|Process .* has died",
     re.IGNORECASE,
 )
+_BUILD_MODES = ("debug", "release")
 
 
 class RuntimeFailure(RuntimeError):
@@ -124,6 +125,44 @@ def parse_package_metadata(dump: str) -> dict[str, Any]:
         "targetSdk": int(target_sdk.group(1)),
         "primaryCpuAbi": abi,
     }
+
+
+def verify_build_mode(dump: str, expected: str) -> bool:
+    if expected not in _BUILD_MODES:
+        raise ValueError(f"unsupported build mode: {expected}")
+    flag_sets = re.findall(
+        r"(?m)^\s*(?:pkgFlags|flags)=\[([^\]]*)\]\s*$", dump
+    )
+    if not flag_sets:
+        raise RuntimeFailure("installed package debuggability metadata is missing")
+    debuggable = any("DEBUGGABLE" in flags.split() for flags in flag_sets)
+    if debuggable != (expected == "debug"):
+        raise RuntimeFailure(
+            f"installed package is not the expected {expected} build"
+        )
+    return debuggable
+
+
+def artifact_boundary(build_mode: str) -> dict[str, Any]:
+    if build_mode == "debug":
+        return {
+            "buildMode": "debug",
+            "debuggable": True,
+            "signing": "Android debug key",
+            "playProductionSigned": False,
+            "revenueCatBackend": "Test Store",
+            "revenueCatSdkKeyKind": "public Test Store key",
+        }
+    if build_mode == "release":
+        return {
+            "buildMode": "release",
+            "debuggable": False,
+            "signing": "Android debug key",
+            "playProductionSigned": False,
+            "revenueCatBackend": "disabled",
+            "revenueCatSdkKeyKind": "none",
+        }
+    raise ValueError(f"unsupported build mode: {build_mode}")
 
 
 def validate_png(data: bytes) -> None:
@@ -281,12 +320,15 @@ class NativeRecording:
 
 
 class Runner:
-    def __init__(self, serial: str, apk: Path) -> None:
+    def __init__(self, serial: str, apk: Path, build_mode: str) -> None:
         if not _SERIAL.fullmatch(serial):
             raise ValueError("--serial must explicitly name an Android emulator")
         if not apk.is_file():
             raise ValueError(f"APK does not exist: {apk}")
+        if build_mode not in _BUILD_MODES:
+            raise ValueError(f"unsupported build mode: {build_mode}")
         self.apk = apk.resolve()
+        self.build_mode = build_mode
         self.adb = Adb(serial, f"runtime-{os.getpid()}")
         self.installed_pid: int | None = None
         self.cleanup_authorized = False
@@ -386,6 +428,7 @@ class Runner:
             if f"Package [{PACKAGE}]" not in package_dump:
                 raise RuntimeFailure("dumpsys returned metadata for the wrong package")
             metadata = parse_package_metadata(package_dump)
+            debuggable = verify_build_mode(package_dump, self.build_mode)
             device_abi = self.adb.run(
                 "shell", "getprop", "ro.product.cpu.abi"
             ).stdout.decode().strip()
@@ -449,6 +492,7 @@ class Runner:
                     "activity": ACTIVITY,
                     "pid": self.installed_pid,
                     "focusedComponent": focus,
+                    "debuggable": debuggable,
                     **metadata,
                 },
                 "install": install_evidence,
@@ -460,13 +504,7 @@ class Runner:
                     "nativeRecordingCaptured": True,
                     "fatalAppLogLines": 0,
                 },
-                "artifactBoundary": {
-                    "buildMode": "release",
-                    "signing": "Android debug key",
-                    "playProductionSigned": False,
-                    "revenueCatBackend": "Test Store",
-                    "revenueCatSdkKeyKind": "public Test Store key",
-                },
+                "artifactBoundary": artifact_boundary(self.build_mode),
                 "apkSha256": hashlib.sha256(self.apk.read_bytes()).hexdigest(),
             }
             (ARTIFACT_ROOT / "summary.json").write_text(
@@ -512,12 +550,13 @@ def parse_args(arguments: Sequence[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser()
     parser.add_argument("--serial", required=True)
     parser.add_argument("--apk", required=True, type=Path)
+    parser.add_argument("--build-mode", required=True, choices=_BUILD_MODES)
     return parser.parse_args(arguments)
 
 
 def main(arguments: Sequence[str] | None = None) -> int:
     args = parse_args(arguments)
-    Runner(args.serial, args.apk).run()
+    Runner(args.serial, args.apk, args.build_mode).run()
     return 0
 
 

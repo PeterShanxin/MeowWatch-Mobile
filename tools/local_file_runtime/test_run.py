@@ -100,6 +100,46 @@ class PickerSelectorTests(unittest.TestCase):
                 "initial",
             )
 
+    def test_downloads_root_is_preferred_over_unindexed_recent_search(self) -> None:
+        initial = hierarchy(
+            node(description="Show roots", class_name="android.widget.ImageButton"),
+            node(description="Search", class_name="android.widget.ImageButton"),
+        )
+        target = select_picker_target(initial, FOCUS, FIXTURE, "initial")
+        self.assertEqual(target.action, "roots")
+        downloads = select_picker_target(
+            hierarchy(node(text="Downloads", bounds="[0,120][260,200]")),
+            FOCUS,
+            FIXTURE,
+            "roots",
+        )
+        self.assertEqual(downloads.action, "downloads")
+        selected = select_picker_target(
+            hierarchy(node(text=FIXTURE, bounds="[20,100][220,180]")),
+            FOCUS,
+            FIXTURE,
+            "downloads",
+        )
+        self.assertEqual(selected.action, "fixture")
+
+    def test_downloads_root_refuses_missing_or_ambiguous_targets(self) -> None:
+        with self.assertRaises(PickerNotReady):
+            select_picker_target(hierarchy(), FOCUS, FIXTURE, "roots")
+        with self.assertRaises(PickerNotReady):
+            select_picker_target(
+                hierarchy(node(text="Downloads", package="com.other")),
+                FOCUS,
+                FIXTURE,
+                "roots",
+            )
+        with self.assertRaises(PickerNotReady):
+            select_picker_target(
+                hierarchy(node(text="Downloads"), node(description="Downloads")),
+                FOCUS,
+                FIXTURE,
+                "roots",
+            )
+
     def test_android_search_autocomplete_is_an_exact_query_control(self) -> None:
         # Android's SearchView.SearchAutoComplete reports this accessibility
         # class, despite inheriting EditText. An EditText-only selector stalls.
@@ -192,6 +232,60 @@ class PickerSelectorTests(unittest.TestCase):
             evidence = json.loads((Path(directory) / "documentsui-selector.json").read_text())
             self.assertTrue(evidence["selected"])
             self.assertEqual(evidence["phase"], "results")
+
+    def test_selector_opens_downloads_and_selects_exact_fixture(self) -> None:
+        initial = hierarchy(
+            node(description="Show roots", class_name="android.widget.ImageButton")
+        )
+        roots = hierarchy(node(text="Downloads", bounds="[0,120][260,200]"))
+        downloads = hierarchy(node(text=FIXTURE, bounds="[20,100][220,180]"))
+
+        class PickerAdb:
+            def __init__(self) -> None:
+                self.frames = iter(
+                    [initial, initial, roots, roots, downloads, downloads]
+                )
+                self.commands: list[tuple[str, ...]] = []
+                self.app_focused = False
+
+            def observe(self) -> tuple[str, str]:
+                return next(self.frames), FOCUS
+
+            def screenshot(self) -> bytes:
+                return (
+                    b"\x89PNG\r\n\x1a\n"
+                    + b"\x00\x00\x00\rIHDR"
+                    + (400).to_bytes(4, "big")
+                    + (300).to_bytes(4, "big")
+                )
+
+            def run(self, *arguments: str) -> None:
+                self.commands.append(arguments)
+
+            def wait_for_app_focus(self) -> None:
+                self.app_focused = True
+
+        adb = PickerAdb()
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "tools.local_file_runtime.picker.time.sleep"
+        ):
+            selector = DocumentsUiSelector(adb, Path(directory), FIXTURE)
+            selector.select()
+            self.assertTrue(selector.selected)
+            self.assertTrue(adb.app_focused)
+            self.assertEqual(
+                adb.commands,
+                [
+                    ("shell", "input", "tap", "110", "50"),
+                    ("shell", "input", "tap", "130", "160"),
+                    ("shell", "input", "tap", "120", "140"),
+                ],
+            )
+            evidence = json.loads(
+                (Path(directory) / "documentsui-selector.json").read_text()
+            )
+            self.assertTrue(evidence["selected"])
+            self.assertEqual(evidence["phase"], "downloads")
 
 
 class RunnerContractTests(unittest.TestCase):

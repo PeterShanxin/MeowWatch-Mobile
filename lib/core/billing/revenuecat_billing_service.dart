@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:purchases_flutter/purchases_flutter.dart';
 
 import 'billing_service.dart';
+import 'sdk_key_policy.dart';
 
 /// Own one instance for the app lifetime; refresh when resuming the app and
 /// before presenting the paywall. RevenueCat listeners are not server pushes.
@@ -52,18 +53,12 @@ class RevenueCatBillingService extends ChangeNotifier
 
   @override
   Future<BillingResult> configure() => _run(() async {
-    if (_apiKey.isEmpty) {
-      return const BillingResult(
+    final keyProblem = revenueCatKeyProblem(_apiKey, debugBuild: kDebugMode);
+    if (keyProblem != null) {
+      return BillingResult(
         BillingStatus.unavailable,
         message: 'Purchases are not available in this build.',
-        errorCode: 'missing_public_sdk_key',
-      );
-    }
-    if (_apiKey.startsWith('sk_')) {
-      return const BillingResult(
-        BillingStatus.unavailable,
-        message: 'Purchases could not be configured.',
-        errorCode: 'server_key_not_allowed',
+        errorCode: keyProblem,
       );
     }
     if (!_configured) {

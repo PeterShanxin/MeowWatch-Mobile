@@ -6,12 +6,6 @@ import '../../app/app_controller.dart';
 import '../../app/app_services.dart';
 import '../../core/billing/billing_service.dart';
 
-const _navy = Color(0xFF10141F);
-const _raised = Color(0xFF1A2232);
-const _ivory = Color(0xFFF5EDE0);
-const _apricot = Color(0xFFEFB38C);
-const _lavender = Color(0xFFB9A9D3);
-
 Future<bool?> showPaywallSheet(
   BuildContext context, {
   required AppController app,
@@ -110,6 +104,7 @@ class _PaywallSheetState extends State<_PaywallSheet> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
       child: Align(
@@ -125,7 +120,7 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                 0.94,
           ),
           child: Material(
-            color: _navy,
+            color: colors.surface,
             clipBehavior: Clip.antiAlias,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: AnimatedBuilder(
@@ -147,7 +142,7 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Icon(Icons.nightlight_round, color: _apricot),
+                          Icon(Icons.nightlight_round, color: colors.primary),
                           IconButton(
                             tooltip: 'Close',
                             constraints: const BoxConstraints(
@@ -157,7 +152,7 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                             onPressed: _billing.isBusy
                                 ? null
                                 : () => Navigator.of(context).pop(),
-                            icon: const Icon(Icons.close, color: _ivory),
+                            icon: Icon(Icons.close, color: colors.onSurface),
                           ),
                         ],
                       ),
@@ -180,7 +175,7 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.headlineMedium
                                   ?.copyWith(
-                                    color: _ivory,
+                                    color: colors.onSurface,
                                     fontWeight: FontWeight.w700,
                                   ),
                             ),
@@ -192,7 +187,9 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                               textAlign: TextAlign.center,
                               style: Theme.of(context).textTheme.bodyLarge
                                   ?.copyWith(
-                                    color: _ivory.withValues(alpha: 0.82),
+                                    color: colors.onSurface.withValues(
+                                      alpha: 0.82,
+                                    ),
                                     height: 1.4,
                                   ),
                             ),
@@ -202,7 +199,9 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                                 'Free includes one hosted session per local day.',
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: _ivory.withValues(alpha: 0.72),
+                                  color: colors.onSurface.withValues(
+                                    alpha: 0.72,
+                                  ),
                                 ),
                               ),
                             ],
@@ -211,25 +210,29 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                               Container(
                                 padding: const EdgeInsets.all(12),
                                 decoration: BoxDecoration(
-                                  color: _lavender.withValues(alpha: 0.12),
+                                  color: colors.secondary.withValues(
+                                    alpha: 0.12,
+                                  ),
                                   border: Border.all(
-                                    color: _lavender.withValues(alpha: 0.4),
+                                    color: colors.secondary.withValues(
+                                      alpha: 0.4,
+                                    ),
                                   ),
                                   borderRadius: BorderRadius.circular(14),
                                 ),
-                                child: const Row(
+                                child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
                                     Icon(
                                       Icons.science_outlined,
-                                      color: _lavender,
+                                      color: colors.secondary,
                                     ),
                                     SizedBox(width: 12),
                                     Expanded(
                                       child: Text(
                                         'RevenueCat Test Store · no real charge.',
                                         style: TextStyle(
-                                          color: _ivory,
+                                          color: colors.onSurface,
                                           height: 1.35,
                                         ),
                                       ),
@@ -245,8 +248,8 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                                 child: Text(
                                   _message!,
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: _apricot,
+                                  style: TextStyle(
+                                    color: colors.primary,
                                     height: 1.35,
                                   ),
                                 ),
@@ -254,11 +257,13 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                             ],
                             const SizedBox(height: 20),
                             if (_preparing || _billing.isBusy)
-                              const Center(
+                              Center(
                                 child: Padding(
-                                  padding: EdgeInsets.symmetric(vertical: 10),
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 10,
+                                  ),
                                   child: CircularProgressIndicator(
-                                    color: _apricot,
+                                    color: colors.primary,
                                   ),
                                 ),
                               )
@@ -269,17 +274,17 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                                     Navigator.of(context).pop(true),
                               )
                             else if (_billing.packages.isEmpty)
-                              const Text(
+                              Text(
                                 'No purchase option is available right now. You can try again or restore an existing purchase.',
                                 textAlign: TextAlign.center,
-                                style: TextStyle(color: _ivory),
+                                style: TextStyle(color: colors.onSurface),
                               )
                             else if (selected != null && plan != null) ...[
                               if (packages.length > 1) ...[
-                                const Text(
+                                Text(
                                   'Choose your plan',
                                   style: TextStyle(
-                                    color: _ivory,
+                                    color: colors.onSurface,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -297,7 +302,7 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                                           bottom: 8,
                                         ),
                                         child: Material(
-                                          color: _raised,
+                                          color: colors.surfaceContainer,
                                           borderRadius: BorderRadius.circular(
                                             14,
                                           ),
@@ -306,26 +311,26 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                                               'plan-${package.identifier}',
                                             ),
                                             value: package.identifier,
-                                            activeColor: _apricot,
+                                            activeColor: colors.primary,
                                             fillColor:
                                                 WidgetStateProperty.resolveWith(
                                                   (states) =>
                                                       states.contains(
                                                         WidgetState.selected,
                                                       )
-                                                      ? _apricot
-                                                      : _lavender,
+                                                      ? colors.primary
+                                                      : colors.secondary,
                                                 ),
                                             title: Text(
                                               option.name,
-                                              style: const TextStyle(
-                                                color: _ivory,
+                                              style: TextStyle(
+                                                color: colors.onSurface,
                                               ),
                                             ),
                                             subtitle: Text(
                                               option.price,
-                                              style: const TextStyle(
-                                                color: _ivory,
+                                              style: TextStyle(
+                                                color: colors.onSurface,
                                               ),
                                             ),
                                             contentPadding:
@@ -343,8 +348,8 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                                 Text(
                                   plan.name,
                                   textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                    color: _ivory,
+                                  style: TextStyle(
+                                    color: colors.onSurface,
                                     fontWeight: FontWeight.w700,
                                   ),
                                 ),
@@ -353,7 +358,9 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                                 plan.renewal,
                                 textAlign: TextAlign.center,
                                 style: TextStyle(
-                                  color: _ivory.withValues(alpha: 0.82),
+                                  color: colors.onSurface.withValues(
+                                    alpha: 0.82,
+                                  ),
                                   height: 1.35,
                                 ),
                               ),
@@ -369,7 +376,7 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                             const SizedBox(height: 6),
                             TextButton(
                               style: TextButton.styleFrom(
-                                foregroundColor: _lavender,
+                                foregroundColor: colors.secondary,
                                 minimumSize: const Size.fromHeight(48),
                               ),
                               onPressed: _billing.isBusy ? null : _restore,
@@ -377,7 +384,9 @@ class _PaywallSheetState extends State<_PaywallSheet> {
                             ),
                             TextButton(
                               style: TextButton.styleFrom(
-                                foregroundColor: _ivory.withValues(alpha: 0.72),
+                                foregroundColor: colors.onSurface.withValues(
+                                  alpha: 0.72,
+                                ),
                                 minimumSize: const Size.fromHeight(48),
                               ),
                               onPressed: _billing.isBusy
@@ -508,15 +517,18 @@ class _PrimaryButton extends StatelessWidget {
   final VoidCallback onPressed;
 
   @override
-  Widget build(BuildContext context) => FilledButton(
-    style: FilledButton.styleFrom(
-      backgroundColor: _apricot,
-      foregroundColor: _navy,
-      minimumSize: const Size.fromHeight(52),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-      textStyle: const TextStyle(fontWeight: FontWeight.w700),
-    ),
-    onPressed: onPressed,
-    child: Text(label, textAlign: TextAlign.center),
-  );
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return FilledButton(
+      style: FilledButton.styleFrom(
+        backgroundColor: colors.primary,
+        foregroundColor: colors.surface,
+        minimumSize: const Size.fromHeight(52),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+        textStyle: const TextStyle(fontWeight: FontWeight.w700),
+      ),
+      onPressed: onPressed,
+      child: Text(label, textAlign: TextAlign.center),
+    );
+  }
 }

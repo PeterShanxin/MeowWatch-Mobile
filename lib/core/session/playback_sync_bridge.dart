@@ -43,6 +43,9 @@ class PlaybackSyncBridge {
   Timer? _bufferRecovery;
   bool _externalPlayPending = false;
 
+  /// Keep the accepted room intent through transient native buffering events.
+  bool get playRequested => _hasSource && _publishedPaused == false;
+
   void start() {
     if (_disposed || _playerSub != null) return;
     _connected =

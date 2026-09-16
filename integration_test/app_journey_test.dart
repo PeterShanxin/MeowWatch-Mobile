@@ -296,6 +296,36 @@ void main() {
       );
       verified.add('plus_dismissed_without_purchase');
 
+      await _tap(
+        tester,
+        find.byTooltip('Profile and settings'),
+        'open settings',
+      );
+      final appearance = find.byKey(const Key('choose-appearance-button'));
+      await _waitFor(tester, appearance, 'appearance entry');
+      await tester.ensureVisible(appearance);
+      await _tap(tester, appearance, 'open appearance');
+      final cozy = find.byKey(const Key('theme-choice-cozy'));
+      await _waitFor(tester, cozy, 'appearance choices');
+      await _capture(binding, tester, screenshots, 'appearance');
+      final premiumTheme = find.byKey(const Key('theme-choice-cinemaNoir'));
+      await tester.ensureVisible(premiumTheme);
+      await _tap(tester, premiumTheme, 'review premium appearance');
+      await _waitFor(tester, monthlyPackage, 'offering from premium theme');
+      await _capture(binding, tester, screenshots, 'appearance-upgrade');
+      await _tap(
+        tester,
+        find.text('Maybe tomorrow'),
+        'dismiss appearance upgrade',
+      );
+      await _waitForGone(
+        tester,
+        find.text('More movie nights.'),
+        'appearance paywall',
+      );
+      await _waitForGone(tester, cozy, 'appearance after upgrade route');
+      verified.add('premium_appearance_opens_real_offering');
+
       final view = tester.view;
       final logicalSize = view.physicalSize / view.devicePixelRatio;
       observations.addAll({

@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart';
+
 import '../core/billing/file_hosting_quota_store.dart';
 import '../core/billing/hosting_access_policy.dart';
 import '../core/billing/revenuecat_billing_service.dart';
@@ -9,7 +11,7 @@ import 'app_controller.dart';
 /// cannot access RevenueCat administration or charge a real payment method.
 const revenueCatPublicKey = String.fromEnvironment(
   'REVENUECAT_API_KEY',
-  defaultValue: 'test_gjKDzmyNmHmuDfibegUnKQKTpRh',
+  defaultValue: kDebugMode ? 'test_gjKDzmyNmHmuDfibegUnKQKTpRh' : '',
 );
 bool get usesTestStore => revenueCatPublicKey.startsWith('test_');
 

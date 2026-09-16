@@ -1,14 +1,17 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/services.dart';
 
 import 'app/app_controller.dart';
 import 'app/app_services.dart';
 import 'app/incoming_links.dart';
+import 'app/incoming_media.dart';
 import 'core/cast/cast_playback_target.dart';
 import 'core/connect/room_config.dart';
 import 'core/session/room_invite.dart';
+import 'data/app_repository.dart';
 import 'ui/app_theme.dart';
 import 'ui/devices/playback_devices_sheet.dart';
 import 'ui/home/home_screen.dart';
@@ -33,13 +36,26 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(MainApp(incomingLinkSource: AppLinksIncomingLinkSource()));
+  runApp(
+    MainApp(
+      incomingLinkSource: AppLinksIncomingLinkSource(),
+      incomingMediaSource: defaultTargetPlatform == TargetPlatform.android
+          ? AndroidIncomingMediaSource()
+          : null,
+    ),
+  );
 }
 
 class MainApp extends StatefulWidget {
-  const MainApp({super.key, this.controller, this.incomingLinkSource});
+  const MainApp({
+    super.key,
+    this.controller,
+    this.incomingLinkSource,
+    this.incomingMediaSource,
+  });
   final AppController? controller;
   final IncomingLinkSource? incomingLinkSource;
+  final IncomingMediaSource? incomingMediaSource;
   @override
   State<MainApp> createState() => _MainAppState();
 }
@@ -53,11 +69,14 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   bool _modalOpen = false;
   String? _lastMessage;
   IncomingLinks? _incomingLinks;
+  IncomingMediaInbox? _incomingMedia;
+  final List<IncomingMedia> _pendingIncomingMedia = [];
   final List<Uri> _pendingIncomingInvites = [];
   String? _activeIncomingInvite;
   String? _incomingError;
   bool _incomingFlowOpen = false;
   bool _incomingDrainScheduled = false;
+  WatchHistoryEntry? _pendingWatchAgain;
 
   @override
   void initState() {
@@ -75,7 +94,40 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
         ),
       );
     }
+    final mediaSource = widget.incomingMediaSource;
+    if (mediaSource != null) {
+      _incomingMedia = IncomingMediaInbox(mediaSource);
+      unawaited(
+        _incomingMedia!.start(
+          onMedia: _receiveIncomingMedia,
+          onError: (_) => _queueIncomingError(
+            'Could not receive that video. Try sharing it again.',
+          ),
+        ),
+      );
+    }
     unawaited(_open());
+  }
+
+  void _receiveIncomingMedia(IncomingMedia incoming) {
+    if (!mounted) return;
+    if (incoming.invite != null) {
+      _receiveIncomingLink(incoming.invite!);
+      return;
+    }
+    if (incoming.error != null) {
+      _queueIncomingError(incoming.error!);
+      return;
+    }
+    if (incoming.media == null) return;
+    if (_pendingIncomingMedia.length >= 4) {
+      _queueIncomingError(
+        'Several videos arrived at once. Finish the current video, then share the next one again.',
+      );
+      return;
+    }
+    _pendingIncomingMedia.add(incoming);
+    _scheduleIncomingDrain();
   }
 
   Future<void> _open() async {
@@ -123,6 +175,8 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
 
   void _receiveIncomingLink(Uri uri) {
     if (!mounted) return;
+    // Media VIEW intents are handled by the Android share/open bridge.
+    if (uri.scheme != 'meowwatch') return;
     try {
       if (uri.scheme != 'meowwatch' || uri.host != 'join') {
         throw const FormatException('This is not a room invitation.');
@@ -177,8 +231,9 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     final app = _app;
     final context = _context;
     final pending = _pendingIncomingInvites.firstOrNull;
+    final pendingMedia = _pendingIncomingMedia.firstOrNull;
     if (_incomingFlowOpen ||
-        pending == null ||
+        (pending == null && pendingMedia == null) ||
         app == null ||
         context == null ||
         app.firstLaunch ||
@@ -188,16 +243,85 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
       return;
     }
 
-    _pendingIncomingInvites.removeAt(0);
-    _activeIncomingInvite = pending.toString();
+    if (pending != null) {
+      _pendingIncomingInvites.removeAt(0);
+      _activeIncomingInvite = pending.toString();
+    } else {
+      _pendingIncomingMedia.removeAt(0);
+    }
     _incomingFlowOpen = true;
     try {
-      await _reviewIncomingInvite(context, app, pending);
+      if (pending != null) {
+        await _reviewIncomingInvite(context, app, pending);
+      } else {
+        await _reviewIncomingMedia(context, app, pendingMedia!);
+      }
     } finally {
       _incomingFlowOpen = false;
       _activeIncomingInvite = null;
       _scheduleIncomingDrain();
     }
+  }
+
+  Future<void> _reviewIncomingMedia(
+    BuildContext context,
+    AppController app,
+    IncomingMedia incoming,
+  ) async {
+    final media = incoming.media!;
+    final remote = app.isCasting || app.isNearby;
+    final approved = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Open shared video?'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(media.title, maxLines: 3, overflow: TextOverflow.ellipsis),
+              const SizedBox(height: 12),
+              Text(
+                remote
+                    ? 'Return to this phone to open the video. Your current video will be replaced.'
+                    : app.room != null
+                    ? 'Replace your video in the current room. Your companions need to open the same video.'
+                    : 'Open this video on your phone, ready to play.',
+              ),
+              if (media.isNetwork) ...[
+                const SizedBox(height: 12),
+                Text(
+                  'Video from ${media.uri.host}. Opening it connects to that server.',
+                ),
+              ],
+              if (incoming.warning != null) ...[
+                const SizedBox(height: 12),
+                Text(incoming.warning!),
+              ],
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('confirm-shared-video-button'),
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(remote ? 'Return & open' : 'Open video'),
+          ),
+        ],
+      ),
+    );
+    if (approved != true || !mounted) return;
+    await _run(() async {
+      if (app.isCasting) await app.returnFromCast();
+      if (app.isNearby) await app.watchOnPhone();
+      if (app.isCasting || app.isNearby || app.busy || !mounted) return;
+      if (!app.inPlayer) await app.useLocalMode();
+      await app.load(media);
+    });
   }
 
   Future<void> _reviewIncomingInvite(
@@ -277,6 +401,11 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   Future<void> _start() => _run(() async {
     await _app!.createRoom();
   });
+  Future<void> _watchAgain(WatchHistoryEntry entry) => _run(() async {
+    _pendingWatchAgain = entry;
+    await _app!.watchAgain(entry);
+    if (!_app!.needsPlus) _pendingWatchAgain = null;
+  });
   Future<void> _join() async {
     final context = _context;
     if (context == null || _modalOpen) return;
@@ -315,13 +444,17 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     try {
       final unlocked = await showPaywallSheet(context, app: _app!);
       if (unlocked == true && retryIntent && mounted) {
-        if (_app!.room == null) {
+        final repeatedSession = _pendingWatchAgain;
+        if (repeatedSession != null) {
+          await _watchAgain(repeatedSession);
+        } else if (_app!.room == null) {
           await _start();
         } else if (!_app!.target.snapshot.playing) {
           await _run(_app!.togglePlay);
         }
       }
     } finally {
+      _pendingWatchAgain = null;
       _paywallOpen = false;
       _scheduleIncomingDrain();
     }
@@ -408,6 +541,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     unawaited(_incomingLinks?.dispose());
+    unawaited(_incomingMedia?.dispose());
     _app?.removeListener(_changed);
     if (widget.controller == null) {
       unawaited(_app?.close().catchError((Object _) {}));
@@ -421,7 +555,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     return MaterialApp(
       title: 'MeowWatch',
       debugShowCheckedModeBanner: false,
-      theme: meowWatchTheme(),
+      theme: meowWatchTheme(theme: app?.theme ?? 'cozy'),
       navigatorKey: _navigator,
       scaffoldMessengerKey: _messenger,
       home: app == null
@@ -472,6 +606,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
                   else if (app.inPlayer)
                     RoomScreen(
                       app: app,
+                      onUpgrade: () => _upgrade(),
                       onLoad: _load,
                       onInvite: _invite,
                       onDevices: _devices,
@@ -489,6 +624,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
                       onStartRoom: _start,
                       onLocalMode: () => _run(app.useLocalMode),
                       onResume: (entry) => _run(() => app.resume(entry)),
+                      onWatchAgain: _watchAgain,
                     ),
                   if (app.busy)
                     Positioned.fill(

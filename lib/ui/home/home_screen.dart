@@ -13,6 +13,7 @@ class HomeScreen extends StatefulWidget {
     required this.onStartRoom,
     required this.onLocalMode,
     required this.onResume,
+    this.onWatchAgain,
   });
 
   final AppController app;
@@ -22,6 +23,7 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function() onStartRoom;
   final Future<void> Function() onLocalMode;
   final Future<void> Function(WatchHistoryEntry entry) onResume;
+  final Future<void> Function(WatchHistoryEntry entry)? onWatchAgain;
 
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -95,11 +97,16 @@ class _HomeScreenState extends State<HomeScreen> {
                                 ),
                                 Expanded(
                                   flex: 9,
-                                  child: _HistorySection(
+                                  child: _HomeHistorySections(
                                     entries: widget.app.repository.history,
                                     busy: busy,
                                     onResume: (entry) =>
                                         _run(() => widget.onResume(entry)),
+                                    onWatchAgain: widget.onWatchAgain == null
+                                        ? null
+                                        : (entry) => _run(
+                                            () => widget.onWatchAgain!(entry),
+                                          ),
                                   ),
                                 ),
                               ],
@@ -113,11 +120,15 @@ class _HomeScreenState extends State<HomeScreen> {
                               onLocalMode: () => _run(widget.onLocalMode),
                             ),
                             const SizedBox(height: 36),
-                            _HistorySection(
+                            _HomeHistorySections(
                               entries: widget.app.repository.history,
                               busy: busy,
                               onResume: (entry) =>
                                   _run(() => widget.onResume(entry)),
+                              onWatchAgain: widget.onWatchAgain == null
+                                  ? null
+                                  : (entry) =>
+                                        _run(() => widget.onWatchAgain!(entry)),
                             ),
                           ],
                         ],
@@ -130,6 +141,41 @@ class _HomeScreenState extends State<HomeScreen> {
           ),
         );
       },
+    );
+  }
+}
+
+class _HomeHistorySections extends StatelessWidget {
+  const _HomeHistorySections({
+    required this.entries,
+    required this.busy,
+    required this.onResume,
+    required this.onWatchAgain,
+  });
+
+  final List<WatchHistoryEntry> entries;
+  final bool busy;
+  final ValueChanged<WatchHistoryEntry> onResume;
+  final ValueChanged<WatchHistoryEntry>? onWatchAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    final recentRooms = onWatchAgain == null
+        ? const <WatchHistoryEntry>[]
+        : _recentRoomEntries(entries);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        _HistorySection(entries: entries, busy: busy, onResume: onResume),
+        if (recentRooms.isNotEmpty) ...[
+          const SizedBox(height: 32),
+          _RecentRoomsSection(
+            entries: recentRooms,
+            busy: busy,
+            onWatchAgain: onWatchAgain!,
+          ),
+        ],
+      ],
     );
   }
 }
@@ -463,6 +509,179 @@ class _HistoryCard extends StatelessWidget {
       ),
     );
   }
+}
+
+class _RecentRoomsSection extends StatelessWidget {
+  const _RecentRoomsSection({
+    required this.entries,
+    required this.busy,
+    required this.onWatchAgain,
+  });
+
+  final List<WatchHistoryEntry> entries;
+  final bool busy;
+  final ValueChanged<WatchHistoryEntry> onWatchAgain;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text(
+          'Recent rooms',
+          style: theme.textTheme.headlineSmall?.copyWith(
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+        const SizedBox(height: 8),
+        Text(
+          'Watch together again',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+        const SizedBox(height: 18),
+        for (final entry in entries)
+          Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: _RecentRoomCard(
+              entry: entry,
+              enabled: !busy,
+              onTap: () => onWatchAgain(entry),
+            ),
+          ),
+      ],
+    );
+  }
+}
+
+class _RecentRoomCard extends StatelessWidget {
+  const _RecentRoomCard({
+    required this.entry,
+    required this.enabled,
+    required this.onTap,
+  });
+
+  final WatchHistoryEntry entry;
+  final bool enabled;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final room = entry.room!;
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label:
+          'Watch ${entry.media.title} together again in room ${room.config.room}',
+      hint: 'Starts a new room with this video',
+      child: Material(
+        color: theme.colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          key: ValueKey('watch-again-${room.contextKey}'),
+          onTap: enabled ? onTap : null,
+          child: Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Container(
+                      width: 44,
+                      height: 44,
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.primaryContainer,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Icon(
+                        Icons.groups_2_outlined,
+                        color: theme.colorScheme.onPrimaryContainer,
+                      ),
+                    ),
+                    const SizedBox(width: 14),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            entry.media.title,
+                            maxLines: 2,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleMedium?.copyWith(
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                          const SizedBox(height: 4),
+                          Text(
+                            'Room ${room.config.room}',
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 14),
+                Text(
+                  'Start a new room with this video.',
+                  style: theme.textTheme.bodySmall?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.replay_rounded,
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Watch together again',
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: theme.colorScheme.primary,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Icon(
+                      Icons.chevron_right_rounded,
+                      color: theme.colorScheme.primary,
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+List<WatchHistoryEntry> _recentRoomEntries(
+  Iterable<WatchHistoryEntry> entries,
+) {
+  final roomKeys = <String>{};
+  final recent = <WatchHistoryEntry>[];
+  for (final entry in entries) {
+    final room = entry.room;
+    if (room == null || !roomKeys.add(room.contextKey)) continue;
+    recent.add(entry);
+    if (recent.length == 3) break;
+  }
+  return recent;
 }
 
 String _formatDuration(Duration value) {

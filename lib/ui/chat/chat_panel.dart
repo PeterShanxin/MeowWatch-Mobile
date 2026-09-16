@@ -3,6 +3,9 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
+import '../../core/cast/cast_playback_target.dart';
+import '../../core/chat/shared_video_link.dart';
+import '../../core/media/media_item.dart';
 import '../../core/sync/peer_state.dart';
 
 class ChatPanel extends StatefulWidget {
@@ -16,6 +19,7 @@ class ChatPanel extends StatefulWidget {
 
 class _ChatPanelState extends State<ChatPanel> {
   final _text = TextEditingController();
+  bool _reviewingLink = false;
   @override
   void dispose() {
     widget.app.sendTyping(false);
@@ -29,6 +33,108 @@ class _ChatPanelState extends State<ChatPanel> {
     widget.app.sendChat(message);
     widget.app.sendTyping(false);
     _text.clear();
+  }
+
+  Future<void> _reviewLink(MediaItem media) async {
+    final app = widget.app;
+    if (_reviewingLink || app.busy) return;
+    setState(() => _reviewingLink = true);
+    final room = app.room;
+    final target = app.target;
+    try {
+      final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => ListenableBuilder(
+          listenable: app,
+          builder: (context, _) {
+            final String? unavailable;
+            if (!identical(room, app.room) || !identical(target, app.target)) {
+              unavailable =
+                  'Your room or screen changed. Close this review and open the link again.';
+            } else if (app.isNearby) {
+              unavailable =
+                  'Choose this link on your desktop, or return to This phone in the screen selector first.';
+            } else if (app.isCasting && !CastPlaybackTarget.supports(media)) {
+              unavailable =
+                  'This link cannot play on your TV. Return to This phone in the screen selector, then open it again.';
+            } else if (!app.isConnected) {
+              unavailable =
+                  'Reconnect to your room before loading this shared video.';
+            } else if (app.busy) {
+              unavailable = 'Wait for the current screen change to finish.';
+            } else {
+              unavailable = null;
+            }
+            return AlertDialog(
+              title: const Text('Watch this too?'),
+              scrollable: true,
+              content: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'Video from ${media.uri.host}',
+                    style: Theme.of(context).textTheme.titleMedium,
+                  ),
+                  const SizedBox(height: 12),
+                  SelectableText(
+                    media.uri.toString(),
+                    textDirection: TextDirection.ltr,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    'Loading replaces the video on ${app.isCasting ? 'your TV' : 'this phone'} and keeps your current room. The video server can see your network address; redirects may contact other servers. Only load links you trust.',
+                  ),
+                  if (media.uri.scheme == 'http') ...[
+                    const SizedBox(height: 12),
+                    const Text('This HTTP link is not encrypted.'),
+                  ],
+                  if (unavailable != null) ...[
+                    const SizedBox(height: 12),
+                    Text(
+                      unavailable,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(context, false),
+                  child: const Text('Cancel'),
+                ),
+                FilledButton(
+                  onPressed: unavailable == null
+                      ? () => Navigator.pop(context, true)
+                      : null,
+                  child: const Text('Load video'),
+                ),
+              ],
+            );
+          },
+        ),
+      );
+      if (!mounted || accepted != true) return;
+      // A screen/room change may race the dialog's final frame.
+      if (!identical(room, app.room) ||
+          !identical(target, app.target) ||
+          app.busy ||
+          !app.isConnected ||
+          app.isNearby ||
+          (app.isCasting && !CastPlaybackTarget.supports(media))) {
+        return;
+      }
+      await app.load(media);
+      if (mounted &&
+          app.message == null &&
+          app.target.snapshot.media?.uri == media.uri) {
+        widget.onClose?.call();
+      }
+    } finally {
+      if (mounted) setState(() => _reviewingLink = false);
+    }
   }
 
   String? _connectionMessage(AppController app) =>
@@ -168,6 +274,9 @@ class _ChatPanelState extends State<ChatPanel> {
                             ),
                           );
                         }
+                        final sharedMedia = item.isMine
+                            ? null
+                            : sharedVideoLink(item.text);
                         return Align(
                           alignment: item.isMine
                               ? Alignment.centerRight
@@ -204,6 +313,14 @@ class _ChatPanelState extends State<ChatPanel> {
                                         : colors.onSurface,
                                   ),
                                 ),
+                                if (sharedMedia != null)
+                                  TextButton.icon(
+                                    onPressed: _reviewingLink || app.busy
+                                        ? null
+                                        : () => _reviewLink(sharedMedia),
+                                    icon: const Icon(Icons.play_circle_outline),
+                                    label: const Text('Watch this too'),
+                                  ),
                               ],
                             ),
                           ),
@@ -242,7 +359,7 @@ class _ChatPanelState extends State<ChatPanel> {
                       onSubmitted: (_) => _send(),
                       decoration: InputDecoration(
                         hintText: app.isConnected
-                            ? 'Say something…'
+                            ? 'Say hello or paste a video link…'
                             : 'Chat unavailable',
                         counterText: '',
                         isDense: compact,

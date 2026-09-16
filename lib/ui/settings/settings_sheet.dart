@@ -4,12 +4,7 @@ import '../../app/app_controller.dart';
 import '../../app/app_services.dart';
 import '../../core/billing/billing_service.dart';
 import 'about_sheet.dart';
-
-const _navy = Color(0xFF10141F);
-const _raised = Color(0xFF1A2232);
-const _ivory = Color(0xFFF5EDE0);
-const _apricot = Color(0xFFEFB38C);
-const _lavender = Color(0xFFB9A9D3);
+import 'appearance_sheet.dart';
 
 Future<void> showSettingsSheet(
   BuildContext context, {
@@ -102,27 +97,30 @@ class _SettingsSheetState extends State<_SettingsSheet> {
   Future<void> _clearHistory() async {
     final confirmed = await showDialog<bool>(
       context: context,
-      builder: (dialogContext) => AlertDialog(
-        backgroundColor: _raised,
-        title: const Text(
-          'Clear watch history?',
-          style: TextStyle(color: _ivory),
-        ),
-        content: const Text(
-          'This removes saved videos and resume positions from this device.',
-          style: TextStyle(color: _ivory),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: const Text('Keep history'),
+      builder: (dialogContext) {
+        final colors = Theme.of(dialogContext).colorScheme;
+        return AlertDialog(
+          backgroundColor: colors.surfaceContainer,
+          title: Text(
+            'Clear watch history?',
+            style: TextStyle(color: colors.onSurface),
           ),
-          TextButton(
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: const Text('Clear'),
+          content: Text(
+            'This removes saved videos and resume positions from this device.',
+            style: TextStyle(color: colors.onSurface),
           ),
-        ],
-      ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Keep history'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Clear'),
+            ),
+          ],
+        );
+      },
     );
     if (confirmed != true || !mounted) return;
     setState(() {
@@ -149,9 +147,24 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     WidgetsBinding.instance.addPostFrameCallback((_) => widget.onUpgrade());
   }
 
+  Future<void> _appearance() async {
+    var upgradeRequested = false;
+    await showAppearanceSheet(
+      context,
+      currentTheme: widget.app.theme,
+      isPlus: _billing.isPlus,
+      onSelect: widget.app.selectTheme,
+      onUpgrade: () {
+        upgradeRequested = true;
+      },
+    );
+    if (mounted && upgradeRequested) _upgrade();
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
       child: Align(
@@ -167,7 +180,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                 0.94,
           ),
           child: Material(
-            color: _navy,
+            color: colors.surface,
             clipBehavior: Clip.antiAlias,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: AnimatedBuilder(
@@ -184,7 +197,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                             'Settings',
                             style: Theme.of(context).textTheme.headlineSmall
                                 ?.copyWith(
-                                  color: _ivory,
+                                  color: colors.onSurface,
                                   fontWeight: FontWeight.w700,
                                 ),
                           ),
@@ -198,7 +211,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           onPressed: _working || _billing.isBusy
                               ? null
                               : () => Navigator.of(context).pop(),
-                          icon: const Icon(Icons.close, color: _ivory),
+                          icon: Icon(Icons.close, color: colors.onSurface),
                         ),
                       ],
                     ),
@@ -213,8 +226,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                             enabled: !_inRoom && !_working,
                             maxLength: 24,
                             textInputAction: TextInputAction.done,
-                            style: const TextStyle(color: _ivory),
-                            cursorColor: _apricot,
+                            style: TextStyle(color: colors.onSurface),
+                            cursorColor: colors.primary,
                             onChanged: (_) => setState(() => _message = null),
                             onSubmitted: (_) {
                               if (!_inRoom && !_working) _saveName();
@@ -222,24 +235,26 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                             decoration: InputDecoration(
                               labelText: 'Display name',
                               labelStyle: TextStyle(
-                                color: _ivory.withValues(alpha: 0.62),
+                                color: colors.onSurface.withValues(alpha: 0.62),
                               ),
                               helperText: _inRoom
                                   ? 'Leave the current room before changing your name.'
                                   : 'Leave blank for a new friendly name.',
                               helperMaxLines: 2,
                               filled: true,
-                              fillColor: _navy,
+                              fillColor: colors.surface,
                               enabledBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
                                 borderSide: BorderSide(
-                                  color: _ivory.withValues(alpha: 0.22),
+                                  color: colors.onSurface.withValues(
+                                    alpha: 0.22,
+                                  ),
                                 ),
                               ),
                               focusedBorder: OutlineInputBorder(
                                 borderRadius: BorderRadius.circular(12),
-                                borderSide: const BorderSide(
-                                  color: _apricot,
+                                borderSide: BorderSide(
+                                  color: colors.primary,
                                   width: 2,
                                 ),
                               ),
@@ -248,8 +263,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           const SizedBox(height: 8),
                           FilledButton(
                             style: FilledButton.styleFrom(
-                              backgroundColor: _apricot,
-                              foregroundColor: _navy,
+                              backgroundColor: colors.primary,
+                              foregroundColor: colors.surface,
                               minimumSize: const Size.fromHeight(48),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
@@ -273,7 +288,9 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                                 _billing.isPlus
                                     ? Icons.check_circle
                                     : Icons.nightlight_outlined,
-                                color: _billing.isPlus ? _apricot : _lavender,
+                                color: _billing.isPlus
+                                    ? colors.primary
+                                    : colors.secondary,
                               ),
                               const SizedBox(width: 12),
                               Expanded(
@@ -281,8 +298,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                                   _billing.isPlus
                                       ? 'Plus is active · unlimited hosting'
                                       : 'Free · one new hosted session per local day',
-                                  style: const TextStyle(
-                                    color: _ivory,
+                                  style: TextStyle(
+                                    color: colors.onSurface,
                                     height: 1.35,
                                   ),
                                 ),
@@ -291,17 +308,17 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           ),
                           if (usesTestStore) ...[
                             const SizedBox(height: 10),
-                            const Text(
+                            Text(
                               'Connected to RevenueCat Test Store (sandbox).',
-                              style: TextStyle(color: _lavender),
+                              style: TextStyle(color: colors.secondary),
                             ),
                           ],
                           if (!_billing.isPlus) ...[
                             const SizedBox(height: 14),
                             FilledButton(
                               style: FilledButton.styleFrom(
-                                backgroundColor: _apricot,
-                                foregroundColor: _navy,
+                                backgroundColor: colors.primary,
+                                foregroundColor: colors.surface,
                                 minimumSize: const Size.fromHeight(48),
                                 shape: RoundedRectangleBorder(
                                   borderRadius: BorderRadius.circular(14),
@@ -316,7 +333,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           const SizedBox(height: 6),
                           TextButton(
                             style: TextButton.styleFrom(
-                              foregroundColor: _lavender,
+                              foregroundColor: colors.secondary,
                               minimumSize: const Size.fromHeight(48),
                             ),
                             onPressed: _working || _billing.isBusy
@@ -325,6 +342,18 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                             child: const Text('Restore purchases'),
                           ),
                         ],
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _Section(
+                      title: 'Appearance',
+                      child: OutlinedButton.icon(
+                        key: const Key('choose-appearance-button'),
+                        onPressed: _working || _billing.isBusy
+                            ? null
+                            : _appearance,
+                        icon: const Icon(Icons.palette_outlined),
+                        label: const Text('Make yourself at home'),
                       ),
                     ),
                     const SizedBox(height: 14),
@@ -339,7 +368,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                             'Nearby desktops each receive the data needed for '
                             'their feature.',
                             style: TextStyle(
-                              color: _ivory.withValues(alpha: 0.76),
+                              color: colors.onSurface.withValues(alpha: 0.76),
                               height: 1.45,
                             ),
                           ),
@@ -347,10 +376,10 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           OutlinedButton.icon(
                             key: const Key('about-privacy-licenses-button'),
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: _ivory,
+                              foregroundColor: colors.onSurface,
                               minimumSize: const Size.fromHeight(48),
                               side: BorderSide(
-                                color: _ivory.withValues(alpha: 0.28),
+                                color: colors.onSurface.withValues(alpha: 0.28),
                               ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
@@ -365,10 +394,10 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           const SizedBox(height: 10),
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
-                              foregroundColor: _ivory,
+                              foregroundColor: colors.onSurface,
                               minimumSize: const Size.fromHeight(48),
                               side: BorderSide(
-                                color: _ivory.withValues(alpha: 0.28),
+                                color: colors.onSurface.withValues(alpha: 0.28),
                               ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(14),
@@ -391,8 +420,8 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                     ),
                     if (_working || _billing.isBusy) ...[
                       const SizedBox(height: 18),
-                      const Center(
-                        child: CircularProgressIndicator(color: _apricot),
+                      Center(
+                        child: CircularProgressIndicator(color: colors.primary),
                       ),
                     ],
                     if (_message != null) ...[
@@ -402,7 +431,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                         child: Text(
                           _message!,
                           textAlign: TextAlign.center,
-                          style: const TextStyle(color: _apricot, height: 1.35),
+                          style: TextStyle(color: colors.primary, height: 1.35),
                         ),
                       ),
                     ],
@@ -424,25 +453,28 @@ class _Section extends StatelessWidget {
   final Widget child;
 
   @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(18),
-    decoration: BoxDecoration(
-      color: _raised,
-      borderRadius: BorderRadius.circular(18),
-    ),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        Text(
-          title,
-          style: Theme.of(context).textTheme.titleMedium?.copyWith(
-            color: _ivory,
-            fontWeight: FontWeight.w700,
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: colors.surfaceContainer,
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+              color: colors.onSurface,
+              fontWeight: FontWeight.w700,
+            ),
           ),
-        ),
-        const SizedBox(height: 14),
-        child,
-      ],
-    ),
-  );
+          const SizedBox(height: 14),
+          child,
+        ],
+      ),
+    );
+  }
 }

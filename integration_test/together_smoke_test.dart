@@ -161,7 +161,17 @@ void main() {
           );
           await signal('playing $round');
           await waitMessage('saw play $round');
+          debugPrint(
+            'PAUSE_INTENT $_role round=$round '
+            'requested=${app.playRequested} '
+            'nativePlaying=${target.snapshot.playing} '
+            'buffering=${target.snapshot.buffering}',
+          );
           await app.togglePlay();
+          await until(
+            () => !app.playRequested && !target.snapshot.playing,
+            'local pause before signaling the peer',
+          );
           final pausedPosition = await target.controller!.position;
           expect(pausedPosition, isNotNull);
           await signal('paused $round at ${pausedPosition!.inMilliseconds}');

@@ -154,6 +154,29 @@ class AboutSheet extends StatelessWidget {
                     ),
                   ),
                   const SizedBox(height: 14),
+                  _AboutCard(
+                    child: Material(
+                      type: MaterialType.transparency,
+                      child: ExpansionTile(
+                        key: const Key('whats-new-expansion'),
+                        tilePadding: EdgeInsets.zero,
+                        childrenPadding: const EdgeInsets.only(bottom: 8),
+                        title: const Text('What’s new'),
+                        subtitle: const Text('In version $meowWatchVersion'),
+                        children: const [
+                          Text(
+                            'Start a movie night with a room invitation, synchronized '
+                            'playback and chat. Pick up where you left off with '
+                            'Continue Watching, or open a video shared from another app.\n\n'
+                            'MeowWatch Plus adds unlimited hosting, Cinema Noir and '
+                            'Glass Aurora themes, and Movie night reactions.',
+                            style: TextStyle(height: 1.5),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 14),
                   const _PrivacyCard(),
                   const SizedBox(height: 14),
                   _AboutCard(

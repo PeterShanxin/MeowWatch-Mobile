@@ -2,18 +2,66 @@ package com.meowwatch.meowwatch_mobile
 
 import android.app.Activity
 import android.content.Intent
+import android.os.Bundle
 import android.provider.OpenableColumns
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.util.ArrayDeque
 
 class MainActivity : FlutterFragmentActivity() {
     private var pendingPicker: MethodChannel.Result? = null
     private var castBridge: CastBridge? = null
+    private var incomingMediaBridge: IncomingMediaBridge? = null
+    private var initialMediaIntentHandled = false
+    private var initialMediaIntent: Intent? = null
+    private val pendingMediaIntents = ArrayDeque<Intent>()
+    private var pendingMediaOverflow = false
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        initialMediaIntentHandled = savedInstanceState?.getBoolean("meowwatch.media_intent_handled") ?: false
+        if (!initialMediaIntentHandled) initialMediaIntent = intent
+        super.onCreate(savedInstanceState)
+        dispatchIncomingMedia()
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        outState.putBoolean("meowwatch.media_intent_handled", initialMediaIntentHandled)
+        super.onSaveInstanceState(outState)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        if (pendingMediaIntents.size >= 8) {
+            pendingMediaIntents.removeFirst()
+            pendingMediaOverflow = true
+        }
+        pendingMediaIntents.addLast(intent)
+        dispatchIncomingMedia()
+    }
+
+    private fun dispatchIncomingMedia() {
+        val bridge = incomingMediaBridge ?: return
+        // FlutterFragmentActivity may configure its engine after onCreate returns.
+        // Preserve the original intent until the channel bridge actually exists.
+        if (!initialMediaIntentHandled) {
+            bridge.accept(initialMediaIntent)
+            initialMediaIntent = null
+            initialMediaIntentHandled = true
+        }
+        while (pendingMediaIntents.isNotEmpty()) {
+            if (bridge.accept(pendingMediaIntents.removeFirst(), pendingMediaOverflow)) {
+                pendingMediaOverflow = false
+            }
+        }
+    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         castBridge = CastBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        incomingMediaBridge = IncomingMediaBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        dispatchIncomingMedia()
         LanInterfaces.register(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowwatch.mobile/media")
             .setMethodCallHandler { call, result ->
@@ -44,6 +92,8 @@ class MainActivity : FlutterFragmentActivity() {
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
         castBridge?.dispose()
         castBridge = null
+        incomingMediaBridge?.dispose()
+        incomingMediaBridge = null
         super.cleanUpFlutterEngine(flutterEngine)
     }
 

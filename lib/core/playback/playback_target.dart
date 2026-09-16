@@ -32,6 +32,9 @@ abstract class PlaybackTarget extends ChangeNotifier {
   String get id;
   String get label;
   PlaybackSnapshot get snapshot;
+
+  /// The transport intent can remain playing while a decoder buffers.
+  bool get playRequested => snapshot.playing;
   Stream<PlaybackSnapshot> get states;
   Future<void> load(MediaItem media, {Duration position = Duration.zero});
   Future<void> play();

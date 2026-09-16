@@ -37,7 +37,7 @@ For actual same-host LAN TLS client tests, set `NEARBY_TEST_ADDRESS` and
 CI selects one from its real interfaces. Without these, the explicitly marked
 LAN cases are skipped; that is not cross-device discovery proof.
 
-The default development build uses the configured RevenueCat **Test Store**.
+The default **debug build** uses the configured RevenueCat **Test Store**.
 Its native purchase dialog offers sandbox outcomes and makes no real charge.
 The app loads the actual SDK Offering and `meowwatch_plus` entitlement; it does
 not grant premium access locally. To use your own configured project, pass
@@ -45,6 +45,9 @@ not grant premium access locally. To use your own configured project, pass
 [RevenueCat setup](docs/REVENUECAT_SETUP.md). An empty key reports unavailable
 billing. Never publish a Play Store build with the Test Store key, and keep
 secret/server keys and signing credentials out of the client and repository.
+Release/profile builds default to purchases unavailable until a platform SDK
+key is supplied. They reject Test Store keys before SDK initialization. Use
+the normal debug APK for the Shipaton Test Store demo.
 
 Windows ARM hosts currently lack official local Android Emulator support. Use an attached Android device or the project's hosted Linux emulator workflow when available; the Android build toolchain and ADB are separate from emulator support.
 
@@ -76,6 +79,14 @@ Nearby requires the companion implementation in
 pairing approval, and a trusted private LAN. Cast accepts public HTTPS MP4 links
 without URL parameters; receiver hardware acceptance is still pending. Ordinary
 webpages and protected streaming services are not direct video sources.
+See [media source support](docs/MEDIA_SOURCE_SUPPORT.md) for supported inputs,
+codec limits and the evaluated webpage-extraction boundary.
+
+Android's Share/Open menu can propose a direct video link or a granted video
+file; MeowWatch asks before opening it. In Chat, a peer's standalone video URL
+has a **Watch this too** review action. **Recent rooms** starts a new movie
+night with a saved video, while **Continue Watching** resumes the original
+session. Appearance and Movie night reactions use the real Plus entitlement.
 
 ## Verification and submission
 

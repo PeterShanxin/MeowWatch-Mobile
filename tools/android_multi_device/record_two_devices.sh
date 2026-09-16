@@ -8,7 +8,7 @@ Usage:
 
 Options:
   --output <directory>  Evidence directory (default: SESSION_DIR/evidence)
-  --seconds <1-360>     Maximum complete recording window (default: 360)
+  --seconds <1-600>     Maximum complete recording window (default: 360)
   --bit-rate <integer>  Bits per second for each native segment (default: 8000000)
 
 Android caps one screenrecord process at 180 seconds. This tool rotates native
@@ -21,6 +21,7 @@ EOF
 session_file=''
 output_dir=''
 duration=360
+max_duration=600
 bit_rate=8000000
 declare -a showcase_command=()
 
@@ -40,8 +41,9 @@ if [[ -z "$session_file" || ! -f "$session_file" ]]; then
   echo 'A valid --session file from launch_two_avds.sh is required.' >&2
   exit 2
 fi
-if [[ ! "$duration" =~ ^[0-9]+$ ]] || (( duration < 1 || duration > 360 )); then
-  echo '--seconds must be an integer from 1 through 360.' >&2
+if [[ ! "$duration" =~ ^[0-9]+$ ]] || \
+    (( duration < 1 || duration > max_duration )); then
+  echo "--seconds must be an integer from 1 through $max_duration." >&2
   exit 2
 fi
 if [[ ! "$bit_rate" =~ ^[0-9]+$ ]] || (( bit_rate < 1000000 )); then
@@ -155,13 +157,15 @@ record_segments() {
     local segment_name
     segment_name="$(printf '%s-%03d.mp4' "$label" "$segment")"
     local remote_segment="$remote_dir/$segment_name"
+    local segment_log="$destination/segments/$segment_name.screenrecord.log"
     local command_ns
     command_ns="$(date +%s%N)"
-    "$ADB" -s "$serial" shell screenrecord \
-      --bit-rate "$bit_rate" \
-      --time-limit 170 \
-      "$remote_segment" \
-      >> "$destination/screenrecord.log" 2>&1 &
+    timeout --signal=TERM --kill-after=5s 180s \
+      "$ADB" -s "$serial" shell screenrecord \
+        --bit-rate "$bit_rate" \
+        --time-limit 170 \
+        "$remote_segment" \
+        > "$segment_log" 2>&1 &
     local host_pid=$!
 
     local remote_pid=''
@@ -326,27 +330,60 @@ retry_exact_device_command "$TABLET_SERIAL" 8 shell rmdir "$tablet_remote_dir" \
 
 if [[ -e "$control_dir/phone.failed" || -e "$control_dir/tablet.failed" ]]; then
   echo 'At least one native recorder failed.' >&2
-  command_status=1
+  if [[ "$command_status" -eq 0 ]]; then command_status=1; fi
 fi
 
 collect_after() {
   local serial="$1"
   local destination="$2"
-  "$ADB" -s "$serial" exec-out screencap -p > "$destination/after.png"
-  "$ADB" -s "$serial" logcat -d -v threadtime > "$destination/logcat.txt"
-  "$ADB" -s "$serial" shell dumpsys media.codec > "$destination/media-codec.txt"
-  "$ADB" -s "$serial" shell dumpsys SurfaceFlinger --list \
-    > "$destination/surfaceflinger-layers.txt"
-  "$ADB" -s "$serial" shell dumpsys display > "$destination/display-after.txt"
-
-  find "$destination/segments" -type f -name '*.mp4' -size +4096c \
-    -print0 | sort -z | xargs -0 -r sha256sum > "$destination/native-segments.sha256"
-  if [[ ! -s "$destination/native-segments.sha256" ]]; then
-    echo "No nontrivial native MP4 segment was captured for $serial." >&2
-    return 1
+  local collection_status=0
+  if ! timeout --signal=TERM --kill-after=2s 20s \
+      "$ADB" -s "$serial" exec-out screencap -p \
+      > "$destination/after.png"; then
+    echo "Could not collect final screenshot from $serial." \
+      >> "$destination/screenrecord.log"
+    collection_status=1
+  fi
+  if ! timeout --signal=TERM --kill-after=2s 20s \
+      "$ADB" -s "$serial" logcat -d -v threadtime \
+      > "$destination/logcat.txt"; then
+    echo "Could not collect logcat from $serial." \
+      >> "$destination/screenrecord.log"
+    collection_status=1
+  fi
+  if ! timeout --signal=TERM --kill-after=2s 20s \
+      "$ADB" -s "$serial" shell dumpsys media.codec \
+      > "$destination/media-codec.txt"; then
+    echo "Could not collect media codec diagnostics from $serial." \
+      >> "$destination/screenrecord.log"
+    collection_status=1
+  fi
+  if ! timeout --signal=TERM --kill-after=2s 20s \
+      "$ADB" -s "$serial" shell dumpsys SurfaceFlinger --list \
+      > "$destination/surfaceflinger-layers.txt"; then
+    echo "Could not collect SurfaceFlinger diagnostics from $serial." \
+      >> "$destination/screenrecord.log"
+    collection_status=1
+  fi
+  if ! timeout --signal=TERM --kill-after=2s 20s \
+      "$ADB" -s "$serial" shell dumpsys display \
+      > "$destination/display-after.txt"; then
+    echo "Could not collect final display diagnostics from $serial." \
+      >> "$destination/screenrecord.log"
+    collection_status=1
   fi
 
-  if command -v ffmpeg >/dev/null 2>&1; then
+  if ! find "$destination/segments" -type f -name '*.mp4' -size +4096c \
+      -print0 | sort -z | xargs -0 -r sha256sum \
+      > "$destination/native-segments.sha256"; then
+    echo "Could not hash native MP4 segments for $serial." \
+      >> "$destination/screenrecord.log"
+    collection_status=1
+  fi
+  if [[ ! -s "$destination/native-segments.sha256" ]]; then
+    echo "No nontrivial native MP4 segment was captured for $serial." >&2
+    collection_status=1
+  elif command -v ffmpeg >/dev/null 2>&1; then
     local concat_file="$destination/segments.concat.txt"
     : > "$concat_file"
     while IFS= read -r -d '' segment; do
@@ -355,20 +392,41 @@ collect_after() {
       local escaped="${absolute_segment//\'/\'\\\'\'}"
       printf "file '%s'\n" "$escaped" >> "$concat_file"
     done < <(find "$destination/segments" -type f -name '*.mp4' -size +4096c -print0 | sort -z)
-    ffmpeg -hide_banner -loglevel error -y \
-      -f concat -safe 0 -i "$concat_file" -c copy "$destination/native.mp4"
-    sha256sum "$destination/native.mp4" > "$destination/native.mp4.sha256"
-    if command -v ffprobe >/dev/null 2>&1; then
-      ffprobe -v error \
-        -select_streams v:0 \
-        -show_entries stream=codec_name,width,height,r_frame_rate,avg_frame_rate,duration \
-        -of json "$destination/native.mp4" \
-        > "$destination/native.ffprobe.json"
+    if ! ffmpeg -hide_banner -loglevel error -y \
+        -f concat -safe 0 -i "$concat_file" -c copy \
+        "$destination/native.mp4"; then
+      echo "Could not concatenate native MP4 segments for $serial." \
+        >> "$destination/screenrecord.log"
+      collection_status=1
+    elif ! sha256sum "$destination/native.mp4" \
+        > "$destination/native.mp4.sha256"; then
+      echo "Could not hash the native MP4 for $serial." \
+        >> "$destination/screenrecord.log"
+      collection_status=1
+    elif command -v ffprobe >/dev/null 2>&1 && \
+        ! ffprobe -v error \
+          -select_streams v:0 \
+          -show_entries stream=codec_name,width,height,r_frame_rate,avg_frame_rate,duration \
+          -of json "$destination/native.mp4" \
+          > "$destination/native.ffprobe.json"; then
+      echo "Could not inspect the native MP4 for $serial." \
+        >> "$destination/screenrecord.log"
+      collection_status=1
     fi
   fi
+  return "$collection_status"
 }
-collect_after "$PHONE_SERIAL" "$phone_dir"
-collect_after "$TABLET_SERIAL" "$tablet_dir"
+
+evidence_status=0
+if ! collect_after "$PHONE_SERIAL" "$phone_dir"; then
+  evidence_status=1
+fi
+if ! collect_after "$TABLET_SERIAL" "$tablet_dir"; then
+  evidence_status=1
+fi
+if [[ "$command_status" -eq 0 && "$evidence_status" -ne 0 ]]; then
+  command_status="$evidence_status"
+fi
 
 printf 'Serial-labeled native evidence: %s\n' "$output_dir"
 exit "$command_status"

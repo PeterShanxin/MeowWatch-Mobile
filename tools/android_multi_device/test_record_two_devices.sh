@@ -50,10 +50,16 @@ if [[ "${1:-}" == shell ]]; then
         exit 1
       fi
       local_file=$(device_path "$remote")
+      echo "fake screenrecord diagnostic for $serial" >&2
       printf '%s' "$$" > "$pid_file"
       finish_recording() {
         mkdir -p "$(dirname "$local_file")"
-        head -c 8192 /dev/zero > "$local_file"
+        if [[ "${FAKE_SCENARIO:-}" == missing-phone-clip && \
+              "$serial" == emulator-5554 ]]; then
+          : > "$local_file"
+        else
+          head -c 8192 /dev/zero > "$local_file"
+        fi
         rm -f "$pid_file"
         exit 0
       }
@@ -111,7 +117,11 @@ case "${1:-}" in
   exec-out)
     printf 'fake-png'
     ;;
-  logcat) ;;
+  logcat)
+    if [[ "${2:-}" == -d ]]; then
+      printf 'fake logcat diagnostic\n'
+    fi
+    ;;
   *) ;;
 esac
 ADB
@@ -135,9 +145,44 @@ TABLET_SERIAL=emulator-5556
 SESSION_DIR=$test_root/session
 EOF
 
+# Production UI uses a 600-second outer recording window around its bounded
+# 540-second drive. Validate that contract without waiting for a recording by
+# continuing as far as the deliberately invalid bit-rate argument.
+set +e
+production_window_error="$(
+  bash "$repo_root/tools/android_multi_device/record_two_devices.sh" \
+    --session "$test_root/session.env" \
+    --seconds 600 \
+    --bit-rate 0 \
+    2>&1
+)"
+production_window_status=$?
+set -e
+test "$production_window_status" -eq 2
+grep -Fq -- '--bit-rate must be an integer of at least 1000000.' \
+  <<< "$production_window_error"
+if grep -Fq -- '--seconds must be an integer' <<< "$production_window_error"; then
+  echo 'Production recording window was rejected before recorder startup.' >&2
+  exit 1
+fi
+
+set +e
+overlong_window_error="$(
+  bash "$repo_root/tools/android_multi_device/record_two_devices.sh" \
+    --session "$test_root/session.env" \
+    --seconds 601 \
+    2>&1
+)"
+overlong_window_status=$?
+set -e
+test "$overlong_window_status" -eq 2
+grep -Fq -- '--seconds must be an integer from 1 through 600.' \
+  <<< "$overlong_window_error"
+
 run_case() {
   local name="$1"
   local scenario="$2"
+  local command_exit="${3:-0}"
   local case_root="$test_root/$name"
   mkdir -p "$case_root/device"
   set +e
@@ -149,7 +194,7 @@ run_case() {
       --session "$test_root/session.env" \
       --output "$case_root/evidence" \
       --seconds 5 \
-      -- true
+      -- sh -c 'exit "$1"' recorder-contract "$command_exit"
   case_status=$?
   set -e
 }
@@ -164,6 +209,9 @@ for role in phone tablet; do
   segment="$evidence/$role-$serial/segments/$role-000.mp4"
   test -f "$segment"
   test "$(wc -c < "$segment")" -eq 8192
+  segment_log="$evidence/$role-$serial/segments/$role-000.mp4.screenrecord.log"
+  test -s "$segment_log"
+  grep -Fq "fake screenrecord diagnostic for $serial" "$segment_log"
   test ! -e "$evidence/recorder-control/$role.failed"
   if find "$test_root/transient/device/$serial/sdcard" -maxdepth 1 \
       -type d -name "meowwatch-evidence-*-$role" -print -quit | grep -q .; then
@@ -194,8 +242,8 @@ grep -Fq $'phone\twarning' \
 grep -Fq $'tablet\tclean' \
   "$test_root/cleanup/evidence/recording-cleanup.tsv"
 
-run_case persistent persistent-tablet-pull
-test "$case_status" -ne 0
+run_case persistent persistent-tablet-pull 7
+test "$case_status" -eq 7
 test -e "$test_root/persistent/evidence/recorder-control/tablet.failed"
 tablet_pull_attempts=$(grep -Ec $'^emulator-5556\tpull ' \
   "$test_root/persistent/adb.log")
@@ -203,4 +251,17 @@ test "$tablet_pull_attempts" -eq 3
 test ! -e \
   "$test_root/persistent/evidence/tablet-emulator-5556/segments/tablet-000.mp4.partial"
 
-echo 'two-device recording path and alignment contract passed'
+run_case missing_phone missing-phone-clip 7
+test "$case_status" -eq 7
+missing_phone_evidence="$test_root/missing_phone/evidence"
+test ! -s \
+  "$missing_phone_evidence/phone-emulator-5554/native-segments.sha256"
+test -s \
+  "$missing_phone_evidence/tablet-emulator-5556/native-segments.sha256"
+test -s "$missing_phone_evidence/tablet-emulator-5556/native.mp4"
+test -s "$missing_phone_evidence/tablet-emulator-5556/after.png"
+test -s "$missing_phone_evidence/tablet-emulator-5556/logcat.txt"
+test -s "$missing_phone_evidence/tablet-emulator-5556/media-codec.txt"
+test -s "$missing_phone_evidence/tablet-emulator-5556/display-after.txt"
+
+echo 'two-device recording duration, path and alignment contract passed'

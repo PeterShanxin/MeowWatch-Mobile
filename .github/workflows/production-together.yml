@@ -40,7 +40,9 @@ jobs:
           python3 -m unittest discover -s tools/production_together -p 'test_*.py'
           bash -n tools/android_multi_device/ci_together.sh
           bash -n tools/android_multi_device/build_together_apks.sh
+          bash -n tools/android_multi_device/record_two_devices.sh
           bash -n tools/android_multi_device/run_together_smoke.sh
+          bash tools/android_multi_device/test_record_two_devices.sh
       - name: Prepare native media fixture
         run: |
           sudo apt-get update

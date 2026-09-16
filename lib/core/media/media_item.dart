@@ -2,11 +2,19 @@ import 'package:meta/meta.dart';
 
 @immutable
 class MediaItem {
-  const MediaItem({required this.uri, required this.title, this.sizeBytes});
+  const MediaItem({
+    required this.uri,
+    required this.title,
+    this.sizeBytes,
+    this.canRemember = true,
+  });
 
   final Uri uri;
   final String title;
   final int? sizeBytes;
+
+  /// Temporary Android share grants must not create unusable resume entries.
+  final bool canRemember;
   bool get isNetwork => uri.scheme == 'https' || uri.scheme == 'http';
 
   factory MediaItem.fromUrl(String value) {
@@ -41,11 +49,13 @@ class MediaItem {
     'uri': uri.toString(),
     'title': title,
     'sizeBytes': sizeBytes,
+    'canRemember': canRemember,
   };
 
   factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
     uri: Uri.parse(json['uri'] as String),
     title: json['title'] as String,
     sizeBytes: json['sizeBytes'] as int?,
+    canRemember: json['canRemember'] as bool? ?? true,
   );
 }

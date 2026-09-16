@@ -54,8 +54,9 @@ managed by RevenueCat.
 native play, pause, seek, and reaction checks, but the complete production UI
 create/join recording is pending. Direct-link local playback and Continue
 Watching have passed the native product journey; Android file-picker execution
-is still pending. The integrated Plus-to-unlimited-hosting funnel is pending
-acceptance and must not be described as proven until it passes. Nearby desktop
+is still pending. The integrated Plus-to-unlimited-hosting native funnel passes
+with two real decoders and TLS clients in one Android process; its final
+production UI purchase-and-hosting recording remains pending. Nearby desktop
 control is pending physical Android-to-Windows LAN acceptance. Cast is
 unverified and is not part of the current submission claim.
 

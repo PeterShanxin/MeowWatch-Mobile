@@ -129,17 +129,21 @@ hosted runtime result.
 
 `tools/android_multi_device/` prepares a truthful two-client hosted test:
 
-- a Pixel 6 profile on `emulator-5554`, portrait, 2 vCPUs and 2048 MiB RAM;
+- a Pixel 6 profile on `emulator-5554`, portrait, 2 vCPUs and 3072 MiB RAM;
 - a Pixel Tablet profile on `emulator-5556`, landscape, 2 vCPUs and 3072 MiB
   RAM; and
 - Android 35 `google_apis` x86_64 images accelerated through Linux KVM.
 
 The standard public `ubuntu-24.04` runner currently provides 4 x64 vCPUs,
 16 GB RAM and 14 GB SSD. This allocation intentionally uses all four virtual
-CPU slots but only 5 GB of configured guest RAM, leaving host memory for the
+CPU slots but only 6 GB of configured guest RAM, leaving host memory for the
 Android SDK, adb, graphics emulation, the test driver, and evidence processing.
 Build the APK before launching both AVDs. Do not run concurrent Flutter or
 Gradle builds while both emulators are active.
+
+The phone allocation was raised from 2 GB after the simultaneous decode and
+record run showed Android low-memory kills. Recorder failures now retain each
+device's diagnostics independently, including per-segment recorder stderr.
 
 Android assigns one console/adb port pair per emulator and recommends even
 console ports. The scripts use 5554 and 5556, which deterministically produce

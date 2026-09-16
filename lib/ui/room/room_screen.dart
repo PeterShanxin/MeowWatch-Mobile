@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../app/app_controller.dart';
+import '../../core/chat/reaction_catalog.dart';
 import '../../core/playback/local_mobile_target.dart';
 import '../../core/playback/playback_target.dart';
 import '../../core/sync/peer_state.dart';
@@ -27,6 +28,7 @@ class RoomScreen extends StatelessWidget {
     required this.onStartRoom,
     required this.onTogglePlay,
     required this.onSeek,
+    this.onUpgrade,
   });
   final AppController app;
   final VoidCallback onLoad,
@@ -36,6 +38,7 @@ class RoomScreen extends StatelessWidget {
       onStartRoom,
       onTogglePlay;
   final ValueChanged<Duration> onSeek;
+  final VoidCallback? onUpgrade;
 
   String get _connectionLabel => switch (app.connection.status) {
     SyncConnectionStatus.connected =>
@@ -156,6 +159,7 @@ class RoomScreen extends StatelessWidget {
                               app: app,
                               onLoad: onLoad,
                               onStartRoom: onStartRoom,
+                              onUpgrade: onUpgrade,
                             ),
                           ),
                         ],
@@ -251,7 +255,12 @@ class RoomScreen extends StatelessWidget {
                   ),
                 ),
                 controls,
-                _Actions(app: app, onLoad: onLoad, onStartRoom: onStartRoom),
+                _Actions(
+                  app: app,
+                  onLoad: onLoad,
+                  onStartRoom: onStartRoom,
+                  onUpgrade: onUpgrade,
+                ),
               ],
             );
             return twoColumn
@@ -403,7 +412,7 @@ class _VideoStage extends StatelessWidget {
                 ],
               ),
             ),
-          if (state.buffering && state.ready && state.playing)
+          if (state.buffering && state.ready && app.playRequested)
             const CircularProgressIndicator(),
           if (app.reaction != null)
             Positioned(
@@ -444,6 +453,7 @@ class _PlaybackControlsState extends State<_PlaybackControls> {
   @override
   Widget build(BuildContext context) {
     final state = widget.app.target.snapshot;
+    final playRequested = widget.app.playRequested;
     final ready = state.ready && (widget.app.isLocal || widget.app.isConnected);
     final maximum = state.duration.inMilliseconds.toDouble().clamp(
       1.0,
@@ -464,11 +474,11 @@ class _PlaybackControlsState extends State<_PlaybackControls> {
                 IconButton.filled(
                   onPressed: ready ? widget.onToggle : null,
                   icon: Icon(
-                    state.playing
+                    playRequested
                         ? Icons.pause_rounded
                         : Icons.play_arrow_rounded,
                   ),
-                  tooltip: state.playing ? 'Pause together' : 'Play together',
+                  tooltip: playRequested ? 'Pause together' : 'Play together',
                 ),
               Expanded(
                 child: Slider(
@@ -531,11 +541,11 @@ class _PlaybackControlsState extends State<_PlaybackControls> {
                     onPressed: ready ? widget.onToggle : null,
                     iconSize: 34,
                     icon: Icon(
-                      state.playing
+                      playRequested
                           ? Icons.pause_rounded
                           : Icons.play_arrow_rounded,
                     ),
-                    tooltip: state.playing ? 'Pause' : 'Play',
+                    tooltip: playRequested ? 'Pause' : 'Play',
                   ),
                   const SizedBox(width: 12),
                   IconButton(
@@ -561,9 +571,11 @@ class _Actions extends StatelessWidget {
     required this.app,
     required this.onLoad,
     required this.onStartRoom,
+    this.onUpgrade,
   });
   final AppController app;
   final VoidCallback onLoad, onStartRoom;
+  final VoidCallback? onUpgrade;
   @override
   Widget build(BuildContext context) => Padding(
     padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
@@ -603,30 +615,129 @@ class _Actions extends StatelessWidget {
   Future<void> _reactions(BuildContext context) => showModalBottomSheet<void>(
     context: context,
     useSafeArea: true,
-    builder: (context) => Padding(
-      padding: const EdgeInsets.fromLTRB(16, 0, 16, 24),
-      child: Wrap(
-        alignment: WrapAlignment.center,
-        spacing: 8,
-        children: ['❤️', '😂', '😮', '👏', '🍿']
-            .map(
-              (emoji) => Semantics(
-                label: 'React $emoji',
-                button: true,
-                child: TextButton(
-                  onPressed: () {
+    isScrollControlled: true,
+    builder: (context) => ListenableBuilder(
+      listenable: app.billing,
+      builder: (context, _) => Align(
+        alignment: Alignment.bottomCenter,
+        heightFactor: 1,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 560,
+            maxHeight: MediaQuery.sizeOf(context).height * .8,
+          ),
+          child: SingleChildScrollView(
+            padding: EdgeInsets.fromLTRB(
+              24,
+              0,
+              24,
+              24 + MediaQuery.paddingOf(context).bottom,
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Text(
+                  'Send a reaction',
+                  style: Theme.of(context).textTheme.headlineSmall,
+                ),
+                const SizedBox(height: 8),
+                const Text('A little feeling, shared together.'),
+                const SizedBox(height: 20),
+                _reactionChoices(context, standardReactions),
+                const SizedBox(height: 20),
+                DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: Theme.of(context).colorScheme.surfaceContainer,
+                    borderRadius: BorderRadius.circular(20),
+                    border: Border.all(
+                      color: Theme.of(context).colorScheme.outlineVariant,
+                    ),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(16),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(
+                          'Movie night · Plus',
+                          style: Theme.of(context).textTheme.titleMedium,
+                        ),
+                        const SizedBox(height: 4),
+                        Text(
+                          app.billing.isPlus
+                              ? 'For the scenes worth reacting to.'
+                              : 'Six more ways to share the moment with Plus.',
+                          style: Theme.of(context).textTheme.bodySmall
+                              ?.copyWith(
+                                color: Theme.of(
+                                  context,
+                                ).colorScheme.onSurfaceVariant,
+                              ),
+                        ),
+                        const SizedBox(height: 12),
+                        _reactionChoices(context, movieNightReactions),
+                        if (!app.billing.isPlus) ...[
+                          const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            onPressed: onUpgrade == null
+                                ? null
+                                : () => _upgrade(context),
+                            icon: const Icon(Icons.lock_outline_rounded),
+                            label: const Text('Unlock with Plus'),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
+
+  Widget _reactionChoices(BuildContext context, List<String> choices) => Wrap(
+    alignment: WrapAlignment.center,
+    spacing: 4,
+    runSpacing: 4,
+    children: [
+      for (final emoji in choices)
+        Semantics(
+          label: isPremiumReaction(emoji) && !app.billing.isPlus
+              ? 'React $emoji, requires Plus'
+              : 'React $emoji',
+          button: true,
+          child: TextButton(
+            key: ValueKey('reaction-$emoji'),
+            onPressed:
+                isPremiumReaction(emoji) &&
+                    !app.billing.isPlus &&
+                    onUpgrade == null
+                ? null
+                : () {
+                    if (isPremiumReaction(emoji) && !app.billing.isPlus) {
+                      _upgrade(context);
+                      return;
+                    }
                     app.sendReaction(emoji);
                     HapticFeedback.selectionClick();
                     Navigator.pop(context);
                   },
-                  child: Text(emoji, style: const TextStyle(fontSize: 32)),
-                ),
-              ),
-            )
-            .toList(),
-      ),
-    ),
+            child: Text(emoji, style: const TextStyle(fontSize: 32)),
+          ),
+        ),
+    ],
   );
+
+  void _upgrade(BuildContext context) {
+    final upgrade = onUpgrade;
+    if (upgrade == null) return;
+    Navigator.pop(context);
+    WidgetsBinding.instance.addPostFrameCallback((_) => upgrade());
+  }
 }
 
 class _Person extends StatelessWidget {

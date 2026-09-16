@@ -15,8 +15,10 @@ import '../core/connect/room_code.dart';
 import '../core/connect/room_config.dart';
 import '../core/connect/username_generator.dart';
 import '../core/media/media_item.dart';
+import '../core/chat/reaction_catalog.dart';
 import '../core/nearby/nearby_desktop_target.dart';
 import '../core/playback/playback_target.dart';
+import '../core/preferences/appearance.dart';
 import '../core/session/playback_sync_bridge.dart';
 import '../core/session/room_invite.dart';
 import '../core/sync/endpoint_discovery.dart';
@@ -105,6 +107,32 @@ class AppController extends ChangeNotifier {
   bool _returningFromCast = false;
   bool _castNeedsConfirmation = false;
   bool _confirmingCast = false;
+  bool _savingTheme = false;
+
+  String get theme =>
+      billing.isPlus ? normalizeMeowWatchTheme(repository.theme) : 'cozy';
+
+  Future<void> selectTheme(String value) async {
+    if (!meowWatchThemeIds.contains(value)) {
+      throw const FormatException('Choose one of the available themes.');
+    }
+    if (value != 'cozy' && !billing.isPlus) {
+      throw StateError('MeowWatch Plus is required for this theme.');
+    }
+    if (_closed || _savingTheme) throw StateError('Please try again.');
+    _savingTheme = true;
+    final previous = repository.theme;
+    repository.theme = value;
+    try {
+      await repository.save();
+    } catch (_) {
+      repository.theme = previous;
+      rethrow;
+    } finally {
+      _savingTheme = false;
+      _changed();
+    }
+  }
 
   bool get isNearby => _nearby != null;
   NearbyDesktopTarget? get nearby => _nearby;
@@ -158,7 +186,7 @@ class AppController extends ChangeNotifier {
   static String _sessionId() =>
       base64UrlEncode(List.generate(24, (_) => Random.secure().nextInt(256)));
 
-  Future<bool> createRoom() => _runConnect(
+  Future<bool> createRoom({bool adoptExistingSource = true}) => _runConnect(
     () => RoomTicket(
       id: _sessionId(),
       isHost: true,
@@ -170,6 +198,7 @@ class AppController extends ChangeNotifier {
         endpointPolicy: SyncplayEndpointPolicy.discover,
       ),
     ),
+    adoptExistingSource: adoptExistingSource,
   );
 
   Future<bool> joinRoom(String input) => _runConnect(() {
@@ -1153,7 +1182,7 @@ class AppController extends ChangeNotifier {
       );
       return;
     }
-    final playing = target.snapshot.playing;
+    final playing = playRequested;
     if (isCasting && !await _confirmCastForCommand()) return;
     if (playing) {
       if (_bridge != null) {
@@ -1170,6 +1199,8 @@ class AppController extends ChangeNotifier {
     }
     await saveProgress();
   }
+
+  bool get playRequested => _bridge?.playRequested ?? target.playRequested;
 
   Future<void> seek(Duration position) async {
     if (isNearby) {
@@ -1200,6 +1231,23 @@ class AppController extends ChangeNotifier {
         await useLocalMode();
       }
       await load(entry.media, position: entry.position);
+    } finally {
+      _resumeLoading = false;
+    }
+  }
+
+  /// A new movie night gets a fresh host identity; resume keeps the old one.
+  Future<bool> watchAgain(WatchHistoryEntry entry) async {
+    if (busy || _resumeLoading || _closed) return false;
+    if (isNearby || isCasting) {
+      report('Return to this phone before starting another movie night.');
+      return false;
+    }
+    _resumeLoading = true;
+    try {
+      if (!await createRoom(adoptExistingSource: false)) return false;
+      await load(entry.media, position: entry.position);
+      return true;
     } finally {
       _resumeLoading = false;
     }
@@ -1278,7 +1326,9 @@ class AppController extends ChangeNotifier {
   Future<void> saveProgress() async {
     if (isNearby) return;
     final state = target.snapshot;
-    if (!state.ready || state.media == null) return;
+    if (!state.ready || state.media == null || !state.media!.canRemember) {
+      return;
+    }
     await repository.record(
       WatchHistoryEntry(
         media: state.media!,
@@ -1303,6 +1353,10 @@ class AppController extends ChangeNotifier {
   }
 
   void sendReaction(String emoji) {
+    if (isPremiumReaction(emoji) && !billing.isPlus) {
+      report('Movie night reactions are included with MeowWatch Plus.');
+      return;
+    }
     if (!isConnected) {
       report('Reconnect to send a reaction.');
       return;

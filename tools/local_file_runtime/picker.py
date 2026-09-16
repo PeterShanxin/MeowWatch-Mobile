@@ -58,8 +58,8 @@ def select_picker_target(
     fixture_name: str,
     phase: str,
 ) -> PickerTarget:
-    """Return only an exact fixture/search control in the focused DocumentsUI."""
-    if phase not in {"initial", "search", "results"}:
+    """Return only an exact fixture/navigation control in focused DocumentsUI."""
+    if phase not in {"initial", "roots", "downloads", "search", "results"}:
         raise ValueError("unknown picker phase")
     package = _focused_package(window_dump)
     try:
@@ -90,6 +90,16 @@ def select_picker_target(
         raise PickerNotReady("Fixture selector is ambiguous")
 
     if phase == "initial":
+        roots = [
+            node
+            for node in nodes
+            if node.get("content-desc", "").strip().casefold() == "show roots"
+            and node.get("clickable") == "true"
+        ]
+        if len(roots) == 1:
+            return PickerTarget("roots", _bounds(roots[0]))
+        if len(roots) > 1:
+            raise PickerNotReady("DocumentsUI roots control is ambiguous")
         search = [
             node
             for node in nodes
@@ -99,6 +109,29 @@ def select_picker_target(
         if len(search) == 1:
             return PickerTarget("search", _bounds(search[0]))
         raise PickerNotReady("Exact picker fixture and Search control are absent")
+
+    if phase == "roots":
+        downloads = [
+            node
+            for node in nodes
+            if "downloads"
+            in {
+                node.get("text", "").strip().casefold(),
+                node.get("content-desc", "").strip().casefold(),
+            }
+            and node.get("class") not in {
+                "android.widget.EditText",
+                "android.widget.AutoCompleteTextView",
+            }
+        ]
+        if len(downloads) == 1:
+            return PickerTarget("downloads", _bounds(downloads[0]))
+        if len(downloads) > 1:
+            raise PickerNotReady("Downloads root selector is ambiguous")
+        raise PickerNotReady("Downloads root is absent from DocumentsUI")
+
+    if phase == "downloads":
+        raise PickerNotReady("Exact fixture is absent from Downloads")
 
     if phase == "search":
         search_ids = {"android:id/search_src_text", f"{package}:id/search_src_text"}
@@ -274,7 +307,11 @@ class DocumentsUiSelector:
                     self.selected = True
                     return
                 self.adb.run("shell", "input", "tap", str(x), str(y))
-                if target.action == "search":
+                if target.action == "roots":
+                    phase = "roots"
+                elif target.action == "downloads":
+                    phase = "downloads"
+                elif target.action == "search":
                     phase = "search"
                 elif target.action == "query":
                     self.adb.run("shell", "input", "text", self.fixture_name)

@@ -11,6 +11,7 @@ on:
       - "pubspec.lock"
       - "pubspec.yaml"
       - "tools/android_install/**"
+      - "tools/incoming_media_runtime/**"
   push:
     branches: [main]
     paths:
@@ -21,6 +22,7 @@ on:
       - "pubspec.lock"
       - "pubspec.yaml"
       - "tools/android_install/**"
+      - "tools/incoming_media_runtime/**"
 
 permissions:
   contents: read
@@ -31,9 +33,21 @@ concurrency:
 
 jobs:
   normal-app:
-    name: Normal release-mode APK clean install (API 35 x86_64)
+    name: Normal ${{ matrix.build-mode }} APK clean install (API 35 x86_64)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - variant: debug-test-store
+            build-mode: debug
+            apk-source: build/app/outputs/flutter-apk/app-debug.apk
+            apk-name: meowwatch-debug-test-store.apk
+          - variant: release-no-billing
+            build-mode: release
+            apk-source: build/app/outputs/flutter-apk/app-release.apk
+            apk-name: meowwatch-debug-key-release.apk
 
     steps:
       - name: Check out clean repository
@@ -55,26 +69,40 @@ jobs:
       - name: Check install runner contracts
         run: |
           python3 -m unittest tools.android_install.test_runner
+          python3 -m unittest tools.incoming_media_runtime.test_run
           python3 -m tools.android_install.runner --help
 
-      - name: Build normal release-mode application
-        run: >-
-          flutter build apk --release
-          --target=lib/main.dart
-          --dart-define=REVENUECAT_API_KEY=test_gjKDzmyNmHmuDfibegUnKQKTpRh
+      - name: Build normal ${{ matrix.build-mode }} application
+        run: |
+          if [[ "${{ matrix.build-mode }}" == debug ]]; then
+            flutter build apk --debug --target=lib/main.dart
+          else
+            flutter build apk --release \
+              --target=lib/main.dart \
+              --dart-define=REVENUECAT_API_KEY=
+          fi
 
-      - name: Package installable debug-key release artifact
+      - name: Package installable ${{ matrix.build-mode }} artifact
         run: |
           mkdir -p build/android-install-package
-          cp build/app/outputs/flutter-apk/app-release.apk \
-            build/android-install-package/meowwatch-debug-key-release.apk
-          sha256sum build/android-install-package/meowwatch-debug-key-release.apk \
-            > build/android-install-package/meowwatch-debug-key-release.apk.sha256
-          cat > build/android-install-package/BOUNDARY.txt <<'EOF'
-          Release-mode lib/main.dart APK signed with the Android debug key.
-          Uses the public RevenueCat Test Store SDK key.
+          packaged_apk="build/android-install-package/${{ matrix.apk-name }}"
+          cp "${{ matrix.apk-source }}" "$packaged_apk"
+          sha256sum "$packaged_apk" > "$packaged_apk.sha256"
+          if [[ "${{ matrix.build-mode }}" == debug ]]; then
+            cat > build/android-install-package/BOUNDARY.txt <<'EOF'
+          Debug-mode normal lib/main.dart APK signed with the Android debug key.
+          Uses the public RevenueCat Test Store SDK key selected by the debug build.
+          Test Store purchases are sandbox behavior and cannot charge a payment method.
+          Installable judging evidence only; not Play production-signed.
+          EOF
+          else
+            cat > build/android-install-package/BOUNDARY.txt <<'EOF'
+          Release-mode normal lib/main.dart APK signed with the Android debug key.
+          RevenueCat is disabled because Test Store keys cannot run in release builds.
+          Purchase behavior is covered by the debug Test Store artifact and runtime.
           Installable test evidence only; not Play production-signed.
           EOF
+          fi
 
       - name: Enable KVM
         run: |
@@ -94,18 +122,18 @@ jobs:
           heap-size: 512M
           disable-animations: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: >-
-            python3 -m tools.android_install.runner
-            --serial emulator-5554
-            --apk build/android-install-package/meowwatch-debug-key-release.apk
+          script: |
+            python3 -m tools.android_install.runner --serial emulator-5554 --build-mode ${{ matrix.build-mode }} --apk build/android-install-package/${{ matrix.apk-name }}
+            python3 -m tools.incoming_media_runtime.run --serial emulator-5554 --apk build/android-install-package/${{ matrix.apk-name }}
 
       - name: Upload installable APK and native install evidence
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
         with:
-          name: android-debug-key-release-install-${{ github.run_attempt }}
+          name: android-normal-${{ matrix.variant }}-install-${{ github.run_attempt }}
           path: |
             build/android-install-package/
             build/android-install-artifacts/
+            build/incoming-media-runtime-artifacts/
           if-no-files-found: warn
           retention-days: 14

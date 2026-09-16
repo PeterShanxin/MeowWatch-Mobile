@@ -108,7 +108,7 @@ ANDROID_AVD_HOME="$avd_home" "$emulator" -avd "$phone_avd" \
   -accel on \
   -gpu swiftshader \
   -cores 2 \
-  -memory 2048 \
+  -memory 3072 \
   -no-window \
   -no-snapshot \
   -noaudio \
@@ -218,5 +218,5 @@ startup_failed=0
 trap - EXIT
 
 printf 'Two AVDs are ready. Session: %s\n' "$session_dir/session.env"
-printf 'Phone:  %s (%s, 2 cores, 2048 MiB)\n' "$phone_serial" "$phone_avd"
+printf 'Phone:  %s (%s, 2 cores, 3072 MiB)\n' "$phone_serial" "$phone_avd"
 printf 'Tablet: %s (%s, 2 cores, 3072 MiB)\n' "$tablet_serial" "$tablet_avd"

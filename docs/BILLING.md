@@ -18,10 +18,19 @@ reports purchases as unavailable.
    flutter run --dart-define=REVENUECAT_API_KEY=<public-sdk-key>
    ```
 
-   Use the Test Store SDK key for Test Store testing. Never use a secret/server
-   key in a client build. No real key is included in this repository.
+   Use the Test Store SDK key only in a debug build. The repository includes
+   the project's public Test Store key as the debug default; it cannot charge
+   real money. Never use a secret/server key in a client build.
 5. Verify the current Shipaton Next Gen purchase-testing requirements before
    submission. A Test Store integration alone does not establish eligibility.
+
+Release and profile builds have no default billing key. Supply an Android
+platform public SDK key for a commercial build. The app rejects a `test_` key
+before invoking the SDK outside debug mode: RevenueCat otherwise displays a
+Wrong API Key dialog and closes the app. A release build without a platform
+key keeps the free product usable and clearly reports purchases unavailable.
+The Shipaton Test Store demo uses the normal `lib/main.dart` **debug APK**.
+See [RevenueCat's Test Store guidance](https://www.revenuecat.com/docs/test-and-launch/sandbox/test-store).
 
 The adapter reads `Offerings.current`; labels, localized prices, currency and
 subscription period come from each `Package.storeProduct`. It uses

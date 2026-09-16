@@ -4,12 +4,6 @@ import '../../app/app_controller.dart';
 import '../../core/media/media_item.dart';
 import '../../core/media/media_picker.dart';
 
-const _navy = Color(0xFF10141F);
-const _raised = Color(0xFF1A2232);
-const _ivory = Color(0xFFF5EDE0);
-const _apricot = Color(0xFFEFB38C);
-const _lavender = Color(0xFFB9A9D3);
-
 Future<MediaItem?> showMediaSheet(
   BuildContext context, {
   required AppController app,
@@ -74,6 +68,7 @@ class _MediaSheetState extends State<_MediaSheet> {
   @override
   Widget build(BuildContext context) {
     final media = MediaQuery.of(context);
+    final colors = Theme.of(context).colorScheme;
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
       child: Align(
@@ -89,7 +84,7 @@ class _MediaSheetState extends State<_MediaSheet> {
                 0.94,
           ),
           child: Material(
-            color: _navy,
+            color: colors.surface,
             clipBehavior: Clip.antiAlias,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: SingleChildScrollView(
@@ -104,7 +99,7 @@ class _MediaSheetState extends State<_MediaSheet> {
                           'Choose what to watch',
                           style: Theme.of(context).textTheme.headlineSmall
                               ?.copyWith(
-                                color: _ivory,
+                                color: colors.onSurface,
                                 fontWeight: FontWeight.w700,
                               ),
                         ),
@@ -118,7 +113,7 @@ class _MediaSheetState extends State<_MediaSheet> {
                         onPressed: _picking
                             ? null
                             : () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: _ivory),
+                        icon: Icon(Icons.close, color: colors.onSurface),
                       ),
                     ],
                   ),
@@ -128,7 +123,7 @@ class _MediaSheetState extends State<_MediaSheet> {
                         ? 'Play on this phone now. You can bring the same video into a room later.'
                         : 'Everyone stays together when you load a compatible source.',
                     style: TextStyle(
-                      color: _ivory.withValues(alpha: 0.72),
+                      color: colors.onSurface.withValues(alpha: 0.72),
                       height: 1.4,
                     ),
                   ),
@@ -138,21 +133,21 @@ class _MediaSheetState extends State<_MediaSheet> {
                     title: 'Video on this device',
                     detail: 'Choose a video file supported by Android.',
                     trailing: _picking
-                        ? const SizedBox.square(
+                        ? SizedBox.square(
                             dimension: 24,
                             child: CircularProgressIndicator(
                               strokeWidth: 2,
-                              color: _apricot,
+                              color: colors.primary,
                             ),
                           )
-                        : const Icon(Icons.chevron_right, color: _apricot),
+                        : Icon(Icons.chevron_right, color: colors.primary),
                     onTap: _picking ? null : _pickFile,
                   ),
                   const SizedBox(height: 16),
                   Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
-                      color: _raised,
+                      color: colors.surfaceContainer,
                       borderRadius: BorderRadius.circular(18),
                     ),
                     child: Column(
@@ -160,14 +155,14 @@ class _MediaSheetState extends State<_MediaSheet> {
                       children: [
                         Row(
                           children: [
-                            const Icon(Icons.link, color: _lavender),
+                            Icon(Icons.link, color: colors.secondary),
                             const SizedBox(width: 12),
                             Expanded(
                               child: Text(
                                 'Direct video link',
                                 style: Theme.of(context).textTheme.titleMedium
                                     ?.copyWith(
-                                      color: _ivory,
+                                      color: colors.onSurface,
                                       fontWeight: FontWeight.w700,
                                     ),
                               ),
@@ -178,7 +173,7 @@ class _MediaSheetState extends State<_MediaSheet> {
                         Text(
                           'Use an HTTP or HTTPS link that points directly to a playable media file.',
                           style: TextStyle(
-                            color: _ivory.withValues(alpha: 0.68),
+                            color: colors.onSurface.withValues(alpha: 0.68),
                             height: 1.35,
                           ),
                         ),
@@ -190,8 +185,8 @@ class _MediaSheetState extends State<_MediaSheet> {
                           textInputAction: TextInputAction.done,
                           autofillHints: const [AutofillHints.url],
                           autocorrect: false,
-                          style: const TextStyle(color: _ivory),
-                          cursorColor: _apricot,
+                          style: TextStyle(color: colors.onSurface),
+                          cursorColor: colors.primary,
                           onChanged: (_) {
                             if (_error != null) setState(() => _error = null);
                           },
@@ -199,22 +194,22 @@ class _MediaSheetState extends State<_MediaSheet> {
                           decoration: InputDecoration(
                             hintText: 'https://example.com/movie.mp4',
                             hintStyle: TextStyle(
-                              color: _ivory.withValues(alpha: 0.55),
+                              color: colors.onSurface.withValues(alpha: 0.55),
                             ),
                             filled: true,
-                            fillColor: _navy,
+                            fillColor: colors.surface,
                             errorText: _error,
                             errorMaxLines: 4,
                             enabledBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
                               borderSide: BorderSide(
-                                color: _ivory.withValues(alpha: 0.22),
+                                color: colors.onSurface.withValues(alpha: 0.22),
                               ),
                             ),
                             focusedBorder: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(12),
-                              borderSide: const BorderSide(
-                                color: _apricot,
+                              borderSide: BorderSide(
+                                color: colors.primary,
                                 width: 2,
                               ),
                             ),
@@ -223,8 +218,8 @@ class _MediaSheetState extends State<_MediaSheet> {
                         const SizedBox(height: 12),
                         FilledButton.icon(
                           style: FilledButton.styleFrom(
-                            backgroundColor: _apricot,
-                            foregroundColor: _navy,
+                            backgroundColor: colors.primary,
+                            foregroundColor: colors.surface,
                             minimumSize: const Size.fromHeight(50),
                             shape: RoundedRectangleBorder(
                               borderRadius: BorderRadius.circular(14),
@@ -241,9 +236,9 @@ class _MediaSheetState extends State<_MediaSheet> {
                   Row(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
+                      Icon(
                         Icons.info_outline,
-                        color: _lavender,
+                        color: colors.secondary,
                         size: 20,
                       ),
                       const SizedBox(width: 10),
@@ -251,7 +246,7 @@ class _MediaSheetState extends State<_MediaSheet> {
                         child: Text(
                           'Webpages and DRM-protected streaming services are not supported.',
                           style: TextStyle(
-                            color: _ivory.withValues(alpha: 0.62),
+                            color: colors.onSurface.withValues(alpha: 0.62),
                             height: 1.35,
                           ),
                         ),
@@ -284,48 +279,52 @@ class _ChoiceCard extends StatelessWidget {
   final VoidCallback? onTap;
 
   @override
-  Widget build(BuildContext context) => Material(
-    color: _raised,
-    borderRadius: BorderRadius.circular(18),
-    child: InkWell(
+  Widget build(BuildContext context) {
+    final colors = Theme.of(context).colorScheme;
+    return Material(
+      color: colors.surfaceContainer,
       borderRadius: BorderRadius.circular(18),
-      onTap: onTap,
-      child: ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 76),
-        child: Padding(
-          padding: const EdgeInsets.all(18),
-          child: Row(
-            children: [
-              Icon(icon, color: _apricot, size: 30),
-              const SizedBox(width: 16),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      title,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        color: _ivory,
-                        fontWeight: FontWeight.w700,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(minHeight: 76),
+          child: Padding(
+            padding: const EdgeInsets.all(18),
+            child: Row(
+              children: [
+                Icon(icon, color: colors.primary, size: 30),
+                const SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: Theme.of(context).textTheme.titleMedium
+                            ?.copyWith(
+                              color: colors.onSurface,
+                              fontWeight: FontWeight.w700,
+                            ),
                       ),
-                    ),
-                    const SizedBox(height: 4),
-                    Text(
-                      detail,
-                      style: TextStyle(
-                        color: _ivory.withValues(alpha: 0.66),
-                        height: 1.3,
+                      const SizedBox(height: 4),
+                      Text(
+                        detail,
+                        style: TextStyle(
+                          color: colors.onSurface.withValues(alpha: 0.66),
+                          height: 1.3,
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-              const SizedBox(width: 8),
-              trailing,
-            ],
+                const SizedBox(width: 8),
+                trailing,
+              ],
+            ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

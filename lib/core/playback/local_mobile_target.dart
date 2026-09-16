@@ -12,6 +12,11 @@ class LocalMobileTarget extends PlaybackTarget {
   final _states = StreamController<PlaybackSnapshot>.broadcast();
   int _loadGeneration = 0;
   bool _closed = false;
+  bool _playRequested = false;
+
+  // MainApp owns lifecycle pause. The plugin's lifecycle observer otherwise
+  // restores its remembered play state on resume and can undo that pause.
+  static final _options = VideoPlayerOptions(allowBackgroundPlayback: true);
 
   @override
   String get id => 'phone';
@@ -19,6 +24,10 @@ class LocalMobileTarget extends PlaybackTarget {
   String get label => 'This phone';
   @override
   PlaybackSnapshot get snapshot => _snapshot;
+  @override
+  bool get playRequested =>
+      _snapshot.ready &&
+      (_snapshot.buffering ? _playRequested : _snapshot.playing);
   @override
   Stream<PlaybackSnapshot> get states => _states.stream;
   VideoPlayerController? get controller => _controller;
@@ -36,6 +45,7 @@ class LocalMobileTarget extends PlaybackTarget {
     Duration position = Duration.zero,
   }) async {
     final generation = ++_loadGeneration;
+    _playRequested = false;
     final old = _controller;
     _controller = null;
     _publish(
@@ -44,9 +54,18 @@ class LocalMobileTarget extends PlaybackTarget {
     if (old != null) await old.dispose();
     if (generation != _loadGeneration || _closed) return;
     final next = switch (media.uri.scheme) {
-      'http' || 'https' => VideoPlayerController.networkUrl(media.uri),
-      'content' => VideoPlayerController.contentUri(media.uri),
-      'file' => VideoPlayerController.file(File.fromUri(media.uri)),
+      'http' || 'https' => VideoPlayerController.networkUrl(
+        media.uri,
+        videoPlayerOptions: _options,
+      ),
+      'content' => VideoPlayerController.contentUri(
+        media.uri,
+        videoPlayerOptions: _options,
+      ),
+      'file' => VideoPlayerController.file(
+        File.fromUri(media.uri),
+        videoPlayerOptions: _options,
+      ),
       _ => throw const FormatException(
         'Choose a video file or direct media link.',
       ),
@@ -85,6 +104,13 @@ class LocalMobileTarget extends PlaybackTarget {
   void _onPlayerChanged() {
     final value = _controller?.value;
     if (value == null) return;
+    if (value.hasError || value.isCompleted) {
+      _playRequested = false;
+    } else if (value.isPlaying) {
+      _playRequested = true;
+    } else if (!value.isBuffering && !_snapshot.buffering) {
+      _playRequested = false;
+    }
     _publish(
       PlaybackSnapshot(
         media: _snapshot.media,
@@ -105,11 +131,15 @@ class LocalMobileTarget extends PlaybackTarget {
   @override
   Future<void> play() async {
     if (!_snapshot.ready) throw StateError('Open a video before playing.');
+    _playRequested = true;
     await _controller!.play();
   }
 
   @override
-  Future<void> pause() async => _controller?.pause();
+  Future<void> pause() async {
+    _playRequested = false;
+    await _controller?.pause();
+  }
 
   @override
   Future<void> seek(Duration position) async {

@@ -7,6 +7,7 @@ import 'package:meowwatch_mobile/core/billing/hosting_access_policy.dart';
 import 'package:meowwatch_mobile/core/billing/revenuecat_billing_service.dart';
 import 'package:meowwatch_mobile/core/connect/room_config.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
+import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/sync/endpoint_settings.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
@@ -150,6 +151,76 @@ void main() {
     } on FileSystemException {
       // A close already observed by the test preserves its original error.
     }
+  });
+
+  WatchHistoryEntry pastNight() => WatchHistoryEntry(
+    media: media,
+    position: const Duration(seconds: 24),
+    duration: const Duration(minutes: 10),
+    updatedAt: DateTime(2026, 9, 15),
+    room: ticket,
+  );
+
+  test('pause tap during room buffering uses accepted play intent', () async {
+    await app.load(media);
+    expect(await app.connect(ticket), isTrue);
+    await app.togglePlay();
+    target.emit(
+      PlaybackSnapshot(
+        media: media,
+        duration: const Duration(minutes: 5),
+        playing: false,
+        buffering: true,
+        connection: PlaybackConnection.ready,
+      ),
+    );
+    expect(target.snapshot.playing, isFalse);
+    expect(app.playRequested, isTrue);
+    final before = target.commands.length;
+    await app.togglePlay();
+    expect(target.commands.skip(before), ['pause']);
+    expect(app.playRequested, isFalse);
+  });
+
+  test('watch again creates a fresh host room with the saved video', () async {
+    expect(await app.watchAgain(pastNight()), isTrue);
+    expect(app.room!.isHost, isTrue);
+    expect(app.room!.id, isNot(ticket.id));
+    expect(app.room!.config.room, isNot(ticket.config.room));
+    expect(target.snapshot.media!.uri, media.uri);
+    expect(target.snapshot.position, const Duration(seconds: 24));
+    expect(target.snapshot.playing, isFalse);
+    expect(quota.checks, 1);
+    expect(quota.starts, 0);
+    expect(repository.history.first.room!.id, app.room!.id);
+  });
+
+  test(
+    'watch again still checks quota and preserves local video if denied',
+    () async {
+      await app.useLocalMode();
+      final previous = MediaItem.fromUrl('https://example.com/current.mp4');
+      await app.load(previous);
+      quota.gate = Completer<bool>()..complete(false);
+      expect(await app.watchAgain(pastNight()), isFalse);
+      expect(app.needsPlus, isTrue);
+      expect(app.room, isNull);
+      expect(target.snapshot.media!.uri, previous.uri);
+      expect(clientsCreated, 0);
+      expect(quota.starts, 0);
+    },
+  );
+
+  test('cancelled repeat connection never loads the saved video', () async {
+    quota.gate = Completer<bool>();
+    final pending = app.watchAgain(pastNight());
+    expect(await app.watchAgain(pastNight()), isFalse);
+    await app.leavePlayer();
+    quota.gate!.complete(true);
+    expect(await pending, isFalse);
+    expect(target.snapshot.media, isNull);
+    expect(app.room, isNull);
+    expect(clientsCreated, 0);
   });
 
   test(

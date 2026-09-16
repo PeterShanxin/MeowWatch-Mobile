@@ -1,7 +1,11 @@
 import 'package:flutter/material.dart';
 
-ThemeData meowWatchTheme() {
-  const scheme = ColorScheme.dark(
+import '../core/preferences/appearance.dart';
+
+export '../core/preferences/appearance.dart';
+
+ThemeData meowWatchTheme({String theme = 'cozy'}) {
+  const cozy = ColorScheme.dark(
     primary: Color(0xFFEFB38C),
     onPrimary: Color(0xFF332318),
     secondary: Color(0xFFB9A9D3),
@@ -15,6 +19,37 @@ ThemeData meowWatchTheme() {
     outlineVariant: Color(0xFF333F52),
     error: Color(0xFFFFB4AB),
   );
+  final scheme = switch (normalizeMeowWatchTheme(theme)) {
+    'cinemaNoir' => const ColorScheme.dark(
+      primary: Color(0xFFE6D7B9),
+      onPrimary: Color(0xFF292319),
+      secondary: Color(0xFFA6B6CE),
+      onSecondary: Color(0xFF1C2636),
+      surface: Color(0xFF111113),
+      onSurface: Color(0xFFF2F0ED),
+      onSurfaceVariant: Color(0xFFBEBBC3),
+      surfaceContainer: Color(0xFF1C1C20),
+      surfaceContainerHighest: Color(0xFF2B2B31),
+      outline: Color(0xFF929097),
+      outlineVariant: Color(0xFF3C3C44),
+      error: Color(0xFFFFB4AB),
+    ),
+    'glassAurora' => const ColorScheme.dark(
+      primary: Color(0xFFA4DBC9),
+      onPrimary: Color(0xFF0E3028),
+      secondary: Color(0xFFC8BCF4),
+      onSecondary: Color(0xFF2D2445),
+      surface: Color(0xFF111923),
+      onSurface: Color(0xFFEEF5F3),
+      onSurfaceVariant: Color(0xFFB9CBD2),
+      surfaceContainer: Color(0xFF1B2B37),
+      surfaceContainerHighest: Color(0xFF2B3F4C),
+      outline: Color(0xFF8DA9B5),
+      outlineVariant: Color(0xFF3C5362),
+      error: Color(0xFFFFB4AB),
+    ),
+    _ => cozy,
+  };
   final base = ThemeData(
     useMaterial3: true,
     colorScheme: scheme,

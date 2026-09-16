@@ -61,6 +61,12 @@ unique remote path, so an unsuccessful dump cannot reuse an older file. A wrong
 window, changed product, unknown SDK dialog layout, missing stage, or missing
 button fails with diagnostics instead of broadening the selector.
 
+Focus comes from `dumpsys window displays`, which emits `mCurrentFocus` on the
+API 35 emulator. The `windows` section lists visible windows and IME targets but
+can omit focus entirely; those fields are not accepted as substitutes. The
+captured regression fixture from run 35056405179 documents this distinction.
+Missing, foreign, or ambiguous current-focus entries still prevent every tap.
+
 The failure integration assertion requires RevenueCat's
 `testStoreSimulatedPurchaseError`; a generic network error cannot pass that step.
 
@@ -111,3 +117,4 @@ Official source references, checked for the implemented dialog contract:
 - [Android Test Store dialog implementation](https://github.com/RevenueCat/purchases-android/blob/main/purchases/src/main/kotlin/com/revenuecat/purchases/simulatedstore/SimulatedStoreBillingWrapper.kt)
 - [Native AlertDialog helper](https://github.com/RevenueCat/purchases-android/blob/main/purchases/src/main/kotlin/com/revenuecat/purchases/utils/AlertDialogHelper.kt)
 - [RevenueCat native Android testing guide](https://www.revenuecat.com/blog/engineering/testing-test-store)
+- [Android display focus dump](https://android.googlesource.com/platform/frameworks/base/+/android15-release/services/core/java/com/android/server/wm/DisplayContent.java)

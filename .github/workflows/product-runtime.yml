@@ -50,7 +50,8 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-          sdkmanager 'emulator' 'platforms;android-35' 'system-images;android-35;google_apis;x86_64'
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          "$sdk_root/cmdline-tools/latest/bin/sdkmanager" 'emulator' 'platforms;android-35' 'system-images;android-35;google_apis;x86_64'
       - name: Run two real Android clients and record both
         run: bash tools/android_multi_device/ci_together.sh
       - name: Upload two-device evidence

@@ -11,6 +11,7 @@ from native_dialog import Adb, DialogOrchestrator, PACKAGE, UnsafeDialog, select
 
 
 FOCUS = f"mCurrentFocus=Window{{abcd u0 {PACKAGE}/{PACKAGE}.MainActivity}}"
+FIXTURES = Path(__file__).with_name("fixtures")
 
 
 def dialog() -> ET.Element:
@@ -36,6 +37,55 @@ def xml(root: ET.Element) -> str:
 
 
 class SelectorTests(unittest.TestCase):
+    def test_actual_api35_dialog_bounds_with_explicit_focus(self) -> None:
+        observed = (FIXTURES / "api35_test_store_dialog.xml").read_text(encoding="utf-8")
+        self.assertEqual(select_target(observed, FOCUS, "cancel").center, (542, 1587))
+        self.assertEqual(select_target(observed, FOCUS, "failure").center, (873, 1588))
+        self.assertEqual(select_target(observed, FOCUS, "success").center, (211, 1588))
+
+    def test_actual_dialog_button_uppercase_keeps_exact_semantics(self) -> None:
+        root = ET.fromstring((FIXTURES / "api35_test_store_dialog.xml").read_text(encoding="utf-8"))
+        for node in root.iter("node"):
+            if node.get("class") == "android.widget.Button":
+                node.set("text", node.get("text", "").upper())
+        self.assertEqual(select_target(xml(root), FOCUS, "cancel").center, (542, 1587))
+        self.assertEqual(select_target(xml(root), FOCUS, "failure").center, (873, 1588))
+        self.assertEqual(select_target(xml(root), FOCUS, "success").center, (211, 1588))
+
+    def test_multiple_display_focus_entries_remain_ambiguous(self) -> None:
+        with self.assertRaises(UnsafeDialog):
+            select_target(xml(dialog()), FOCUS + "\n" + FOCUS, "cancel")
+
+    def test_actual_windows_only_capture_remains_insufficient_focus_proof(self) -> None:
+        observed = (FIXTURES / "api35_test_store_dialog.xml").read_text(encoding="utf-8")
+        windows = (FIXTURES / "api35_windows_without_focus.txt").read_text(encoding="utf-8")
+        with self.assertRaises(UnsafeDialog):
+            select_target(observed, windows, "cancel")
+
+    def test_observation_requests_display_focus_section_for_android35(self) -> None:
+        observed = (FIXTURES / "api35_test_store_dialog.xml").read_bytes()
+        windows = (FIXTURES / "api35_windows_without_focus.txt").read_bytes()
+        adb = Adb("adb", "emulator-5554", "regression")
+        calls = []
+
+        def respond(*args: str) -> bytes:
+            calls.append(args)
+            if args[:3] == ("shell", "uiautomator", "dump"):
+                return b"UI hierarchy dumped"
+            if args[:2] == ("exec-out", "cat"):
+                return observed
+            if args == ("shell", "dumpsys", "window", "displays"):
+                # Explicit boundary stub, not claimed to be a device capture.
+                return ("WINDOW MANAGER DISPLAY CONTENTS\n" + FOCUS).encode()
+            if args == ("shell", "dumpsys", "window", "windows"):
+                return windows
+            self.fail(f"Unexpected adb query {args!r}")
+
+        with patch.object(adb, "run", side_effect=respond):
+            observed_xml, observed_focus = adb.observe()
+        self.assertEqual(select_target(observed_xml, observed_focus, "cancel").center, (542, 1587))
+        self.assertIn(("shell", "dumpsys", "window", "displays"), calls)
+
     def test_exact_native_trio_selects_observed_centers(self) -> None:
         observed = xml(dialog())
         self.assertEqual(select_target(observed, FOCUS, "cancel").center, (100, 125))

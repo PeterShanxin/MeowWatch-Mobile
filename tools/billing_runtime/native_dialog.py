@@ -136,7 +136,9 @@ class Adb:
         # yesterday's successful XML, even if uiautomator exits with status 0.
         self.run("shell", "uiautomator", "dump", "--compressed", remote)
         xml = self.run("exec-out", "cat", remote).decode("utf-8", errors="strict")
-        window = self.run("shell", "dumpsys", "window", "windows").decode("utf-8", errors="replace")
+        # Android 35's windows section lists visible windows and IME targets,
+        # but not mCurrentFocus. DisplayContent owns the authoritative focus.
+        window = self.run("shell", "dumpsys", "window", "displays").decode("utf-8", errors="replace")
         return xml, window
 
     def screenshot(self) -> bytes:

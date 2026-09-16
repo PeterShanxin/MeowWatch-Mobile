@@ -16,7 +16,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | Socket recovery and session-race tests pass; Android lifecycle matrix pending |
 | 7 | Local Mode and Continue Watching | Partial | Native decoder/play/pause/seek/reopen pass; disk history/controller resume tests pass; integrated UI journey pending |
 | 8 | Secure phone-to-desktop discovery/pair/control | Unverified | Contract and focused desktop PR pending |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Actual Android SDK loaded the offering and opened the native Test Store dialog; focus-query automation corrected, completed purchase verification pending |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Native Test Store cancel/failure/success, Plus activation, server refresh and restore pass in run 35057627571; integrated unlimited-hosting funnel pending |
 | 10 | Correct daily quota and session continuity | Partial | 19 billing/quota tests pass; integrated device quota funnel pending |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Twelve Flutter test-renderer PNGs across four viewports plus 200% text/player/keyboard regression checks pass; native product screenshots pending |
 | 12 | Reliable Cast or exact blocker and fallback | Unverified | Scheduled after core stability |
@@ -53,6 +53,7 @@ Integration, application, mobile playback and final acceptance remain with the m
 - [Native Android playback run 35054195277](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35054195277) passed on an API 35 Pixel 6 x86_64 AVD. Actual video texture screenshots and a 44.17-second native recording were inspected: 1280×720 media decoded, play advanced 773 ms, and seek reached 2018 ms. This is emulator evidence, not physical-device proof.
 - The product runtime matrix builds distinct host/guest APKs and is designed to record both concurrent AVDs and exercise Test Store cancel/failure/success. The first run exposed SDK-path and native-focus-query issues before those behaviors completed. Both runner fixes have targeted checks; native rerun evidence is pending.
 - The clean-install product journey covers onboarding, local media playback, seek, durable Continue Watching and the real offering on four Android viewports. Its integration APK builds locally; hosted native execution is pending.
+- [Native RevenueCat job 104671008222](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35057627571/job/104671008222) passed: real `default` offering, `$rc_monthly`, localized `$2.99`, initial entitlement false, cancel code 1, failure code 42, successful purchase activates `meowwatch_plus`, server refresh and restore retain it. Native dialog screenshots and three recordings were retained. This uses the official Test Store on an emulator; it does not prove a Play Store charge, physical-device billing, or the integrated hosting funnel.
 
 ## Live development recording
 

@@ -263,7 +263,7 @@ declare -A profile_vm_port=(
 
 record_segments() {
   local profile="$1"
-  local remote_dir="$2"
+  local remote_prefix="$2"
   local profile_runner="$3"
   local stop_file="$profile_runner/recorder.stop"
   local pid_file="$profile_runner/recorder.pid"
@@ -272,12 +272,13 @@ record_segments() {
   while [[ ! -e "$stop_file" ]]; do
     local name
     name="$(printf '%s-%03d.mp4' "$profile" "$segment")"
+    local remote_segment="$remote_prefix-$name"
     local command_ns
     command_ns="$(date +%s%N)"
     adb -s "$serial" shell screenrecord \
       --bit-rate 6000000 \
       --time-limit 170 \
-      "$remote_dir/$name" \
+      "$remote_segment" \
       >> "$profile_runner/screenrecord.log" 2>&1 &
     local adb_pid=$!
     local remote_pid=''
@@ -291,6 +292,8 @@ record_segments() {
       echo 'Could not identify the task-owned screenrecord PID.' >> "$profile_runner/screenrecord.log"
       touch "$profile_runner/recorder.failed"
       wait "$adb_pid" 2>/dev/null || true
+      adb -s "$serial" shell rm -f "$remote_segment" \
+        >> "$profile_runner/screenrecord.log" 2>&1 || true
       return 1
     fi
     printf '%s\n' "$remote_pid" > "$pid_file"
@@ -298,6 +301,23 @@ record_segments() {
     if [[ "$segment" -eq 0 ]]; then printf '%s\n' "$command_ns" > "$profile_runner/recorder.ready"; fi
     wait "$adb_pid" 2>/dev/null || true
     rm -f "$pid_file"
+    local transfer_failed=0
+    if ! adb -s "$serial" pull "$remote_segment" "$profile_runner/segments/$name" \
+      >> "$profile_runner/screenrecord.log" 2>&1; then
+      echo "Could not pull owned Android recording: $remote_segment" \
+        >> "$profile_runner/screenrecord.log"
+      transfer_failed=1
+    fi
+    if ! adb -s "$serial" shell rm -f "$remote_segment" \
+      >> "$profile_runner/screenrecord.log" 2>&1; then
+      echo "Could not remove owned Android recording: $remote_segment" \
+        >> "$profile_runner/screenrecord.log"
+      transfer_failed=1
+    fi
+    if [[ "$transfer_failed" -ne 0 ]]; then
+      touch "$profile_runner/recorder.failed"
+      return 1
+    fi
     segment=$((segment + 1))
   done
 }
@@ -310,7 +330,7 @@ run_profile() {
   local vmservice_port="${profile_vm_port[$profile]}"
   local profile_runner="$runner_root/$profile"
   local profile_artifact="$artifact_root/$profile"
-  local remote_dir="/sdcard/meowwatch-app-journey-${profile}-$$"
+  local remote_prefix="/sdcard/meowwatch-app-journey-${profile}-$(date +%s%N)-$$"
   local existing_recorder=''
   mkdir -p "$profile_runner/segments" || return 9
   {
@@ -332,6 +352,10 @@ run_profile() {
   adb -s "$serial" shell settings put system user_rotation "$rotation" || return 9
   sleep 2
 
+  # flutter drive uninstalls its APK when it exits. Reinstall the exact same
+  # prebuilt artifact for every viewport before enforcing a clean app profile.
+  adb -s "$serial" install -r "$apk" > "$profile_runner/install.txt" 2>&1 || return 4
+  adb -s "$serial" shell am force-stop "$package_name" || return 4
   clear_result="$(adb -s "$serial" shell pm clear "$package_name" | tr -d '\r\n')"
   printf 'pm_clear\t%s\n' "$clear_result" >> "$profile_runner/profile.tsv"
   if [[ "$clear_result" != 'Success' ]]; then
@@ -340,7 +364,6 @@ run_profile() {
   fi
 
   adb -s "$serial" logcat -c || return 9
-  adb -s "$serial" shell mkdir -p "$remote_dir" || return 9
   adb -s "$serial" shell wm size > "$profile_runner/wm-size.txt" || return 9
   adb -s "$serial" shell wm density > "$profile_runner/wm-density.txt" || return 9
   adb -s "$serial" shell dumpsys display > "$profile_runner/display-before.txt" || return 9
@@ -352,7 +375,7 @@ run_profile() {
     echo "$profile: refusing to interfere with existing screenrecord PID(s): $existing_recorder" >&2
     return 5
   fi
-  record_segments "$profile" "$remote_dir" "$profile_runner" &
+  record_segments "$profile" "$remote_prefix" "$profile_runner" &
   current_recorder_loop_pid=$!
   current_recorder_serial="$serial"
   current_recorder_pid_file="$profile_runner/recorder.pid"
@@ -383,16 +406,17 @@ run_profile() {
 
   stop_current_recorder
   set +e
-  adb -s "$serial" pull "$remote_dir/." "$profile_runner/segments/" \
-    >> "$profile_runner/screenrecord.log" 2>&1
-  pull_status=$?
+  pull_status=0
+  if [[ -e "$profile_runner/recorder.failed" ]]; then pull_status=1; fi
   capture_status=0
   adb -s "$serial" exec-out screencap -p > "$profile_runner/after.png" || capture_status=1
   adb -s "$serial" logcat -d -v threadtime > "$profile_runner/logcat.txt" || capture_status=1
   adb -s "$serial" shell dumpsys display > "$profile_runner/display-after.txt" || capture_status=1
   adb -s "$serial" shell dumpsys window displays > "$profile_runner/window-after.txt" || capture_status=1
-  adb -s "$serial" shell dumpsys media.codec > "$profile_runner/media-codec.txt" || capture_status=1
-  adb -s "$serial" shell dumpsys SurfaceFlinger --list > "$profile_runner/surfaceflinger-layers.txt" || capture_status=1
+  adb -s "$serial" shell dumpsys media.codec > "$profile_runner/media-codec.txt" 2>&1
+  printf 'media_codec_diagnostic_exit\t%s\n' "$?" >> "$profile_runner/profile.tsv"
+  adb -s "$serial" shell dumpsys SurfaceFlinger --list > "$profile_runner/surfaceflinger-layers.txt" 2>&1
+  printf 'surfaceflinger_diagnostic_exit\t%s\n' "$?" >> "$profile_runner/profile.tsv"
 
   find "$profile_runner/segments" -type f -name '*.mp4' -size +4096c \
     -print0 | sort -z | xargs -0 -r sha256sum > "$profile_runner/native-segments.sha256"

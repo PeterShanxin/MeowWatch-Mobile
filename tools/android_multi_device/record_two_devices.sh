@@ -101,15 +101,13 @@ capture_before phone "$PHONE_SERIAL" "$phone_dir"
 capture_before tablet "$TABLET_SERIAL" "$tablet_dir"
 
 remote_suffix="$(date -u +%Y%m%dT%H%M%SZ)-$$"
-phone_remote_dir="/sdcard/meowwatch-evidence-$remote_suffix-phone"
-tablet_remote_dir="/sdcard/meowwatch-evidence-$remote_suffix-tablet"
-"$ADB" -s "$PHONE_SERIAL" shell mkdir -p "$phone_remote_dir"
-"$ADB" -s "$TABLET_SERIAL" shell mkdir -p "$tablet_remote_dir"
+phone_remote_prefix="/sdcard/meowwatch-evidence-$remote_suffix-phone"
+tablet_remote_prefix="/sdcard/meowwatch-evidence-$remote_suffix-tablet"
 
 record_segments() {
   local label="$1"
   local serial="$2"
-  local remote_dir="$3"
+  local remote_prefix="$3"
   local destination="$4"
   local stop_file="$control_dir/$label.stop"
   local pid_file="$control_dir/$label.pid"
@@ -120,12 +118,13 @@ record_segments() {
   while [[ ! -e "$stop_file" ]]; do
     local segment_name
     segment_name="$(printf '%s-%03d.mp4' "$label" "$segment")"
+    local remote_segment="$remote_prefix-$segment_name"
     local command_ns
     command_ns="$(date +%s%N)"
     "$ADB" -s "$serial" shell screenrecord \
       --bit-rate "$bit_rate" \
       --time-limit 170 \
-      "$remote_dir/$segment_name" \
+      "$remote_segment" \
       >> "$destination/screenrecord.log" 2>&1 &
     local host_pid=$!
 
@@ -143,6 +142,8 @@ record_segments() {
         >> "$destination/screenrecord.log"
       touch "$control_dir/$label.failed"
       wait "$host_pid" 2>/dev/null || true
+      "$ADB" -s "$serial" shell rm -f "$remote_segment" \
+        >> "$destination/screenrecord.log" 2>&1 || true
       return 1
     fi
 
@@ -154,13 +155,30 @@ record_segments() {
     fi
     wait "$host_pid" 2>/dev/null || true
     rm -f "$pid_file"
+    local transfer_failed=0
+    if ! "$ADB" -s "$serial" pull "$remote_segment" "$destination/segments/$segment_name" \
+      >> "$destination/screenrecord.log" 2>&1; then
+      echo "Could not pull owned Android recording: $remote_segment" \
+        >> "$destination/screenrecord.log"
+      transfer_failed=1
+    fi
+    if ! "$ADB" -s "$serial" shell rm -f "$remote_segment" \
+      >> "$destination/screenrecord.log" 2>&1; then
+      echo "Could not remove owned Android recording: $remote_segment" \
+        >> "$destination/screenrecord.log"
+      transfer_failed=1
+    fi
+    if [[ "$transfer_failed" -ne 0 ]]; then
+      touch "$control_dir/$label.failed"
+      return 1
+    fi
     segment=$((segment + 1))
   done
 }
 
-record_segments phone "$PHONE_SERIAL" "$phone_remote_dir" "$phone_dir" &
+record_segments phone "$PHONE_SERIAL" "$phone_remote_prefix" "$phone_dir" &
 phone_recorder_loop_pid=$!
-record_segments tablet "$TABLET_SERIAL" "$tablet_remote_dir" "$tablet_dir" &
+record_segments tablet "$TABLET_SERIAL" "$tablet_remote_prefix" "$tablet_dir" &
 tablet_recorder_loop_pid=$!
 
 recorders_stopped=0
@@ -251,9 +269,6 @@ if [[ -e "$control_dir/phone.failed" || -e "$control_dir/tablet.failed" ]]; then
   echo 'At least one native recorder failed.' >&2
   command_status=1
 fi
-
-"$ADB" -s "$PHONE_SERIAL" pull "$phone_remote_dir/." "$phone_dir/segments/"
-"$ADB" -s "$TABLET_SERIAL" pull "$tablet_remote_dir/." "$tablet_dir/segments/"
 
 collect_after() {
   local serial="$1"

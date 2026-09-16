@@ -30,6 +30,7 @@ fi
 source "$session_file"
 : "${ADB:?session is missing ADB}"
 : "${AVDMANAGER:?session is missing AVDMANAGER}"
+: "${AVD_HOME:?session is missing AVD_HOME}"
 : "${PHONE_SERIAL:?session is missing PHONE_SERIAL}"
 : "${TABLET_SERIAL:?session is missing TABLET_SERIAL}"
 
@@ -52,8 +53,8 @@ for pid_name in PHONE_EMULATOR_PID TABLET_EMULATOR_PID; do
 done
 
 if [[ "$delete_avds" == '--delete-avds' ]]; then
-  "$AVDMANAGER" delete avd --name "$PHONE_AVD"
-  "$AVDMANAGER" delete avd --name "$TABLET_AVD"
+  ANDROID_AVD_HOME="$AVD_HOME" "$AVDMANAGER" delete avd --name "$PHONE_AVD"
+  ANDROID_AVD_HOME="$AVD_HOME" "$AVDMANAGER" delete avd --name "$TABLET_AVD"
 fi
 
 echo 'Task-owned Android emulator instances stopped.'

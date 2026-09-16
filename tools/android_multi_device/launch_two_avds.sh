@@ -22,6 +22,8 @@ mkdir -p "$output_root"
 output_root="$(cd "$output_root" && pwd -P)"
 session_dir="$output_root/$session_id"
 mkdir -p "$session_dir"
+avd_home="$session_dir/avd"
+mkdir -p "$avd_home"
 
 sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
 if [[ -z "$sdk_root" ]]; then
@@ -73,16 +75,25 @@ done
 phone_avd="meowwatch_phone_${session_id//[^[:alnum:]]/_}"
 tablet_avd="meowwatch_tablet_${session_id//[^[:alnum:]]/_}"
 
-printf 'no\n' | "$avdmanager" create avd \
+printf 'no\n' | ANDROID_AVD_HOME="$avd_home" "$avdmanager" create avd \
   --force \
   --name "$phone_avd" \
   --package "$system_image" \
   --device pixel_6
-printf 'no\n' | "$avdmanager" create avd \
+printf 'no\n' | ANDROID_AVD_HOME="$avd_home" "$avdmanager" create avd \
   --force \
   --name "$tablet_avd" \
   --package "$system_image" \
   --device pixel_tablet
+
+ANDROID_AVD_HOME="$avd_home" "$emulator" -list-avds \
+  > "$session_dir/created-avds.txt"
+for created_avd in "$phone_avd" "$tablet_avd"; do
+  if ! grep -Fxq "$created_avd" "$session_dir/created-avds.txt"; then
+    echo "Created AVD is not visible to the emulator: $created_avd" >&2
+    exit 3
+  fi
+done
 
 "$adb" start-server >/dev/null
 for serial in emulator-5554 emulator-5556; do
@@ -92,7 +103,7 @@ for serial in emulator-5554 emulator-5556; do
   fi
 done
 
-"$emulator" -avd "$phone_avd" \
+ANDROID_AVD_HOME="$avd_home" "$emulator" -avd "$phone_avd" \
   -port 5554 \
   -accel on \
   -gpu swiftshader \
@@ -107,7 +118,7 @@ done
   > "$session_dir/phone-emulator.log" 2>&1 &
 phone_emulator_pid=$!
 
-"$emulator" -avd "$tablet_avd" \
+ANDROID_AVD_HOME="$avd_home" "$emulator" -avd "$tablet_avd" \
   -port 5556 \
   -accel on \
   -gpu swiftshader \
@@ -130,6 +141,7 @@ write_session() {
     printf 'SESSION_ID=%q\n' "$session_id"
     printf 'SESSION_DIR=%q\n' "$session_dir"
     printf 'SDK_ROOT=%q\n' "$sdk_root"
+    printf 'AVD_HOME=%q\n' "$avd_home"
     printf 'ADB=%q\n' "$adb"
     printf 'AVDMANAGER=%q\n' "$avdmanager"
     printf 'PHONE_AVD=%q\n' "$phone_avd"

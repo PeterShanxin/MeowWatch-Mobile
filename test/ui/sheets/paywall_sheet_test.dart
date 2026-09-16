@@ -1,11 +1,29 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/core/billing/billing_service.dart';
+import 'package:meowwatch_mobile/main.dart';
 import 'package:meowwatch_mobile/ui/paywall/paywall_sheet.dart';
 
 import 'sheet_test_support.dart';
 
 void main() {
+  testWidgets('opening Plus can refresh billing with the whole app listening', (
+    tester,
+  ) async {
+    final billing = TestBilling();
+    await billing.configure();
+    final app = createTestApp(billing: billing);
+    await tester.pumpWidget(MainApp(controller: app));
+    await tester.pump();
+    await tester.tap(find.widgetWithText(TextButton, 'Plus'));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(billing.refreshCalls, 1);
+    expect(find.text('More movie nights.'), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await app.close();
+  });
+
   testWidgets('shows store price and returns true only after Plus activates', (
     tester,
   ) async {

@@ -28,7 +28,10 @@ bash tools/android_multi_device/ci_together.sh
 records the complete smoke, composes valid native recordings, and then stops
 the task-owned AVDs and server even when a stage fails. It preserves the first
 test or tooling exit code; cleanup failures only replace an otherwise successful
-result. The lower-level scripts remain available for local diagnosis.
+result. Each run uses a session-scoped `ANDROID_AVD_HOME` for AVD creation,
+emulator lookup, and deletion, so hosted-runner user-home settings cannot split
+those operations across different directories. The lower-level scripts remain
+available for local diagnosis.
 
 `prepare_fixture.sh` downloads Flutter's official `bee.mp4` at a reviewed,
 pinned SHA-256. Flutter documents that file as CC0. FFmpeg stream-copies and

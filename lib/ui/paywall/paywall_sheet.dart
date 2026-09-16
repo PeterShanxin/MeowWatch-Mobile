@@ -40,7 +40,11 @@ class _PaywallSheetState extends State<_PaywallSheet> {
   @override
   void initState() {
     super.initState();
-    _prepare();
+    // Billing notifies the app as soon as refresh begins. Wait until the sheet
+    // is mounted before rebuilding listeners above this route.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _prepare();
+    });
   }
 
   Future<void> _prepare() async {

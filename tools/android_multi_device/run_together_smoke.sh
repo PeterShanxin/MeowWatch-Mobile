@@ -84,6 +84,11 @@ source "$session_file"
 : "${PHONE_SERIAL:?session is missing PHONE_SERIAL}"
 : "${TABLET_SERIAL:?session is missing TABLET_SERIAL}"
 : "${SESSION_DIR:?session is missing SESSION_DIR}"
+: "${ADB:?session is missing ADB}"
+if [[ ! -x "$ADB" ]]; then
+  echo "Session adb is not executable: $ADB" >&2
+  exit 2
+fi
 
 output_dir="${output_dir:-$SESSION_DIR/together-smoke}"
 host_output="$output_dir/host-$PHONE_SERIAL"
@@ -126,6 +131,155 @@ done
 sha256sum "$host_apk" > "$host_output/application.apk.sha256"
 sha256sum "$guest_apk" > "$guest_output/application.apk.sha256"
 
+run_adb_bounded() {
+  timeout --signal=TERM --kill-after=2s 8s "$ADB" "$@"
+}
+
+normalize_component() {
+  local component="$1"
+  local package=''
+  local activity=''
+  if [[ "$component" != */* ]]; then
+    return 1
+  fi
+  package="${component%%/*}"
+  activity="${component#*/}"
+  if [[ "$activity" == .* ]]; then
+    activity="$package$activity"
+  fi
+  printf '%s/%s\n' "$package" "$activity"
+}
+
+capture_device_diagnostics() {
+  local role="$1"
+  local serial="$2"
+  local destination="$3/diagnostics"
+  mkdir -p "$destination"
+  date -u +%Y-%m-%dT%H:%M:%SZ > "$destination/captured-utc.txt"
+  run_adb_bounded -s "$serial" get-state > "$destination/adb-state.txt" 2>&1 || true
+  run_adb_bounded -s "$serial" shell getprop > "$destination/getprop.txt" 2>&1 || true
+  {
+    printf 'device_provisioned='
+    run_adb_bounded -s "$serial" shell settings get global device_provisioned 2>/dev/null | tr -d '\r' || true
+    printf 'user_setup_complete='
+    run_adb_bounded -s "$serial" shell settings get secure user_setup_complete 2>/dev/null | tr -d '\r' || true
+    printf 'boot_completed='
+    run_adb_bounded -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true
+    printf 'bootanim='
+    run_adb_bounded -s "$serial" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || true
+  } > "$destination/readiness.txt"
+  run_adb_bounded -s "$serial" shell dumpsys window displays \
+    > "$destination/window-displays.txt" 2>&1 || true
+  run_adb_bounded -s "$serial" shell dumpsys activity activities \
+    > "$destination/activity-activities.txt" 2>&1 || true
+  run_adb_bounded -s "$serial" shell pidof com.meowwatch.meowwatch_mobile \
+    > "$destination/app-pid.txt" 2>&1 || true
+  run_adb_bounded forward --list > "$destination/adb-forward-list.txt" 2>&1 || true
+  run_adb_bounded -s "$serial" logcat -d -t 1200 \
+    > "$destination/logcat-tail.txt" 2>&1 || true
+  printf '%s\t%s\n' "$role" "$serial" > "$destination/device.tsv"
+}
+
+wait_for_interactive_device() {
+  local role="$1"
+  local serial="$2"
+  local destination="$3"
+  local started="$SECONDS"
+  local deadline=$((SECONDS + 120))
+  local state=''
+  local boot=''
+  local bootanim=''
+  local provisioned=''
+  local setup=''
+  local home=''
+  local normalized_home=''
+  local focus=''
+  local focus_component=''
+  local normalized_focus=''
+  while (( SECONDS < deadline )); do
+    state="$(run_adb_bounded -s "$serial" get-state 2>/dev/null | tr -d '\r' || true)"
+    boot="$(run_adb_bounded -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+    bootanim="$(run_adb_bounded -s "$serial" shell getprop init.svc.bootanim 2>/dev/null | tr -d '\r' || true)"
+    provisioned="$(run_adb_bounded -s "$serial" shell settings get global device_provisioned 2>/dev/null | tr -d '\r' || true)"
+    setup="$(run_adb_bounded -s "$serial" shell settings get secure user_setup_complete 2>/dev/null | tr -d '\r' || true)"
+    if [[ "$state" == 'device' && "$boot" == '1' && "$bootanim" == 'stopped' && "$provisioned" == '1' && "$setup" == '1' ]]; then
+      run_adb_bounded -s "$serial" shell input keyevent 3 >/dev/null 2>&1 || true
+      sleep 1
+      home="$(run_adb_bounded -s "$serial" shell cmd package resolve-activity --brief \
+        -a android.intent.action.MAIN -c android.intent.category.HOME \
+        2>/dev/null | tr -d '\r' | tail -n 1 || true)"
+      normalized_home="$(normalize_component "$home" 2>/dev/null || true)"
+      focus="$(run_adb_bounded -s "$serial" shell dumpsys window displays 2>/dev/null \
+        | grep -m 1 'mCurrentFocus=' || true)"
+      focus_component=''
+      normalized_focus=''
+      if [[ "$focus" =~ ([[:alnum:]_.]+)/([[:alnum:]_.$]+) ]]; then
+        focus_component="${BASH_REMATCH[1]}/${BASH_REMATCH[2]}"
+        normalized_focus="$(normalize_component "$focus_component" 2>/dev/null || true)"
+      fi
+      if [[ -n "$home" && "$home" != *'No activity found'* && \
+            "$home" != *'googlesdksetup'* && "$home" != *'FallbackHome'* && \
+            -n "$normalized_home" && -n "$normalized_focus" && \
+            "$normalized_focus" == "$normalized_home" && \
+            "$focus" != *'Application Not Responding'* ]]; then
+        {
+          printf 'role\t%s\n' "$role"
+          printf 'serial\t%s\n' "$serial"
+          printf 'ready_seconds\t%s\n' "$((SECONDS - started))"
+          printf 'resolved_home\t%s\n' "$home"
+          printf 'focus\t%s\n' "$focus"
+        } > "$destination/readiness.tsv"
+        return 0
+      fi
+    fi
+    sleep 2
+  done
+  echo "$role device $serial did not reach a provisioned interactive Home within 120 seconds." >&2
+  capture_device_diagnostics "$role" "$serial" "$destination"
+  return 1
+}
+
+wait_for_vm_service_attach() {
+  local role="$1"
+  local serial="$2"
+  local drive_pid="$3"
+  local destination="$4"
+  local deadline=$((SECONDS + 120))
+  while (( SECONDS < deadline )); do
+    if grep -Fq 'VMServiceFlutterDriver: Connected to Flutter application.' \
+        "$destination/flutter-drive.log" 2>/dev/null; then
+      printf '%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+        > "$destination/vm-service-attached-utc.txt"
+      return 0
+    fi
+    if ! kill -0 "$drive_pid" 2>/dev/null; then
+      echo "$role drive exited before its VM Service attached on $serial." >&2
+      capture_device_diagnostics "$role" "$serial" "$destination"
+      return 1
+    fi
+    sleep 2
+  done
+  echo "$role VM Service did not attach on $serial within 120 seconds." >&2
+  capture_device_diagnostics "$role" "$serial" "$destination"
+  return 1
+}
+
+phone_ready_pid=''
+tablet_ready_pid=''
+wait_for_interactive_device host "$PHONE_SERIAL" "$host_output" &
+phone_ready_pid=$!
+wait_for_interactive_device guest "$TABLET_SERIAL" "$guest_output" &
+tablet_ready_pid=$!
+set +e
+wait "$phone_ready_pid"
+phone_ready_status=$?
+wait "$tablet_ready_pid"
+tablet_ready_status=$?
+set -e
+if [[ "$phone_ready_status" -ne 0 || "$tablet_ready_status" -ne 0 ]]; then
+  exit 1
+fi
+
 run_role() {
   local role="$1"
   local serial="$2"
@@ -151,13 +305,22 @@ run_role() {
 
 run_role host "$PHONE_SERIAL" "$host_apk" 39101 "$host_output" &
 host_drive_pid=$!
-sleep 2
-run_role guest "$TABLET_SERIAL" "$guest_apk" 39102 "$guest_output" &
-guest_drive_pid=$!
+guest_drive_pid=''
+if wait_for_vm_service_attach host "$PHONE_SERIAL" "$host_drive_pid" "$host_output"; then
+  run_role guest "$TABLET_SERIAL" "$guest_apk" 39102 "$guest_output" &
+  guest_drive_pid=$!
+  wait_for_vm_service_attach guest "$TABLET_SERIAL" "$guest_drive_pid" "$guest_output" || true
+fi
 
 set +e
 wait "$host_drive_pid"
-wait "$guest_drive_pid"
+if [[ -n "$guest_drive_pid" ]]; then
+  wait "$guest_drive_pid"
+else
+  printf '125\n' > "$guest_output/exit-code.txt"
+  printf 'Guest drive was not started because the host VM Service did not attach.\n' \
+    > "$guest_output/flutter-drive.log"
+fi
 set -e
 
 host_status="$(tr -d '\r\n' < "$host_output/exit-code.txt")"
@@ -167,5 +330,7 @@ cp -a "$host_driver_output/." "$host_output/driver/"
 cp -a "$guest_driver_output/." "$guest_output/driver/"
 printf 'Host drive exit: %s; guest drive exit: %s\n' "$host_status" "$guest_status"
 if [[ "$host_status" -ne 0 || "$guest_status" -ne 0 ]]; then
+  capture_device_diagnostics host "$PHONE_SERIAL" "$host_output"
+  capture_device_diagnostics guest "$TABLET_SERIAL" "$guest_output"
   exit 1
 fi

@@ -1,0 +1,45 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MeowWatch Mobile — Live Development Showcase</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">MEOWWATCH MOBILE</p>
+        <h1>Live development showcase</h1>
+      </div>
+      <div class="recording-controls">
+        <div id="recordingBadge" class="badge waiting">Preparing recorder…</div>
+        <button id="stopRecording" type="button" disabled>Stop safely</button>
+      </div>
+    </header>
+    <main>
+      <section class="stage-panel">
+        <canvas id="stage" width="1280" height="720" aria-label="Live Android device composite or explicit waiting state"></canvas>
+        <p class="disclosure">This page records only this showcase canvas. It cannot see the desktop, other windows, microphone, or work completed before the page opened.</p>
+      </section>
+      <aside>
+        <section>
+          <p class="eyebrow">CURRENT STATE</p>
+          <h2 id="headline">Loading verified progress…</h2>
+          <ol id="timeline"></ol>
+        </section>
+        <section>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">CI EVIDENCE</p>
+              <h2>Captured native output</h2>
+            </div>
+            <button id="refreshEvidence" type="button">Refresh</button>
+          </div>
+          <div id="evidence" class="evidence-empty">No CI screenshots or video downloaded yet.</div>
+        </section>
+      </aside>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

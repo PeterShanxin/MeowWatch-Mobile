@@ -261,6 +261,7 @@ final class _ServerConnection {
   StreamSubscription<Uint8List>? _socketSubscription;
   StreamSubscription<NearbyFrame>? _frameSubscription;
   Timer? _frameTimer;
+  Timer? _receiptCloseTimer;
   var _partialBytes = 0;
   var _queuedBytes = 0;
   var _queuedCommands = 0;
@@ -622,6 +623,22 @@ final class _ServerConnection {
       });
       return result;
     } finally {
+      await _closeAfterReceipt();
+    }
+  }
+
+  Future<void> _closeAfterReceipt() async {
+    if (_transportClosed) return;
+    _phase = _Phase.closing;
+    _frameTimer?.cancel();
+    // flush() only drains Dart's consumer, not the peer's TCP/TLS buffers.
+    // Immediate destroy with an in-flight incoming frame can reset Linux TCP
+    // and discard the durability receipt. Close TLS output, continue draining
+    // the unauthorised read side, and bound final destruction independently.
+    _receiptCloseTimer = Timer(const Duration(seconds: 3), close);
+    try {
+      await socket.close();
+    } catch (_) {
       close();
     }
   }
@@ -754,6 +771,7 @@ final class _ServerConnection {
     _phase = _Phase.closing;
     if (!_closedSignal.isCompleted) _closedSignal.complete(false);
     _frameTimer?.cancel();
+    _receiptCloseTimer?.cancel();
     server._connections.remove(id);
     server.authority.closeConnection(id);
     socket.destroy();

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -93,6 +94,7 @@ Future<void> _bootstrap(
   final identity = await storeA
       .loadOrCreateDesktopIdentity(createTlsIdentity: TlsIdentity.generate)
       .timeout(_identityTimeout);
+  evidence['tlsTransport'] = await _verifyRealAndroidTlsTransport(identity);
   final live = _credential(_tokenLive, _clientA, 'Runtime phone A', 0x51);
   final revoked = _credential(
     _tokenRevoked,
@@ -235,6 +237,147 @@ Future<Map<String, Object?>> _verifyAndroidLan() async {
   };
 }
 
+Future<Map<String, Object?>> _verifyRealAndroidTlsTransport(
+  PersistedDesktopIdentity identity,
+) async {
+  final routes = await AndroidLan().list().timeout(_pluginTimeout);
+  expect(routes, isNotEmpty);
+  final subnet = routes.first.subnet;
+  final desktopStore = _ProtocolDesktopStore();
+  final clientStore = _ProtocolClientStore();
+  final handler = _ProtocolHandler();
+  var approvalObserved = false;
+  NearbyServer? server;
+  NearbyClient? pairingClient;
+  NearbyClient? authenticatedClient;
+  NearbyClient? rejectedClient;
+  try {
+    final authority = NearbyAuthority(
+      desktopId: identity.desktopId,
+      certificateSha256: identity.tlsIdentity.certificateSha256,
+      store: desktopStore,
+    );
+    server = await NearbyServer.bind(
+      subnet: subnet,
+      identity: identity.tlsIdentity,
+      authority: authority,
+      handler: handler,
+      approvePairing: (approval) async {
+        expect(approval.clientName, 'Android TLS probe');
+        approvalObserved = true;
+        return true;
+      },
+    ).timeout(_pluginTimeout);
+    final invitation = authority.openInvitation(
+      LanEndpoint(address: subnet.localAddress, port: server.port),
+    );
+    pairingClient = NearbyClient(store: clientStore);
+    final credential = await pairingClient
+        .pair(
+          invitation: invitation,
+          subnet: subnet,
+          clientName: 'Android TLS probe',
+        )
+        .timeout(_pluginTimeout);
+    expect(approvalObserved, isTrue);
+    expect(desktopStore.credentials, hasLength(1));
+    expect(
+      (await clientStore.read(identity.desktopId))?.tokenId,
+      credential.tokenId,
+    );
+    await pairingClient.dispose().timeout(_pluginTimeout);
+    pairingClient = null;
+
+    final restored = await clientStore.read(identity.desktopId);
+    expect(restored, isNotNull);
+    authenticatedClient = NearbyClient(store: clientStore);
+    await authenticatedClient
+        .connect(credential: restored!, subnet: subnet)
+        .timeout(_pluginTimeout);
+    expect(authenticatedClient.state.phase, NearbyClientPhase.connected);
+    await authenticatedClient.command('playback.play').timeout(_pluginTimeout);
+    expect(handler.playing, isTrue);
+    expect(handler.commandCount, 1);
+
+    final disconnected = authenticatedClient.states.firstWhere(
+      (state) => state.phase == NearbyClientPhase.disconnected,
+    );
+    await authenticatedClient
+        .command('device.revokeSelf')
+        .timeout(_pluginTimeout);
+    await disconnected.timeout(_pluginTimeout);
+    expect(desktopStore.credentials, isEmpty);
+    expect(desktopStore.revokedTokenIds, contains(credential.tokenId));
+    await authenticatedClient.dispose().timeout(_pluginTimeout);
+    authenticatedClient = null;
+
+    await server.close().timeout(_pluginTimeout);
+    server = null;
+    final restartedAuthority = NearbyAuthority(
+      desktopId: identity.desktopId,
+      certificateSha256: identity.tlsIdentity.certificateSha256,
+      store: desktopStore,
+    );
+    server = await NearbyServer.bind(
+      subnet: subnet,
+      identity: identity.tlsIdentity,
+      authority: restartedAuthority,
+      handler: handler,
+      approvePairing: (_) async => false,
+    ).timeout(_pluginTimeout);
+    rejectedClient = NearbyClient(store: clientStore);
+    final readsBeforeRejectedAuthentication = desktopStore.readCount;
+    var oldCredentialRejected = false;
+    try {
+      await rejectedClient
+          .reconnect(
+            credential: credential,
+            subnet: subnet,
+            endpoint: LanEndpoint(
+              address: subnet.localAddress,
+              port: server.port,
+            ),
+          )
+          .timeout(_pluginTimeout);
+    } on NearbyException catch (error) {
+      expect(error.code, anyOf('auth_failed', 'not_connected'));
+      oldCredentialRejected = true;
+    }
+    expect(oldCredentialRejected, isTrue);
+    expect(
+      desktopStore.readCount,
+      greaterThan(readsBeforeRejectedAuthentication),
+    );
+
+    return <String, Object?>{
+      'realSecureSocketExchangeCompleted': true,
+      'generatedCertificatePinned': true,
+      'productionLanGuardUsed': true,
+      'ownerApprovalObserved': approvalObserved,
+      'pairingCompleted': true,
+      'freshClientAuthenticated': true,
+      'authenticatedControlExecuted': handler.playing,
+      'revocationCompleted': true,
+      'oldCredentialRejected': oldCredentialRejected,
+      'sameDeviceAndroidTransport': true,
+      'windowsCrossDeviceClaimed': false,
+      'rawAddressesReported': false,
+      'rawSecretsReported': false,
+    };
+  } finally {
+    Future<void> cleanup(Future<void>? operation) async {
+      try {
+        await operation?.timeout(_pluginTimeout);
+      } catch (_) {}
+    }
+
+    await cleanup(rejectedClient?.dispose());
+    await cleanup(authenticatedClient?.dispose());
+    await cleanup(pairingClient?.dispose());
+    await cleanup(server?.close());
+  }
+}
+
 Future<Map<String, Object?>> _verifyMdnsLifecycle() async {
   final discovery = NearbyDiscovery();
   final registration = NearbyAdvertisementRegistration(
@@ -283,6 +426,77 @@ Future<Map<String, Object?>> _verifyMdnsLifecycle() async {
     'rawAddressesReported': false,
     'windowsDesktopDiscoveryClaimed': false,
   };
+}
+
+final class _ProtocolDesktopStore implements NearbySecretStore {
+  final credentials = <String, DeviceCredential>{};
+  final revokedTokenIds = <String>{};
+  int readCount = 0;
+
+  @override
+  Future<DeviceCredential?> read(String tokenId) async {
+    readCount++;
+    if (revokedTokenIds.contains(tokenId)) return null;
+    return credentials[tokenId];
+  }
+
+  @override
+  Future<void> write(DeviceCredential credential) async {
+    if (revokedTokenIds.contains(credential.tokenId)) {
+      throw const NearbyException('device_revoked');
+    }
+    credentials[credential.tokenId] = credential;
+  }
+
+  @override
+  Future<void> revoke(String tokenId) async {
+    revokedTokenIds.add(tokenId);
+    credentials.remove(tokenId);
+  }
+}
+
+final class _ProtocolClientStore implements NearbyClientStore {
+  NearbyClientCredential? credential;
+
+  @override
+  Future<NearbyClientCredential?> read(String desktopId) async =>
+      credential?.desktopId == desktopId ? credential : null;
+
+  @override
+  Future<void> remove(String desktopId) async {
+    if (credential?.desktopId == desktopId) credential = null;
+  }
+
+  @override
+  Future<void> write(NearbyClientCredential value) async {
+    credential = value;
+  }
+}
+
+final class _ProtocolHandler implements NearbyCommandHandler {
+  bool playing = false;
+  int commandCount = 0;
+
+  @override
+  Stream<NearbyServerEvent> get events => const Stream.empty();
+
+  @override
+  int get stateRevision => commandCount;
+
+  @override
+  Map<String, Object?> get snapshot => <String, Object?>{'playing': playing};
+
+  @override
+  Future<Map<String, Object?>> handle(NearbyCommand command) async {
+    command.checkActive();
+    if (command.method != 'playback.play' || command.args.isNotEmpty) {
+      throw const NearbyException('unsupported_command');
+    }
+    playing = true;
+    commandCount++;
+    command.checkActive();
+    return const <String, Object?>{};
+  }
 }
 
 DeviceCredential _credential(

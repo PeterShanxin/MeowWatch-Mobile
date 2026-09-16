@@ -15,6 +15,8 @@ import xml.etree.ElementTree as ET
 PACKAGE = "com.meowwatch.meowwatch_mobile"
 PRODUCT = "meowwatch_plus_monthly"
 STAGES = ("cancel", "failure", "success")
+LAUNCHER_PACKAGE = "com.google.android.apps.nexuslauncher"
+MAX_LAUNCHER_RECOVERIES = 2
 # The first variants are from the native SDK's SimulatedStoreBillingWrapper;
 # the latter full labels are documented in RevenueCat's Test Store guide.
 BUTTONS = {
@@ -44,6 +46,57 @@ def focused_on_app(window_dump: str, package: str = PACKAGE) -> bool:
     return len(focuses) == 1 and re.search(
         rf"\b{re.escape(package)}/[^\s}}]+", focuses[0]
     ) is not None
+
+
+def select_pixel_launcher_anr_close(xml: str, window_dump: str) -> Target:
+    """Select only the API 35 Pixel Launcher ANR close action over MeowWatch."""
+    focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window_dump)
+    focused_apps = re.findall(r"mFocusedApp=([^\r\n]+)", window_dump)
+    if len(focuses) != 1 or re.search(
+        rf"\bApplication Not Responding: {re.escape(LAUNCHER_PACKAGE)}(?:\s|}})",
+        focuses[0],
+    ) is None:
+        raise UnsafeDialog("The focused window is not the Pixel Launcher ANR")
+    if len(focused_apps) != 1 or re.search(
+        rf"\b{re.escape(PACKAGE)}/[^\s}}]+", focused_apps[0]
+    ) is None:
+        raise UnsafeDialog("Pixel Launcher ANR is not obscuring MeowWatch")
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as error:
+        raise UnsafeDialog("Invalid accessibility XML") from error
+    nodes = [
+        node
+        for node in root.iter("node")
+        if node.get("package") == "android"
+        and node.get("visible-to-user", "true") == "true"
+        and node.get("enabled") == "true"
+    ]
+    titles = [
+        node
+        for node in nodes
+        if node.get("resource-id") == "android:id/alertTitle"
+        and node.get("class") == "android.widget.TextView"
+        and node.get("text") == "Pixel Launcher isn't responding"
+    ]
+    close_buttons = [
+        node
+        for node in nodes
+        if node.get("resource-id") == "android:id/aerr_close"
+        and node.get("class") == "android.widget.Button"
+        and node.get("clickable") == "true"
+        and node.get("text") == "Close app"
+    ]
+    if len(titles) != 1 or len(close_buttons) != 1:
+        raise UnsafeDialog("Missing unique Pixel Launcher ANR title/close action")
+    node = close_buttons[0]
+    bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
+    if not bounds:
+        raise UnsafeDialog("Invalid Pixel Launcher close bounds")
+    left, top, right, bottom = map(int, bounds.groups())
+    if left >= right or top >= bottom:
+        raise UnsafeDialog("Empty Pixel Launcher close bounds")
+    return Target(node.get("text", ""), (left, top, right, bottom))
 
 
 def select_target(xml: str, window_dump: str, stage: str) -> Target:
@@ -113,6 +166,7 @@ class Adb:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
             raise ValueError("Invalid run ID")
         self.prefix = [executable, "-s", serial]
+        self.serial = serial
         self.remote_prefix = f"/sdcard/meowwatch-billing-{run_id}-"
         self.remote_files: list[str] = []
         self.observations = 0
@@ -145,6 +199,14 @@ class Adb:
         png = self.run("exec-out", "screencap", "-p")
         image_size(png)
         return png
+
+    def verified_emulator(self) -> bool:
+        """Require both an emulator adb serial and Android's qemu property."""
+        if re.fullmatch(r"emulator-\d+", self.serial) is None:
+            return False
+        return self.run("shell", "getprop", "ro.kernel.qemu").decode(
+            "ascii", errors="strict"
+        ).strip() == "1"
 
     def cleanup(self) -> None:
         for remote in self.remote_files:
@@ -223,6 +285,46 @@ class DialogOrchestrator:
         self.artifacts = artifacts
         self.stage_timeout = stage_timeout
         self.completed: list[dict[str, object]] = []
+        self.launcher_recoveries = 0
+
+    def _recover_pixel_launcher_anr(self, stage: str, xml: str, window: str) -> bool:
+        try:
+            select_pixel_launcher_anr_close(xml, window)
+        except UnsafeDialog:
+            return False
+        if self.launcher_recoveries >= MAX_LAUNCHER_RECOVERIES:
+            raise UnsafeDialog("Pixel Launcher ANR recovery limit reached")
+        if not self.adb.verified_emulator():
+            raise UnsafeDialog("Pixel Launcher ANR recovery is emulator-only")
+
+        attempt = self.launcher_recoveries + 1
+        prefix = self.artifacts / f"{stage}-launcher-recovery-{attempt}"
+        png = self.adb.screenshot()
+        width, height = image_size(png)
+        # Reinspect after capture exactly as purchase taps do. A dialog that
+        # changed during evidence collection never receives the recovery tap.
+        fresh_xml, fresh_window = self.adb.observe()
+        target = select_pixel_launcher_anr_close(fresh_xml, fresh_window)
+        if target.bounds[2] > width or target.bounds[3] > height:
+            raise UnsafeDialog("Pixel Launcher close action lies outside the observed screen")
+        prefix.with_suffix(".xml").write_text(fresh_xml, encoding="utf-8")
+        Path(f"{prefix}-window.txt").write_text(
+            fresh_window, encoding="utf-8"
+        )
+        prefix.with_suffix(".png").write_bytes(png)
+        x, y = target.center
+        self.adb.run("shell", "input", "tap", str(x), str(y))
+        self.launcher_recoveries = attempt
+        with (self.artifacts / "launcher-recovery.log").open(
+            "a", encoding="utf-8"
+        ) as log:
+            log.write(
+                f"stage={stage}\tattempt={attempt}\tserial={self.adb.serial}\t"
+                f"package={LAUNCHER_PACKAGE}\taction=close_app\n"
+            )
+        time.sleep(0.5)
+        Path(f"{prefix}-after.png").write_bytes(self.adb.screenshot())
+        return True
 
     def diagnostics(self, name: str) -> None:
         errors = []
@@ -251,12 +353,16 @@ class DialogOrchestrator:
             while time.monotonic() < deadline:
                 try:
                     xml, window = self.adb.observe()
+                    if self._recover_pixel_launcher_anr(stage, xml, window):
+                        continue
                     select_target(xml, window, stage)
                     png = self.adb.screenshot()
                     width, height = image_size(png)
                     # Reinspect after screenshot/recording work; never tap bounds
                     # that preceded an expensive capture or stale log poll.
                     xml, window = self.adb.observe()
+                    if self._recover_pixel_launcher_anr(stage, xml, window):
+                        continue
                     target = select_target(xml, window, stage)
                     if target.bounds[2] > width or target.bounds[3] > height:
                         raise UnsafeDialog("Native button lies outside the observed screen")

@@ -20,6 +20,8 @@ import 'package:path_provider/path_provider.dart';
 import 'package:purchases_flutter/purchases_flutter.dart'
     show Purchases, PurchasesErrorCode;
 import 'package:video_player/video_player.dart';
+import 'package:video_player_platform_interface/video_player_platform_interface.dart'
+    show VideoPlayerPlatform;
 
 const _apiKey = String.fromEnvironment('REVENUECAT_API_KEY');
 const _server = String.fromEnvironment(
@@ -55,13 +57,23 @@ void main() {
       final hosts = <_Host>[];
       final peers = <_Peer>[];
       addTearDown(() async {
-        for (final peer in peers.reversed) {
-          await peer.close();
-        }
-        for (final host in hosts.reversed) {
-          await host.app.close();
+        try {
+          for (final peer in peers.reversed) {
+            await peer.close();
+          }
+          for (final host in hosts.reversed) {
+            await host.app.close();
+          }
+        } finally {
+          await VideoPlayerPlatform.instance.setMixWithOthers(false);
         }
       });
+
+      // This harness puts two Android players on one audio-focus manager.
+      // Otherwise the guest steals the host's focus and pauses it; two phones
+      // do not share that manager. Set this before native player creation and
+      // leave the production target's exclusive-audio policy unchanged.
+      await VideoPlayerPlatform.instance.setMixWithOthers(true);
 
       final verified = <String>[];
       final observations = <Map<String, Object?>>[];
@@ -70,6 +82,7 @@ void main() {
         'mode': 'hosting_purchase',
         'runtime':
             'Android; two native video targets and two TLS clients in one process',
+        'audioFocus': 'mixWithOthers=true for same-process decoder coexistence',
         'server': '$_server:$_port',
         'video': _video,
         'startedAtUtc': started.toUtc().toIso8601String(),
@@ -79,6 +92,9 @@ void main() {
       };
       binding.reportData ??= <String, dynamic>{};
       binding.reportData!['hostingPurchase'] = evidence;
+
+      evidence['decoderCoexistence'] = await _verifyDecoderCoexistence(tester);
+      verified.add('two_native_decoders_advance_without_stealing_audio_focus');
 
       var host = await _Host.open(root);
       hosts.add(host);
@@ -372,6 +388,7 @@ Future<void> _until(
   String stage,
   _Host host, {
   int seconds = 35,
+  _Peer? peer,
 }) async {
   final timer = Stopwatch()..start();
   while (!ready()) {
@@ -379,7 +396,12 @@ Future<void> _until(
       throw TestFailure(
         '$stage timed out: connected=${host.app.isConnected}, '
         'peers=${host.app.peers.length}, playing=${host.target.snapshot.playing}, '
-        'position=${host.target.snapshot.position}, error=${host.app.message}',
+        'position=${host.target.snapshot.position}, error=${host.app.message}, '
+        'peerPlaying=${peer?.target.snapshot.playing}, '
+        'peerPosition=${peer?.target.snapshot.position}, '
+        'peerErrors=${peer?.errors}, '
+        'roomPaused=${host.clients.last.lastObservedRoomState?.paused}, '
+        'roomSetBy=${host.clients.last.lastObservedRoomState?.setBy}',
       );
     }
     await tester.pump(const Duration(milliseconds: 100));
@@ -396,6 +418,7 @@ Future<void> _playTogether(WidgetTester tester, _Host host, _Peer peer) async {
         peer.target.snapshot.position.inMilliseconds < 800,
     'peer accepted start seek',
     host,
+    peer: peer,
   );
   await host.app.togglePlay();
   await _until(
@@ -407,6 +430,7 @@ Future<void> _playTogether(WidgetTester tester, _Host host, _Peer peer) async {
         peer.target.snapshot.position.inMilliseconds >= 400,
     'both actual native decoders advancing',
     host,
+    peer: peer,
   );
   final hostPosition = host.target.snapshot.position;
   final peerPosition = peer.target.snapshot.position;
@@ -421,6 +445,7 @@ Future<void> _playTogether(WidgetTester tester, _Host host, _Peer peer) async {
             const Duration(milliseconds: 350),
     'observed further progress from both native decoders',
     host,
+    peer: peer,
   );
   expect(
     peer.errors,
@@ -436,7 +461,80 @@ Future<void> _pauseTogether(WidgetTester tester, _Host host, _Peer peer) async {
     () => !host.target.snapshot.playing && !peer.target.snapshot.playing,
     'both native decoders paused',
     host,
+    peer: peer,
   );
+}
+
+/// Isolate Android audio-focus behavior from Syncplay, quota and SDK purchases.
+/// Both targets are real native decoders; neither is attached to a bridge.
+Future<Map<String, Object>> _verifyDecoderCoexistence(
+  WidgetTester tester,
+) async {
+  final first = LocalMobileTarget();
+  final second = LocalMobileTarget();
+  Future<void> advance(
+    bool Function() ready,
+    String stage, {
+    bool bothPlaying = false,
+  }) async {
+    final timer = Stopwatch()..start();
+    while (!ready()) {
+      if (bothPlaying) {
+        expect(first.snapshot.playing, isTrue, reason: '$stage: first paused');
+        expect(
+          second.snapshot.playing,
+          isTrue,
+          reason: '$stage: second paused',
+        );
+      }
+      if (timer.elapsed > const Duration(seconds: 35)) {
+        throw TestFailure(
+          '$stage timed out: first=${first.snapshot.position} '
+          'playing=${first.snapshot.playing}, second=${second.snapshot.position} '
+          'playing=${second.snapshot.playing}',
+        );
+      }
+      await tester.pump(const Duration(milliseconds: 100));
+    }
+  }
+
+  try {
+    final media = MediaItem.fromUrl(_video);
+    await first.load(media);
+    await second.load(media);
+    _expectMedia(first);
+    _expectMedia(second);
+    await first.play();
+    await advance(
+      () => first.snapshot.position >= const Duration(milliseconds: 800),
+      'first decoder starts alone',
+    );
+    final firstStart = first.snapshot.position;
+    final secondStart = second.snapshot.position;
+    await second.play();
+    await advance(
+      () =>
+          first.snapshot.position - firstStart >=
+              const Duration(milliseconds: 1500) &&
+          second.snapshot.position - secondStart >=
+              const Duration(milliseconds: 1500),
+      'two native decoders retain playback after second start',
+      bothPlaying: true,
+    );
+    expect(first.snapshot.playing, isTrue);
+    expect(second.snapshot.playing, isTrue);
+    return {
+      'firstAdvanceMs': (first.snapshot.position - firstStart).inMilliseconds,
+      'secondAdvanceMs':
+          (second.snapshot.position - secondStart).inMilliseconds,
+    };
+  } finally {
+    try {
+      await second.close();
+    } finally {
+      await first.close();
+    }
+  }
 }
 
 Future<BillingResult> _purchase(

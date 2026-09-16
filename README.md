@@ -18,6 +18,25 @@ flutter run -d <android-device>
 flutter build apk --debug
 ```
 
+The standalone Nearby packages have their own development dependencies and a
+required CI job. To run those checks locally as well:
+
+```sh
+cd packages/nearby_bridge
+dart pub get --enforce-lockfile
+dart analyze --fatal-infos
+dart test
+cd ../nearby_platform
+flutter pub get --enforce-lockfile
+flutter analyze --no-pub
+flutter test --no-pub
+```
+
+For actual same-host LAN TLS client tests, set `NEARBY_TEST_ADDRESS` and
+`NEARBY_TEST_PREFIX` to an address/prefix assigned to a local private adapter.
+CI selects one from its real interfaces. Without these, the explicitly marked
+LAN cases are skipped; that is not cross-device discovery proof.
+
 Use `--dart-define=REVENUECAT_API_KEY=<public-sdk-key>` for the configured RevenueCat project. A missing billing configuration must report unavailable billing, never simulated premium access. Secret/server keys and signing credentials do not belong in the client or repository.
 
 Windows ARM hosts currently lack official local Android Emulator support. Use an attached Android device or the project's hosted Linux emulator workflow when available; the Android build toolchain and ADB are separate from emulator support.

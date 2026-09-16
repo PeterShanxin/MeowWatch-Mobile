@@ -60,6 +60,22 @@ serial labels, and uses the shorter duration. It does not pretend unequal
 recorder starts were simultaneous, interpolate motion, add fake UI, or claim a
 frame came from a physical device.
 
+The Bash composition entry point delegates to the portable Python helper. The
+helper also runs directly on Windows and writes a source/alignment manifest,
+SHA-256 file, and ffprobe report beside the MP4:
+
+```sh
+python tools/android_multi_device/compose_side_by_side.py \
+  phone.mp4 tablet.mp4 recording-session.tsv review.mp4 \
+  --result-label "RUN RESULT: FAILED - PAUSE CONVERGENCE"
+```
+
+The optional result label must describe the observed run. Every composition is
+marked `Development test / synchronization verification in progress`; device
+labels come from the timing evidence and say that the sources are native
+recordings. Composition never turns a failed or incomplete verification into a
+success claim.
+
 Starting the next native segment requires a new `screenrecord` process, so a
 small rotation gap can occur at each 170-second boundary. The per-segment TSV
 timestamps expose those boundaries. The concatenated video and side-by-side

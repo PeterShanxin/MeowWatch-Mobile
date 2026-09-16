@@ -64,3 +64,5 @@ jobs:
           python3 -m unittest discover -s tools/billing_runtime -p 'test_*.py'
           python3 -m unittest discover -s tools/hosting_purchase -p 'test_*.py'
           python3 -m unittest discover -s tools/nearby_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/android_multi_device -p 'test_*.py'
+          python3 -m unittest discover -s tools/local_file_runtime -p 'test_*.py'

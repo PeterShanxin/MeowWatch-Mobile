@@ -83,9 +83,24 @@ final class _Peer {
   _Peer(this.socket)
     : frames = StreamIterator(
         socket.cast<List<int>>().transform(const JsonLineDecoder()),
-      );
+      ) {
+    // A write-side error is independent of the readable stream. Observe it
+    // immediately, then fail expected receipts/teardown unless a test explicitly
+    // exercises an aborted queued write.
+    sinkDone = socket.done.then<void>(
+      (_) {},
+      onError: (Object error, StackTrace stack) {
+        writeFailure = error;
+        writeFailureStack = stack;
+      },
+    );
+  }
   final SecureSocket socket;
   final StreamIterator<NearbyFrame> frames;
+  late final Future<void> sinkDone;
+  Object? writeFailure;
+  StackTrace? writeFailureStack;
+  bool expectAbortedWrite = false;
   int sequence = 0;
   String epoch = '';
   void send(Map<String, Object?> fields) => socket.add(
@@ -94,6 +109,9 @@ final class _Peer {
   Future<NearbyFrame> next() async {
     if (!await frames.moveNext().timeout(const Duration(seconds: 5))) {
       throw StateError('connection closed');
+    }
+    if (writeFailure case final error?) {
+      Error.throwWithStackTrace(error, writeFailureStack!);
     }
     return frames.current;
   }
@@ -123,6 +141,12 @@ final class _Peer {
   Future<void> dispose() async {
     socket.destroy();
     await frames.cancel();
+    await sinkDone;
+    if (writeFailure case final error?) {
+      if (!expectAbortedWrite || error is! SocketException) {
+        Error.throwWithStackTrace(error, writeFailureStack!);
+      }
+    }
   }
 }
 
@@ -644,6 +668,7 @@ void main() {
       phone.command('first', 'playback.play');
       await handler.entered!.future;
       phone.command('second', 'playback.pause');
+      phone.expectAbortedWrite = true;
       authority.replaceSession();
       handler.gate!.complete();
       expect(

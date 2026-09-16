@@ -19,8 +19,18 @@
     </header>
     <main>
       <section class="stage-panel">
-        <canvas id="stage" width="1280" height="720" aria-label="Live Android device composite or explicit waiting state"></canvas>
+        <canvas id="stage" width="1280" height="720" aria-label="Live Android device composite, labeled Flutter test-renderer preview, or explicit waiting state"></canvas>
         <p class="disclosure">This page records only this showcase canvas. It cannot see the desktop, other windows, microphone, or work completed before the page opened.</p>
+        <div class="preview-controls">
+          <label for="previewState">No-ADB canvas source</label>
+          <select id="previewState" aria-describedby="previewNotice">
+            <option value="off">Waiting state only</option>
+            <option value="home">Home</option>
+            <option value="onboarding">Onboarding</option>
+            <option value="player" selected>Player</option>
+          </select>
+          <span id="previewNotice">Checking Flutter test-renderer previews…</span>
+        </div>
       </section>
       <aside>
         <section>

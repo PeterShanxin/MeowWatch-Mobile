@@ -10,12 +10,19 @@ const headline = document.getElementById("headline");
 const timeline = document.getElementById("timeline");
 const evidence = document.getElementById("evidence");
 const stopButton = document.getElementById("stopRecording");
+const previewSelect = document.getElementById("previewState");
+const previewNotice = document.getElementById("previewNotice");
 const FRAME_STALE_MS = 5000;
+const CANVAS_FOOTER_HEIGHT = 100;
 let frameSource = "Waiting for Android device";
 let devices = [];
 const deviceFrames = new Map();
 const frameRequestSequences = new Map();
 const frameErrors = new Map();
+let previewCatalog = [];
+let previewPair = null;
+let previewLoadGeneration = 0;
+let previewCatalogSequence = 0;
 let statusSnapshot = { headline: "Loading verified progress…", events: [] };
 let recording = null;
 let recordingSession = null;
@@ -65,6 +72,76 @@ async function loadDevices() {
   }
 }
 
+async function loadPreviewCatalog() {
+  const requestSequence = ++previewCatalogSequence;
+  try {
+    const response = await fetch(endpoint("/api/previews"), { cache: "no-store" });
+    if (!response.ok) throw new Error(`preview index failed (${response.status})`);
+    const result = await response.json();
+    if (requestSequence !== previewCatalogSequence) return;
+    previewCatalog = result.states || [];
+    for (const option of previewSelect.options) {
+      if (option.value === "off") continue;
+      const state = previewCatalog.find((item) => item.state === option.value);
+      option.disabled = !state?.complete;
+    }
+    const selected = previewCatalog.find((item) => item.state === previewSelect.value && item.complete);
+    if (previewSelect.value !== "off" && !selected) {
+      const fallback = [...previewCatalog].reverse().find((item) => item.complete);
+      previewSelect.value = fallback?.state || "off";
+    }
+    await loadSelectedPreview();
+  } catch (error) {
+    previewNotice.textContent = `Flutter preview unavailable: ${error.message}`;
+  }
+}
+
+async function loadSelectedPreview() {
+  const stateName = previewSelect.value;
+  if (stateName === "off") {
+    releasePreviewPair();
+    previewNotice.textContent = "Flutter preview disabled; canvas will show the truthful waiting state without adb.";
+    return;
+  }
+  const state = previewCatalog.find((item) => item.state === stateName && item.complete);
+  if (!state) {
+    previewNotice.textContent = `No complete phone + tablet ${stateName} render pair is available.`;
+    return;
+  }
+  const unchanged = previewPair?.state === stateName
+    && previewPair.phone.modifiedAt === state.phone.modifiedAt
+    && previewPair.tablet.modifiedAt === state.tablet.modifiedAt;
+  if (unchanged) return;
+
+  const generation = ++previewLoadGeneration;
+  try {
+    const loaded = await Promise.all(["phone", "tablet"].map(async (variant) => {
+      const metadata = state[variant];
+      const url = `${endpoint(`/preview/${encodeURIComponent(metadata.name)}`)}&version=${encodeURIComponent(metadata.modifiedAt)}`;
+      const response = await fetch(url, { cache: "no-store" });
+      if (!response.ok) throw new Error(`${metadata.name} failed (${response.status})`);
+      return { ...metadata, bitmap: await createImageBitmap(await response.blob()) };
+    }));
+    if (generation !== previewLoadGeneration || previewSelect.value !== stateName) {
+      loaded.forEach((entry) => entry.bitmap.close());
+      return;
+    }
+    releasePreviewPair();
+    previewPair = { state: stateName, phone: loaded[0], tablet: loaded[1] };
+    const newest = [loaded[0].modifiedAt, loaded[1].modifiedAt].sort().at(-1);
+    previewNotice.textContent = `Flutter UI preview · test renderer · ${stateName} · refreshed ${newest}`;
+  } catch (error) {
+    previewNotice.textContent = `Flutter preview load failed: ${error.message}`;
+  }
+}
+
+function releasePreviewPair() {
+  if (!previewPair) return;
+  previewPair.phone.bitmap.close();
+  previewPair.tablet.bitmap.close();
+  previewPair = null;
+}
+
 async function loadFrames() {
   const deviceSnapshot = [...devices];
   await Promise.all(deviceSnapshot.map(async (device) => {
@@ -111,13 +188,13 @@ function drawStage() {
   context.fillRect(0, 0, width, height);
   const now = Date.now();
   const sources = devices.map((device) => ({ device, entry: deviceFrames.get(device.serial) })).filter((source) => source.entry);
+  let sourceSummary;
   if (sources.length) {
     const columns = sources.length === 1 ? 1 : Math.min(2, sources.length);
     const rows = Math.ceil(sources.length / columns);
-    const footerHeight = 76;
     const gap = 24;
     const cellWidth = (width - gap * (columns + 1)) / columns;
-    const cellHeight = (height - footerHeight - gap * (rows + 1)) / rows;
+    const cellHeight = (height - CANVAS_FOOTER_HEIGHT - gap * (rows + 1)) / rows;
     sources.forEach(({ device, entry }, index) => {
       const column = index % columns;
       const row = Math.floor(index / columns);
@@ -125,33 +202,96 @@ function drawStage() {
       const cellY = gap + row * (cellHeight + gap);
       drawDeviceFrame(entry, device.label, frameErrors.get(device.serial), cellX, cellY, cellWidth, cellHeight, now);
     });
+    const liveCount = sources.filter(({ entry }) => now - entry.capturedAt <= FRAME_STALE_MS).length;
+    const staleCount = sources.length - liveCount;
+    sourceSummary = `${liveCount} live${staleCount ? ` · ${staleCount} stale` : ""} Android source${sources.length === 1 ? "" : "s"}`;
+  } else if (devices.length === 0 && previewPair) {
+    drawPreviewComposite(previewPair);
+    sourceSummary = `Flutter UI preview · test renderer · ${previewPair.state} · not Android runtime evidence`;
   } else {
+    const contentHeight = height - CANVAS_FOOTER_HEIGHT;
     context.fillStyle = "#19171b";
-    context.fillRect(32, 32, width - 64, height - 64);
+    context.fillRect(32, 32, width - 64, contentHeight - 64);
     context.fillStyle = "#d8aa80";
     context.font = "700 17px system-ui";
-    context.fillText("MEOWWATCH MOBILE", 70, height / 2 - 58);
+    context.fillText("MEOWWATCH MOBILE", 70, contentHeight / 2 - 58);
     context.fillStyle = "#f5f2ed";
     context.font = "700 36px system-ui";
-    wrapText(frameSource, 70, height / 2, width - 140, 48);
+    wrapText(frameSource, 70, contentHeight / 2, width - 140, 48);
     context.fillStyle = "#9a959b";
     context.font = "18px system-ui";
-    context.fillText("No simulated product UI is shown.", 70, height / 2 + 115);
+    context.fillText("No simulated product UI is shown.", 70, contentHeight / 2 + 115);
+    sourceSummary = "Truthful waiting state";
   }
+  drawCanvasFooter(sourceSummary);
+}
+
+function drawCanvasFooter(sourceSummary) {
+  const width = canvas.width;
+  const height = canvas.height;
   const stamp = new Date().toISOString();
   context.fillStyle = "#09090bcc";
-  context.fillRect(0, height - 76, width, 76);
+  context.fillRect(0, height - CANVAS_FOOTER_HEIGHT, width, CANVAS_FOOTER_HEIGHT);
   context.fillStyle = "#f5f2ed";
-  context.font = "600 17px ui-monospace, monospace";
-  context.fillText(stamp, 22, height - 43);
+  context.font = "700 18px system-ui";
+  context.fillText(fitCanvasText(statusSnapshot.headline || "Development status unavailable", width - 44), 22, height - 68);
   context.fillStyle = "#b5afb5";
+  context.font = "600 15px ui-monospace, monospace";
+  context.fillText(stamp, 22, height - 42);
   context.font = "14px system-ui";
-  const liveCount = sources.filter(({ entry }) => now - entry.capturedAt <= FRAME_STALE_MS).length;
-  const staleCount = sources.length - liveCount;
-  const sourceSummary = sources.length
-    ? `${liveCount} live${staleCount ? ` · ${staleCount} stale` : ""} Android source${sources.length === 1 ? "" : "s"}`
-    : "Truthful waiting state";
   context.fillText(sourceSummary, 22, height - 18);
+}
+
+function fitCanvasText(text, maxWidth) {
+  const value = String(text);
+  if (context.measureText(value).width <= maxWidth) return value;
+  let shortened = value;
+  while (shortened.length && context.measureText(`${shortened}…`).width > maxWidth) shortened = shortened.slice(0, -1);
+  return `${shortened}…`;
+}
+
+function drawPreviewComposite(pair) {
+  const width = canvas.width;
+  const contentHeight = canvas.height - CANVAS_FOOTER_HEIGHT;
+  context.fillStyle = "#211b18";
+  context.fillRect(0, 0, width, 58);
+  context.fillStyle = "#f1c79e";
+  context.font = "800 17px system-ui";
+  context.textAlign = "center";
+  context.fillText("FLUTTER UI PREVIEW · TEST RENDERER · INJECTED UNIT STATE · NOT ANDROID PLUGIN/RUNTIME EVIDENCE", width / 2, 36);
+  context.textAlign = "left";
+  const gap = 26;
+  const cellWidth = (width - gap * 3) / 2;
+  const cellHeight = contentHeight - 78;
+  drawPreviewFrame(pair.phone, "PHONE", gap, 68, cellWidth, cellHeight);
+  drawPreviewFrame(pair.tablet, "TABLET", gap * 2 + cellWidth, 68, cellWidth, cellHeight);
+}
+
+function drawPreviewFrame(entry, variant, x, y, width, height) {
+  const labelHeight = 44;
+  const bezel = 9;
+  const availableWidth = width - bezel * 2;
+  const availableHeight = height - labelHeight - bezel * 2;
+  const scale = Math.min(availableWidth / entry.bitmap.width, availableHeight / entry.bitmap.height);
+  const drawWidth = entry.bitmap.width * scale;
+  const drawHeight = entry.bitmap.height * scale;
+  const frameWidth = drawWidth + bezel * 2;
+  const frameHeight = drawHeight + bezel * 2;
+  const frameX = x + (width - frameWidth) / 2;
+  const frameY = y + labelHeight + (height - labelHeight - frameHeight) / 2;
+  context.fillStyle = "#302d31";
+  context.beginPath();
+  context.roundRect(frameX, frameY, frameWidth, frameHeight, 16);
+  context.fill();
+  context.drawImage(entry.bitmap, frameX + bezel, frameY + bezel, drawWidth, drawHeight);
+  context.fillStyle = "#f5f2ed";
+  context.font = "700 15px system-ui";
+  context.textAlign = "center";
+  context.fillText(`${variant} · ${entry.name}`, x + width / 2, y + 17);
+  context.fillStyle = "#aaa5aa";
+  context.font = "12px ui-monospace, monospace";
+  context.fillText(entry.modifiedAt, x + width / 2, y + 36);
+  context.textAlign = "left";
 }
 
 function drawDeviceFrame(entry, label, captureError, x, y, width, height, now) {
@@ -369,14 +509,17 @@ function markPageInterruption() {
 
 document.getElementById("refreshEvidence").addEventListener("click", loadEvidence);
 stopButton.addEventListener("click", stopRecordingGracefully);
+previewSelect.addEventListener("change", loadSelectedPreview);
 window.addEventListener("pagehide", markPageInterruption);
 drawStage();
 loadStatus();
 loadDevices().then(loadFrames);
+loadPreviewCatalog();
 loadEvidence();
 setInterval(drawStage, 500);
 setInterval(loadFrames, 1500);
 setInterval(loadDevices, 5000);
+setInterval(loadPreviewCatalog, 5000);
 setInterval(loadStatus, 5000);
 setInterval(loadEvidence, 15000);
 setInterval(heartbeat, 5000);

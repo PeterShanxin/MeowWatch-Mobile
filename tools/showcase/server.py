@@ -22,6 +22,9 @@ from pathlib import Path
 
 GAP_AFTER_SECONDS = 15
 MAX_REQUEST_BYTES = 16 * 1024 * 1024
+PREVIEW_STATES = ("home", "onboarding", "player")
+PREVIEW_VARIANTS = ("phone", "tablet")
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 
 
 def discover_adb() -> Path:
@@ -77,6 +80,7 @@ class ShowcaseState:
         self.local_root = (self.root / ".local" / "showcase").resolve()
         self.evidence_root = (self.local_root / "evidence").resolve()
         self.recordings_root = (self.local_root / "recordings").resolve()
+        self.preview_root = (self.root / ".local" / "visual-review").resolve()
         self.status_path = self.local_root / "status.json"
         self.adb = adb
         self.token = token
@@ -86,6 +90,47 @@ class ShowcaseState:
         self.evidence_root.mkdir(parents=True, exist_ok=True)
         self.recordings_root.mkdir(parents=True, exist_ok=True)
         self._recover_interrupted_manifests()
+
+    @staticmethod
+    def allowed_preview_names() -> set[str]:
+        return {f"{variant}-{state}.png" for state in PREVIEW_STATES for variant in PREVIEW_VARIANTS}
+
+    def resolve_preview(self, name: str) -> Path | None:
+        if name not in self.allowed_preview_names():
+            return None
+        candidate = (self.preview_root / name).resolve()
+        if candidate.parent != self.preview_root or not candidate.is_file():
+            return None
+        try:
+            with candidate.open("rb") as handle:
+                if handle.read(len(PNG_SIGNATURE)) != PNG_SIGNATURE:
+                    return None
+        except OSError:
+            return None
+        return candidate
+
+    def list_previews(self) -> list[dict[str, object]]:
+        states: list[dict[str, object]] = []
+        for state in PREVIEW_STATES:
+            variants: dict[str, object] = {}
+            for variant in PREVIEW_VARIANTS:
+                name = f"{variant}-{state}.png"
+                path = self.resolve_preview(name)
+                if path is None:
+                    continue
+                try:
+                    stat = path.stat()
+                except OSError:
+                    continue
+                variants[variant] = {
+                    "name": name,
+                    "size": stat.st_size,
+                    "modifiedAt": datetime.fromtimestamp(stat.st_mtime, timezone.utc)
+                    .isoformat(timespec="milliseconds")
+                    .replace("+00:00", "Z"),
+                }
+            states.append({"state": state, "complete": all(variant in variants for variant in PREVIEW_VARIANTS), **variants})
+        return states
 
     def _recover_interrupted_manifests(self) -> None:
         recovered_at = utc_now()
@@ -460,6 +505,24 @@ class ShowcaseHandler(BaseHTTPRequestHandler):
             return
         if parsed.path == "/api/evidence":
             self._send_json(HTTPStatus.OK, {"items": self.state.list_evidence()})
+            return
+        if parsed.path == "/api/previews":
+            self._send_json(
+                HTTPStatus.OK,
+                {
+                    "source": "Flutter UI preview · test renderer",
+                    "runtimeEvidence": False,
+                    "states": self.state.list_previews(),
+                },
+            )
+            return
+        if parsed.path.startswith("/preview/"):
+            name = urllib.parse.unquote(parsed.path[len("/preview/") :])
+            preview = self.state.resolve_preview(name)
+            if preview is None:
+                self.send_error(HTTPStatus.NOT_FOUND)
+                return
+            self._send_file(preview, "image/png")
             return
         if parsed.path.startswith("/evidence/"):
             relative = urllib.parse.unquote(parsed.path[len("/evidence/") :])

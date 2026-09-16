@@ -10,15 +10,15 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Partial | Local normal and integration-test debug APKs build; clean-checkout/install proof pending |
 | 2 | Public, licensed, documented, secret-free repository | Partial | Public repository exists; bootstrap in progress |
-| 3 | Clear first-launch create/join | Unverified | Implementation pending |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Two real public TLS clients pass protocol smoke; Android video clients pending |
-| 5 | Real-session chat/reactions/presence | Unverified | Implementation pending |
+| 3 | Clear first-launch create/join | Partial | Production screens and local validation implemented; Android journey pending |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Two real public TLS clients pass protocol smoke; first native phone/tablet job stopped before launch at SDK tool lookup; corrected rerun pending |
+| 5 | Real-session chat/reactions/presence | Partial | Public TLS protocol smoke passes; production chat UI implemented; dual Android evidence pending |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | Socket recovery and session-race tests pass; Android lifecycle matrix pending |
-| 7 | Local Mode and Continue Watching | Partial | Production target builds; room-scoped disk history and controller resume tests pass; Android runtime pending |
+| 7 | Local Mode and Continue Watching | Partial | Native decoder/play/pause/seek/reopen pass; disk history/controller resume tests pass; integrated UI journey pending |
 | 8 | Secure phone-to-desktop discovery/pair/control | Unverified | Contract and focused desktop PR pending |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Real Test Store/catalog configured; official SDK builds; actual purchase verification pending |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Actual Android SDK loaded the offering and opened the native Test Store dialog; focus-query automation corrected, completed purchase verification pending |
 | 10 | Correct daily quota and session continuity | Partial | 19 billing/quota tests pass; integrated device quota funnel pending |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Unverified | Local Windows ARM emulator unsupported; device/hosted emulator path being prepared |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Twelve Flutter test-renderer PNGs across four viewports plus 200% text/player/keyboard regression checks pass; native product screenshots pending |
 | 12 | Reliable Cast or exact blocker and fallback | Unverified | Scheduled after core stability |
 | 13 | No placeholders, dead ends or silent failures | Unverified | Final product review pending |
 | 14 | Clean-install full demo rehearsal | Unverified | Pending integrated application |
@@ -45,12 +45,14 @@ Integration, application, mobile playback and final acceptance remain with the m
 
 ## Current checkpoint evidence
 
-- `flutter test --no-pub --reporter expanded`: **402 passed**, including protocol, billing/quota, disk history and controller race regressions.
-- `flutter build apk --debug --no-pub`: passes on the local Windows ARM host.
+- `flutter test --no-pub --reporter expanded`: **428 passed**, including four rendered-layout cases and four player/chat accessibility cases. The latter reproduce and protect fixes for 200% text, long playback times and landscape keyboards.
+- `flutter build apk --debug --no-pub`: passes with the production UI and bundled fonts on the local Windows ARM host.
 - `flutter build apk --debug --no-pub -t integration_test/playback_smoke_test.dart`: passes on the same host.
 - `dart run test/support/syncplay_live_smoke.dart`: two public STARTTLS clients; bidirectional control, social signals, presence and reconnection. See [SYNC_CORE.md](SYNC_CORE.md).
-- The launch UI is still scaffold code. APK compilation does not establish a finished app or rendered UX quality.
-- Hosted Android playback/texture/recording workflow is prepared but has not yet produced runtime evidence.
+- Production onboarding, home, join, player, chat, invitation, media, settings and real-offering paywall screens are implemented. Nearby and Cast remain unfinished; this is not a submission-ready build.
+- [Native Android playback run 35054195277](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35054195277) passed on an API 35 Pixel 6 x86_64 AVD. Actual video texture screenshots and a 44.17-second native recording were inspected: 1280×720 media decoded, play advanced 773 ms, and seek reached 2018 ms. This is emulator evidence, not physical-device proof.
+- The product runtime matrix builds distinct host/guest APKs and is designed to record both concurrent AVDs and exercise Test Store cancel/failure/success. The first run exposed SDK-path and native-focus-query issues before those behaviors completed. Both runner fixes have targeted checks; native rerun evidence is pending.
+- The clean-install product journey covers onboarding, local media playback, seek, durable Continue Watching and the real offering on four Android viewports. Its integration APK builds locally; hosted native execution is pending.
 
 ## Live development recording
 

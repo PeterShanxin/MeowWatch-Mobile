@@ -67,6 +67,25 @@ def main() -> int:
     status, body, _ = request(f"{origin}/api/devices?{query}")
     device_index = json.loads(body)
     require(status == 200 and isinstance(device_index.get("items"), list), "multi-device source index is available")
+    status, body, _ = request(f"{origin}/api/previews?{query}")
+    preview_index = json.loads(body)
+    preview_names = {
+        item[variant]["name"]
+        for item in preview_index.get("states", [])
+        for variant in ("phone", "tablet")
+        if variant in item
+    }
+    allowed_preview_names = {
+        f"{variant}-{state}.png"
+        for state in ("home", "onboarding", "player")
+        for variant in ("phone", "tablet")
+    }
+    require(
+        status == 200
+        and preview_index.get("runtimeEvidence") is False
+        and preview_names <= allowed_preview_names,
+        "Flutter test-renderer preview index is explicitly classified and path-bounded",
+    )
 
     common_headers = {
         "Origin": origin,

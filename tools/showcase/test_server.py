@@ -67,6 +67,23 @@ class ShowcaseStateTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "already ended"):
             self.state.append_chunk(session, 1, b"unconfirmed")
 
+    def test_preview_catalog_allows_only_fixed_phone_and_tablet_png_names(self) -> None:
+        self.state.preview_root.mkdir(parents=True)
+        valid_png = server.PNG_SIGNATURE + b"test-renderer-pixels"
+        (self.state.preview_root / "phone-home.png").write_bytes(valid_png)
+        (self.state.preview_root / "tablet-home.png").write_bytes(valid_png)
+        (self.state.preview_root / "landscape-phone-home.png").write_bytes(valid_png)
+        (self.state.preview_root / "phone-player.png").write_bytes(b"not a png")
+
+        catalog = {entry["state"]: entry for entry in self.state.list_previews()}
+        self.assertTrue(catalog["home"]["complete"])
+        self.assertEqual(catalog["home"]["phone"]["name"], "phone-home.png")
+        self.assertNotIn("landscape", catalog["home"])
+        self.assertFalse(catalog["player"]["complete"])
+        self.assertIsNone(self.state.resolve_preview("landscape-phone-home.png"))
+        self.assertIsNone(self.state.resolve_preview("../phone-home.png"))
+        self.assertIsNone(self.state.resolve_preview("phone-player.png"))
+
 
 class SecurityBoundsTests(unittest.TestCase):
     def test_content_length_accepts_only_bounded_nonnegative_integers(self) -> None:

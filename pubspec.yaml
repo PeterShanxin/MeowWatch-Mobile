@@ -31,3 +31,10 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+  fonts:
+    - family: DMSans
+      fonts:
+        - asset: assets/fonts/DMSans.ttf
+    - family: DMSerifDisplay
+      fonts:
+        - asset: assets/fonts/DMSerifDisplay.ttf

@@ -21,11 +21,12 @@ The USD 2.99 amount is simulated Test Store pricing for development and the
 Shipaton demo. It is not a commercial pricing decision. Choose regional store
 pricing separately before a real launch.
 
-RevenueCat generated a Test Store public SDK key for this project. The key is
-intended for client SDK initialization and was handed to the implementation
-owner; it is deliberately not copied into this document. Do not use or commit a
-RevenueCat secret/server key. Pass the public Test Store key through the build
-configuration described in [BILLING.md](BILLING.md).
+The Shipaton build defaults to this project's public Test Store SDK key in
+`lib/app/app_services.dart`, so a clean judge installation can retrieve the real
+offering immediately. Public SDK keys are client configuration, not server
+credentials. `REVENUECAT_API_KEY` can override it at build time, as described in
+[BILLING.md](BILLING.md). Never commit a RevenueCat secret/server key. The default
+Test Store cannot charge a real payment method.
 
 The dashboard account showed an unconfirmed email banner during setup. This did
 not block catalog configuration, but the account owner should confirm the email

@@ -22,6 +22,10 @@ main { display: grid; grid-template-columns: minmax(260px, 46rem) minmax(280px, 
 .stage-panel { min-width: 0; }
 canvas { display: block; width: 100%; max-height: calc(100vh - 12rem); background: #09090b; border: 1px solid #3d3940; border-radius: 1.25rem; box-shadow: 0 2rem 5rem #0008; object-fit: contain; }
 .disclosure { margin: .8rem .25rem 0; color: #a6a2a8; font-size: .78rem; line-height: 1.45; }
+.preview-controls { display: flex; align-items: center; flex-wrap: wrap; gap: .55rem .8rem; margin: .8rem .25rem 0; color: #aaa5aa; font-size: .78rem; }
+.preview-controls label { color: #d8d3ce; font-weight: 700; }
+.preview-controls select { border: 1px solid #514b52; border-radius: .55rem; background: #1d1b20; color: #f0ebe6; padding: .4rem .6rem; }
+.preview-controls span { flex: 1 1 18rem; }
 aside { display: grid; gap: 1.25rem; }
 aside section { padding: 1.25rem; border: 1px solid #343239; border-radius: 1rem; background: #18171bcc; }
 ol { list-style: none; margin: 0; padding: 0; }

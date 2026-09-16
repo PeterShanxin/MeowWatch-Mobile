@@ -54,9 +54,11 @@ class RoomScreen extends StatelessWidget {
         child: LayoutBuilder(
           builder: (context, constraints) {
             final tablet =
+                constraints.maxWidth >= 700 && constraints.maxHeight >= 500;
+            final twoColumn =
                 constraints.maxWidth >= 900 && constraints.maxHeight >= 500;
             final landscape =
-                constraints.maxWidth > constraints.maxHeight && !tablet;
+                constraints.maxWidth > constraints.maxHeight && !twoColumn;
             final header = Padding(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
               child: Row(
@@ -73,7 +75,9 @@ class RoomScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          app.isLocal
+                          app.isNearby
+                              ? app.nearby!.label
+                              : app.isLocal
                               ? 'Your own screening'
                               : app.room!.config.room,
                           maxLines: 1,
@@ -81,7 +85,13 @@ class RoomScreen extends StatelessWidget {
                           style: Theme.of(context).textTheme.titleMedium,
                         ),
                         Text(
-                          app.isLocal ? 'Local mode' : _connectionLabel,
+                          app.isNearby
+                              ? app.nearby!.connected
+                                    ? 'Playing on nearby desktop'
+                                    : 'Desktop disconnected'
+                              : app.isLocal
+                              ? 'Local mode'
+                              : _connectionLabel,
                           style: Theme.of(context).textTheme.bodySmall
                               ?.copyWith(color: colors.onSurfaceVariant),
                           maxLines: 2,
@@ -126,14 +136,17 @@ class RoomScreen extends StatelessWidget {
                     alignment: Alignment.bottomCenter,
                     child: ColoredBox(
                       color: Colors.black.withValues(alpha: .76),
-                      child: Column(
-                        mainAxisSize: MainAxisSize.min,
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          controls,
-                          _Actions(
-                            app: app,
-                            onLoad: onLoad,
-                            onStartRoom: onStartRoom,
+                          Expanded(flex: 3, child: controls),
+                          Flexible(
+                            flex: 2,
+                            child: _Actions(
+                              app: app,
+                              onLoad: onLoad,
+                              onStartRoom: onStartRoom,
+                            ),
                           ),
                         ],
                       ),
@@ -157,7 +170,9 @@ class RoomScreen extends StatelessWidget {
                       const SizedBox(height: 24),
                       Text(
                         app.target.snapshot.media?.title ??
-                            (app.isLocal
+                            (app.isNearby
+                                ? 'Ready when your desktop is.'
+                                : app.isLocal
                                 ? 'Settle in.'
                                 : 'The best seat is together.'),
                         style: Theme.of(context).textTheme.headlineMedium,
@@ -167,7 +182,9 @@ class RoomScreen extends StatelessWidget {
                       const SizedBox(height: 8),
                       Text(
                         app.target.snapshot.media == null
-                            ? 'Choose a video file or open a direct video link.'
+                            ? app.isNearby
+                                  ? 'Choose this video’s file on your desktop. Phone files are not transferred.'
+                                  : 'Choose a video file or open a direct video link.'
                             : 'Playing on ${app.target.label.toLowerCase()}',
                         style: TextStyle(color: colors.onSurfaceVariant),
                       ),
@@ -227,7 +244,7 @@ class RoomScreen extends StatelessWidget {
                 _Actions(app: app, onLoad: onLoad, onStartRoom: onStartRoom),
               ],
             );
-            return tablet
+            return twoColumn
                 ? Row(
                     children: [
                       Expanded(child: player),
@@ -239,6 +256,13 @@ class RoomScreen extends StatelessWidget {
                             : ChatPanel(app: app),
                       ),
                     ],
+                  )
+                : tablet
+                ? Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 720),
+                      child: player,
+                    ),
                   )
                 : player;
           },
@@ -278,6 +302,38 @@ class _VideoStage extends StatelessWidget {
                 SizedBox(height: 16),
                 Text('Opening your video…'),
               ],
+            )
+          else if (app.isNearby)
+            SingleChildScrollView(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    Icons.desktop_windows_outlined,
+                    size: 46,
+                    color: Theme.of(context).colorScheme.primary,
+                  ),
+                  const SizedBox(height: 16),
+                  Text(
+                    state.error ??
+                        (state.media == null
+                            ? 'Choose this video’s file on your desktop'
+                            : 'Reconnect to the desktop to keep watching'),
+                    textAlign: TextAlign.center,
+                  ),
+                  if (state.media == null) ...[
+                    const SizedBox(height: 8),
+                    Text(
+                      'Local phone files stay on this device.',
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ],
+              ),
             )
           else
             SingleChildScrollView(
@@ -321,7 +377,8 @@ class _VideoStage extends StatelessWidget {
                 ],
               ),
             ),
-          if (state.buffering && state.ready) const CircularProgressIndicator(),
+          if (state.buffering && state.ready && state.playing)
+            const CircularProgressIndicator(),
           if (app.reaction != null)
             Positioned(
               right: 24,
@@ -491,9 +548,9 @@ class _Actions extends StatelessWidget {
       runSpacing: 4,
       children: [
         TextButton.icon(
-          onPressed: onLoad,
+          onPressed: app.isNearby ? null : onLoad,
           icon: const Icon(Icons.video_library_outlined),
-          label: const Text('Video'),
+          label: Text(app.isNearby ? 'Choose on desktop' : 'Video'),
         ),
         if (app.isLocal)
           TextButton.icon(

@@ -50,7 +50,9 @@ class _HomeScreenState extends State<HomeScreen> {
           body: SafeArea(
             child: LayoutBuilder(
               builder: (context, constraints) {
-                final tablet = constraints.maxWidth >= 840;
+                final tablet =
+                    constraints.maxWidth >= 720 &&
+                    MediaQuery.textScalerOf(context).scale(16) <= 22.4;
                 return SingleChildScrollView(
                   key: const Key('home-scroll-view'),
                   padding: EdgeInsets.fromLTRB(
@@ -61,7 +63,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   ),
                   child: Center(
                     child: ConstrainedBox(
-                      constraints: const BoxConstraints(maxWidth: 1180),
+                      constraints: BoxConstraints(
+                        maxWidth: tablet ? 1180 : 680,
+                      ),
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
@@ -86,7 +90,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                     onLocalMode: () => _run(widget.onLocalMode),
                                   ),
                                 ),
-                                const SizedBox(width: 48),
+                                SizedBox(
+                                  width: constraints.maxWidth >= 1000 ? 48 : 32,
+                                ),
                                 Expanded(
                                   flex: 9,
                                   child: _HistorySection(

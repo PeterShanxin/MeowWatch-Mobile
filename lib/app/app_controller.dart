@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart' show StringCharacters;
+import 'package:nearby_bridge/nearby_bridge.dart' show NearbyFrame;
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/billing/billing_service.dart';
@@ -13,6 +14,7 @@ import '../core/connect/room_code.dart';
 import '../core/connect/room_config.dart';
 import '../core/connect/username_generator.dart';
 import '../core/media/media_item.dart';
+import '../core/nearby/nearby_desktop_target.dart';
 import '../core/playback/playback_target.dart';
 import '../core/session/playback_sync_bridge.dart';
 import '../core/session/room_invite.dart';
@@ -90,11 +92,21 @@ class AppController extends ChangeNotifier {
   int _connectGeneration = 0;
   int _mediaGeneration = 0;
   bool _resumeLoading = false;
+  NearbyDesktopTarget? _nearby;
+  _PhoneResume? _phoneResume;
+  StreamSubscription<NearbyFrame>? _nearbySocial;
+  List<ChatMessage> _nearbyMessages = const [];
+  String? _nearbyEpoch;
 
-  PlaybackTarget get target => phone;
-  bool get isConnected => connection.status == SyncConnectionStatus.connected;
+  bool get isNearby => _nearby != null;
+  NearbyDesktopTarget? get nearby => _nearby;
+  PlaybackTarget get target => _nearby ?? phone;
+  bool get isConnected =>
+      (!isNearby || _nearby!.connected) &&
+      connection.status == SyncConnectionStatus.connected;
   bool get isLocal => room == null;
-  List<ChatMessage> get messages => _chat?.messages ?? const [];
+  List<ChatMessage> get messages =>
+      isNearby ? _nearbyMessages : _chat?.messages ?? const [];
   bool get firstLaunch => repository.displayName == null;
   Uri? get invite => room == null ? null : encodeRoomInvite(room!.config);
 
@@ -119,10 +131,11 @@ class AppController extends ChangeNotifier {
 
   Future<void> setName(String name) async {
     final trimmed = name.trim();
-    username = trimmed.isEmpty
+    final chosen = trimmed.isEmpty
         ? generateUsername()
         : trimmed.characters.take(24).toString();
-    repository.displayName = username;
+    if (!isNearby) username = chosen;
+    repository.displayName = chosen;
     await repository.save();
     _changed();
   }
@@ -162,6 +175,339 @@ class AppController extends ChangeNotifier {
   Future<bool> connect(RoomTicket ticket, {bool adoptExistingSource = true}) =>
       _runConnect(() => ticket, adoptExistingSource: adoptExistingSource);
 
+  static bool _sameRoom(RoomConfig? left, RoomConfig? right) =>
+      left != null &&
+      right != null &&
+      left.server == right.server &&
+      left.port == right.port &&
+      left.room == right.room;
+
+  /// The caller has already paired, authenticated and accepted a full snapshot.
+  /// Ownership transfers here; a rejected candidate is closed without commands.
+  Future<bool> adoptNearby(NearbyDesktopTarget desktop) async {
+    if (identical(_nearby, desktop)) return desktop.connected;
+    if (busy || _closed) {
+      await desktop.close();
+      return false;
+    }
+    final accepted = desktop.remote;
+    if (!desktop.connected || accepted == null) {
+      await desktop.close();
+      report('Reconnect to the desktop before choosing it.');
+      return false;
+    }
+    if (room != null && !_sameRoom(room!.config, accepted.room)) {
+      await desktop.close();
+      report('Join this exact room on your desktop first, then try again.');
+      return false;
+    }
+    busy = true;
+    var generation = _connectGeneration;
+    var handedOff = false;
+    _changed();
+    try {
+      await saveProgress();
+      _requireCurrent(generation);
+      final resume = isNearby
+          ? _phoneResume!
+          : _PhoneResume(
+              room: room,
+              mediaRoom: _mediaRoom,
+              username: username,
+              playback: phone.snapshot,
+            );
+      await phone.pause();
+      _requireCurrent(generation);
+      if (!desktop.connected || desktop.remote?.epoch != accepted.epoch) {
+        throw const _NearbyHandoffFailed();
+      }
+      // Invalidate phone callbacks only after preparation succeeded. A storage
+      // failure above must leave the original live phone session subscribed.
+      generation = ++_connectGeneration;
+      ++_mediaGeneration;
+      _phoneResume = resume;
+      handedOff = true;
+      if (isNearby) {
+        await _detachNearby();
+        _requireCurrent(generation);
+      }
+      await _detachRoom();
+      _requireCurrent(generation);
+      await phone.pause();
+      _requireCurrent(generation);
+      _nearby = desktop;
+      desktop.addListener(_applyNearby);
+      _nearbySocial = desktop.social.listen(_onNearbySocial);
+      inPlayer = true;
+      needsPlus = false;
+      _applyNearby();
+      if (!desktop.connected || desktop.remote?.epoch != accepted.epoch) {
+        desktop.client.disconnect();
+        _applyNearby();
+        report('Desktop connection changed. Reconnect or watch on this phone.');
+        return false;
+      }
+      return true;
+    } catch (_) {
+      if (_current(generation)) {
+        if (handedOff) {
+          // Keep explicit recovery available; never silently create a second
+          // Syncplay participant after the phone socket has been disposed.
+          _nearby = desktop;
+          desktop.addListener(_applyNearby);
+          _nearbySocial ??= desktop.social.listen(_onNearbySocial);
+          desktop.client.disconnect();
+          inPlayer = true;
+          _applyNearby();
+          report('Could not finish switching. Choose Watch on this phone.');
+        } else {
+          report('Could not switch devices. Your phone session is still open.');
+        }
+      }
+      return false;
+    } finally {
+      if (!identical(_nearby, desktop)) await desktop.close();
+      busy = false;
+      _changed();
+    }
+  }
+
+  void _applyNearby() {
+    final desktop = _nearby;
+    if (_closed || desktop == null) return;
+    final snapshot = desktop.remote;
+    peers.clear();
+    peerFiles.clear();
+    if (!desktop.connected || snapshot == null) {
+      connection = const SyncConnectionState(
+        status: SyncConnectionStatus.disconnected,
+      );
+      typing.clear();
+      reaction = null;
+      _nearbyMessages = const [];
+      _changed();
+      return;
+    }
+    final saved = _phoneResume?.room;
+    if (_nearbyEpoch != snapshot.epoch) {
+      _nearbyEpoch = snapshot.epoch;
+      typing.clear();
+      reaction = null;
+    }
+    final remoteRoom = snapshot.room;
+    room = remoteRoom == null
+        ? null
+        : RoomTicket(
+            id: _sameRoom(saved?.config, remoteRoom)
+                ? saved!.id
+                : 'nearby:${snapshot.desktopId}:${snapshot.epoch}',
+            config: remoteRoom,
+            isHost: _sameRoom(saved?.config, remoteRoom) && saved!.isHost,
+          );
+    username = snapshot.username;
+    connection = SyncConnectionState(
+      status: snapshot.connection,
+      username: snapshot.username,
+    );
+    if (isConnected) peers.addAll(snapshot.participants);
+    if (!isConnected) {
+      typing.clear();
+      reaction = null;
+    }
+    _nearbyMessages = snapshot.messages;
+    _changed();
+  }
+
+  void _onNearbySocial(NearbyFrame frame) {
+    final desktop = _nearby;
+    if (_closed ||
+        desktop == null ||
+        !desktop.connected ||
+        !isConnected ||
+        frame.fields['sessionEpoch'] != desktop.remote?.epoch) {
+      return;
+    }
+    final event = frame.fields['event'];
+    if (event is! Map<String, Object?>) return;
+    final name = event['username'];
+    if (name is! String || name.isEmpty || name.length > 150) return;
+    switch (frame.type) {
+      case 'chat.message':
+        final text = event['text'];
+        final timestamp = event['receivedAtUnixMs'];
+        if (text is! String ||
+            text.length > 4096 ||
+            timestamp is! int ||
+            timestamp < 0 ||
+            timestamp > 8640000000000000 ||
+            event['system'] is! bool ||
+            event['isMine'] is! bool) {
+          return;
+        }
+        final message = ChatMessage(
+          username: name,
+          text: text,
+          timestamp: DateTime.fromMillisecondsSinceEpoch(timestamp),
+          system: event['system']! as bool,
+          isMine: event['isMine']! as bool,
+        );
+        if (!_nearbyMessages.contains(message)) {
+          final updated = [..._nearbyMessages, message];
+          _nearbyMessages = List.unmodifiable(
+            updated.skip(updated.length > 100 ? updated.length - 100 : 0),
+          );
+        }
+      case 'chat.reaction':
+        final emoji = event['reaction'];
+        if (emoji is! String || emoji.isEmpty || emoji.length > 16) return;
+        reaction = ReactionEvent(username: name, emoji: emoji);
+        _reactionTimer?.cancel();
+        _reactionTimer = Timer(const Duration(seconds: 3), () {
+          reaction = null;
+          _changed();
+        });
+      case 'chat.typing':
+        if (event['typing'] is! bool) return;
+        if (event['typing'] == true) {
+          if (typing.length < 256 || typing.containsKey(name)) {
+            typing[name] = DateTime.now();
+          }
+        } else {
+          typing.remove(name);
+        }
+        _typingTimer?.cancel();
+        _typingTimer = Timer(const Duration(seconds: 4), () {
+          typing.clear();
+          _changed();
+        });
+      case 'presence':
+        if (event['kind'] == 'joined' &&
+            name != username &&
+            peers.length < 256) {
+          peers.add(name);
+        }
+        if (event['kind'] == 'left') {
+          peers.remove(name);
+          typing.remove(name);
+        }
+    }
+    _changed();
+  }
+
+  Future<void> _detachNearby() async {
+    final desktop = _nearby;
+    final social = _nearbySocial;
+    _nearby = null;
+    _nearbySocial = null;
+    desktop?.removeListener(_applyNearby);
+    if (desktop != null) {
+      room = null;
+      username = _phoneResume?.username ?? repository.displayName ?? username;
+      _mediaRoom = _phoneResume?.mediaRoom;
+    }
+    _nearbyMessages = const [];
+    _nearbyEpoch = null;
+    peers.clear();
+    typing.clear();
+    peerFiles.clear();
+    reaction = null;
+    connection = const SyncConnectionState(
+      status: SyncConnectionStatus.disconnected,
+    );
+    try {
+      await social?.cancel();
+    } finally {
+      await desktop?.close();
+    }
+  }
+
+  Future<bool> watchOnPhone() async {
+    if (!isNearby || busy || _closed) return false;
+    busy = true;
+    final generation = ++_connectGeneration;
+    final saved = _phoneResume;
+    _changed();
+    try {
+      await _detachNearby();
+      _requireCurrent(generation);
+      room = null;
+      username = saved?.username ?? repository.displayName ?? username;
+      _mediaRoom = saved?.mediaRoom;
+      if (saved?.playback.media != null && saved!.playback.ready) {
+        await phone.seek(saved.playback.position);
+        _requireCurrent(generation);
+      }
+      _phoneResume = null;
+      needsPlus = false;
+      inPlayer = true;
+      busy = false;
+      // connect claims busy synchronously; there is no unguarded async gap.
+      if (saved?.room != null) return await connect(saved!.room!);
+      return true;
+    } catch (_) {
+      if (_current(generation)) {
+        room = null;
+        report('Could not restore the phone session. Open it from history.');
+      }
+      return false;
+    } finally {
+      busy = false;
+      _changed();
+    }
+  }
+
+  Future<void> _nearbyCommand(
+    Future<void> Function(NearbyDesktopTarget) command, {
+    bool play = false,
+  }) async {
+    final desktop = _nearby;
+    final generation = _connectGeneration;
+    final epoch = desktop?.remote?.epoch;
+    if (busy || _closed || desktop == null || !desktop.connected) {
+      report('Reconnect to the desktop or choose Watch on this phone.');
+      return;
+    }
+    if (room != null && !isConnected) {
+      report('Wait for your desktop to reconnect to the room.');
+      return;
+    }
+    try {
+      final current = room;
+      if (play && current?.isHost == true) {
+        final result = await hosting.recordSessionStarted(
+          sessionId: current!.id,
+          isCreator: true,
+          peerCount: peers.length,
+          synchronizedPlaybackActive: true,
+        );
+        if (!_current(generation) ||
+            !identical(_nearby, desktop) ||
+            !desktop.connected ||
+            desktop.remote?.epoch != epoch) {
+          return;
+        }
+        if (!result.allowed) {
+          needsPlus = true;
+          _changed();
+          return;
+        }
+      }
+      if (!_current(generation) ||
+          !identical(_nearby, desktop) ||
+          !desktop.connected ||
+          desktop.remote?.epoch != epoch) {
+        return;
+      }
+      await command(desktop);
+    } catch (_) {
+      if (_current(generation) && identical(_nearby, desktop)) {
+        report(
+          'Desktop did not confirm that action. Check it before retrying.',
+        );
+      }
+    }
+  }
+
   bool _current(int generation) => !_closed && generation == _connectGeneration;
   void _requireCurrent(int generation) {
     if (!_current(generation)) throw const _ConnectionCancelled();
@@ -172,6 +518,10 @@ class AppController extends ChangeNotifier {
     bool adoptExistingSource = true,
   }) async {
     if (busy || _closed) return false;
+    if (isNearby) {
+      report('Choose Watch on this phone before joining another room.');
+      return false;
+    }
     // Claim ownership before the first asynchronous quota or disk operation.
     busy = true;
     message = null;
@@ -409,6 +759,13 @@ class AppController extends ChangeNotifier {
     MediaItem media, {
     Duration position = Duration.zero,
   }) async {
+    if (isNearby) {
+      report(
+        'Choose this video on your desktop. Phone files are not transferred.',
+      );
+      return;
+    }
+    if (busy || _closed) return;
     final mediaGeneration = ++_mediaGeneration;
     await saveProgress();
     message = null;
@@ -441,6 +798,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> togglePlay() async {
+    if (isNearby) {
+      final playing = target.snapshot.playing;
+      await _nearbyCommand(
+        (desktop) => playing ? desktop.pause() : desktop.play(),
+        play: !playing,
+      );
+      return;
+    }
+    if (busy || _closed) return;
     if (target.snapshot.playing) {
       if (_bridge != null) {
         await _bridge!.pause();
@@ -458,6 +824,11 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> seek(Duration position) async {
+    if (isNearby) {
+      await _nearbyCommand((desktop) => desktop.seek(position));
+      return;
+    }
+    if (busy || _closed) return;
     if (_bridge != null) {
       await _bridge!.seek(position);
     } else {
@@ -468,6 +839,10 @@ class AppController extends ChangeNotifier {
 
   Future<void> resume(WatchHistoryEntry entry) async {
     if (busy || _resumeLoading) return;
+    if (isNearby) {
+      report('Choose Watch on this phone before opening phone history.');
+      return;
+    }
     _resumeLoading = true;
     try {
       if (entry.room != null) {
@@ -482,9 +857,17 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> useLocalMode() async {
-    ++_connectGeneration;
+    final generation = ++_connectGeneration;
+    if (isNearby) {
+      await _detachNearby();
+      if (!_current(generation)) return;
+      username = _phoneResume?.username ?? username;
+      _phoneResume = null;
+    }
     await saveProgress();
+    if (!_current(generation)) return;
     await _detachRoom();
+    if (!_current(generation)) return;
     room = null;
     _mediaRoom = null;
     inPlayer = true;
@@ -492,17 +875,34 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> leavePlayer() async {
-    ++_connectGeneration;
+    final generation = ++_connectGeneration;
     ++_mediaGeneration;
+    if (isNearby) {
+      await _detachNearby();
+      if (!_current(generation)) return;
+      username = _phoneResume?.username ?? username;
+      _phoneResume = null;
+    }
     await saveProgress();
+    if (!_current(generation)) return;
     await target.pause();
+    if (!_current(generation)) return;
     await _detachRoom();
+    if (!_current(generation)) return;
     room = null;
     inPlayer = false;
     _changed();
   }
 
   Future<void> background() async {
+    if (busy) ++_connectGeneration;
+    if (isNearby) {
+      // Releasing the companion lease never pauses or leaves the desktop room.
+      ++_connectGeneration;
+      _nearby!.client.disconnect();
+      _applyNearby();
+      return;
+    }
     if (_bridge != null) {
       await _bridge!.pause();
     } else {
@@ -512,6 +912,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> saveProgress() async {
+    if (isNearby) return;
     final state = target.snapshot;
     if (!state.ready || state.media == null) return;
     await repository.record(
@@ -530,6 +931,10 @@ class AppController extends ChangeNotifier {
       report('Reconnect to send your message.');
       return;
     }
+    if (isNearby) {
+      unawaited(_nearbyCommand((desktop) => desktop.sendChat(value)));
+      return;
+    }
     _chat?.send(value);
   }
 
@@ -538,10 +943,20 @@ class AppController extends ChangeNotifier {
       report('Reconnect to send a reaction.');
       return;
     }
+    if (isNearby) {
+      unawaited(_nearbyCommand((desktop) => desktop.sendReaction(emoji)));
+      return;
+    }
     _chat?.sendReaction(emoji);
   }
 
   void sendTyping(bool active) {
+    if (isNearby) {
+      if (isConnected) {
+        unawaited(_nearbyCommand((desktop) => desktop.sendTyping(active)));
+      }
+      return;
+    }
     if (isConnected) _chat?.sendTyping(isTyping: active);
   }
 
@@ -559,6 +974,8 @@ class AppController extends ChangeNotifier {
     final bridge = _bridge;
     final chat = _chat;
     final sync = _sync;
+    final subscriptions = List<StreamSubscription<dynamic>>.of(_subscriptions);
+    _subscriptions.clear();
     _bridge = null;
     _chat = null;
     _sync = null;
@@ -568,10 +985,21 @@ class AppController extends ChangeNotifier {
     connection = const SyncConnectionState(
       status: SyncConnectionStatus.disconnected,
     );
-    await bridge?.dispose();
-    await _cancelSubscriptions();
-    await chat?.dispose();
-    await sync?.dispose();
+    // Capture ownership before awaiting; cancellation must never remove a
+    // newer session's listeners if leave and a fresh connect overlap.
+    try {
+      await bridge?.dispose();
+    } finally {
+      try {
+        await Future.wait(subscriptions.map((item) => item.cancel()));
+      } finally {
+        try {
+          await chat?.dispose();
+        } finally {
+          await sync?.dispose();
+        }
+      }
+    }
   }
 
   Future<void> close() => _closing ??= _close();
@@ -588,7 +1016,11 @@ class AppController extends ChangeNotifier {
     } finally {
       // A full disk must not keep the socket or native player alive.
       try {
-        await _detachRoom();
+        try {
+          await _detachNearby();
+        } finally {
+          await _detachRoom();
+        }
       } finally {
         phone.removeListener(_onPlayback);
         billing.removeListener(_changed);
@@ -605,4 +1037,21 @@ class AppController extends ChangeNotifier {
 
 class _ConnectionCancelled implements Exception {
   const _ConnectionCancelled();
+}
+
+class _NearbyHandoffFailed implements Exception {
+  const _NearbyHandoffFailed();
+}
+
+class _PhoneResume {
+  const _PhoneResume({
+    required this.room,
+    required this.mediaRoom,
+    required this.username,
+    required this.playback,
+  });
+  final RoomTicket? room;
+  final RoomTicket? mediaRoom;
+  final String username;
+  final PlaybackSnapshot playback;
 }

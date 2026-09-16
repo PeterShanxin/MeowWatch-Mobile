@@ -55,7 +55,7 @@ void main() {
   testWidgets('tablet uses two columns and shows real resume context', (
     tester,
   ) async {
-    tester.view.physicalSize = const Size(1000, 800);
+    tester.view.physicalSize = const Size(800, 1280);
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
@@ -134,6 +134,7 @@ void main() {
 
     await tester.tap(find.byKey(const Key('start-room-button')));
     await tester.pump();
+    await tester.ensureVisible(find.byKey(const Key('join-room-button')));
     await tester.tap(find.byKey(const Key('join-room-button')));
     await tester.ensureVisible(find.byKey(const Key('local-mode-button')));
     await tester.tap(find.byKey(const Key('local-mode-button')));

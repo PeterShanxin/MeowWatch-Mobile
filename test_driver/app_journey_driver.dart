@@ -3,7 +3,7 @@ import 'dart:io';
 
 import 'package:integration_test/integration_test_driver_extended.dart';
 
-const _profiles = {'phone', 'small', 'tablet', 'landscape'};
+const _profiles = {'phone', 'small', 'tablet', 'tablet-landscape', 'landscape'};
 const _pngSignature = <int>[137, 80, 78, 71, 13, 10, 26, 10];
 
 Future<void> main() async {
@@ -56,6 +56,20 @@ Future<void> main() async {
         const JsonEncoder.withIndent('  ').convert(summary),
         flush: true,
       );
+      final journey = summary['appJourney'];
+      if (journey is Map && journey['result'] == 'passed') {
+        final viewport = journey['viewport'];
+        final expectedOrientation =
+            profile == 'landscape' || profile == 'tablet-landscape'
+            ? 'landscape'
+            : 'portrait';
+        if (viewport is! Map ||
+            viewport['orientation'] != expectedOrientation) {
+          throw StateError(
+            'Native viewport did not match $profile orientation.',
+          );
+        }
+      }
     },
   );
 }

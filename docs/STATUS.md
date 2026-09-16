@@ -10,15 +10,15 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Partial | Local normal and integration-test debug APKs build; clean-checkout/install proof pending |
 | 2 | Public, licensed, documented, secret-free repository | Partial | Public repository exists; bootstrap in progress |
-| 3 | Clear first-launch create/join | Partial | Production screens and local validation implemented; Android journey pending |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Two real public TLS clients pass protocol smoke; first native phone/tablet job stopped before launch at SDK tool lookup; corrected rerun pending |
+| 3 | Clear first-launch create/join | Partial | Native onboarding, home and invalid-join recovery pass on phone, small phone and portrait tablet; two-user production-room rehearsal pending |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Two independent API 35 AVDs boot and play native video; pause assertion exposed a sampling race during authoritative seek correction; convergence-aware rerun pending |
 | 5 | Real-session chat/reactions/presence | Partial | Public TLS protocol smoke passes; production chat UI implemented; dual Android evidence pending |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | Socket recovery and session-race tests pass; Android lifecycle matrix pending |
-| 7 | Local Mode and Continue Watching | Partial | Native decoder/play/pause/seek/reopen pass; disk history/controller resume tests pass; integrated UI journey pending |
-| 8 | Secure phone-to-desktop discovery/pair/control | Unverified | Contract and focused desktop PR pending |
+| 7 | Local Mode and Continue Watching | Partial | Native production journey passes local URL play/pause/seek and durable Continue Watching on three viewports; actual SAF picker and hardware lifecycle proof pending |
+| 8 | Secure phone-to-desktop discovery/pair/control | Partial | Mobile UI/target handoff, pinned TLS and isolated desktop companion implemented; Windows native secure storage survives process restarts and persists revocation; Android native and cross-device LAN proof pending |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Native Test Store cancel/failure/success, Plus activation, server refresh and restore pass in run 35057627571; integrated unlimited-hosting funnel pending |
 | 10 | Correct daily quota and session continuity | Partial | 19 billing/quota tests pass; integrated device quota funnel pending |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Twelve Flutter test-renderer PNGs across four viewports plus 200% text/player/keyboard regression checks pass; native product screenshots pending |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Five Flutter-rendered viewports and native phone/small/portrait-tablet screenshots inspected; native landscape found a 23px overflow, fixed with exact-safe-area regression; five native viewports rerun pending |
 | 12 | Reliable Cast or exact blocker and fallback | Unverified | Scheduled after core stability |
 | 13 | No placeholders, dead ends or silent failures | Unverified | Final product review pending |
 | 14 | Clean-install full demo rehearsal | Unverified | Pending integrated application |
@@ -45,15 +45,18 @@ Integration, application, mobile playback and final acceptance remain with the m
 
 ## Current checkpoint evidence
 
-- `flutter test --no-pub --reporter expanded`: **428 passed**, including four rendered-layout cases and four player/chat accessibility cases. The latter reproduce and protect fixes for 200% text, long playback times and landscape keyboards.
+- `flutter test --no-pub --reporter expanded`: **499 passed** with an actual local private adapter selected for TLS client tests; no LAN skips. Full `flutter analyze --no-pub` reports no issues. Tests include five rendered layouts, 200% text, long player times, landscape keyboards and paywall accessibility.
 - `flutter build apk --debug --no-pub`: passes with the production UI and bundled fonts on the local Windows ARM host.
 - `flutter build apk --debug --no-pub -t integration_test/playback_smoke_test.dart`: passes on the same host.
 - `dart run test/support/syncplay_live_smoke.dart`: two public STARTTLS clients; bidirectional control, social signals, presence and reconnection. See [SYNC_CORE.md](SYNC_CORE.md).
-- Production onboarding, home, join, player, chat, invitation, media, settings and real-offering paywall screens are implemented. Nearby and Cast remain unfinished; this is not a submission-ready build.
+- Production onboarding, home, join, player, chat, invitation, media, settings, Nearby and real-offering paywall screens are implemented. Nearby still needs cross-device acceptance and Cast work continues; this is not a submission-ready build.
 - [Native Android playback run 35054195277](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35054195277) passed on an API 35 Pixel 6 x86_64 AVD. Actual video texture screenshots and a 44.17-second native recording were inspected: 1280×720 media decoded, play advanced 773 ms, and seek reached 2018 ms. This is emulator evidence, not physical-device proof.
-- The product runtime matrix builds distinct host/guest APKs and is designed to record both concurrent AVDs and exercise Test Store cancel/failure/success. The first run exposed SDK-path and native-focus-query issues before those behaviors completed. Both runner fixes have targeted checks; native rerun evidence is pending.
-- The clean-install product journey covers onboarding, local media playback, seek, durable Continue Watching and the real offering on four Android viewports. Its integration APK builds locally; hosted native execution is pending.
+- [Two-AVD run 35058753994, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35058753994) booted independent phone/tablet clients and played native video. It failed when a pause stability assertion sampled before the subsequent authoritative seek had converged. The corrected test waits for both pause and the actual native position, then retains the original 350ms drift bound. It has not yet passed; recordings are development evidence.
+- [Native production journey run 35058754003](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35058754003) passes onboarding, local playback, seek, durable Continue Watching and the real offering on phone (411×914), small phone (360×640) and portrait tablet (800×1280). Landscape exposed an actual safe-area overflow now covered by a regression. The runner now uses five explicit viewport profiles and checks actual orientation, including a separate 1280×800 landscape tablet.
 - [Native RevenueCat job 104671008222](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35057627571/job/104671008222) passed: real `default` offering, `$rc_monthly`, localized `$2.99`, initial entitlement false, cancel code 1, failure code 42, successful purchase activates `meowwatch_plus`, server refresh and restore retain it. Native dialog screenshots and three recordings were retained. This uses the official Test Store on an emulator; it does not prove a Play Store charge, physical-device billing, or the integrated hosting funnel.
+- Nearby packages: **76 pure Dart primitive/authority/TLS client/server tests** and **14 protected-store/discovery contract tests** pass. Self-revocation immediately retires control and acknowledges success only after durable storage; failure/timeout never returns success. These counts are not all hardware tests.
+- The isolated Windows Release native probe passed three separate processes: protected identity/credential write, restart/read/revoke, and restart/revocation persistence. Actual network-profile enumeration reports a Public network and correctly rejects eligibility. No network-profile or firewall setting was changed. Android protected-store/LAN/NSD integration APK builds; its three-process hosted run is pending.
+- Python native billing, hosting-purchase and Nearby runners pass **28 tests**. The new integrated hosting funnel combines real RevenueCat, production quota/controller, public TLS clients and native video; native execution is pending. Its same-process service reopen is not claimed as OS process-restart evidence.
 
 ## Live development recording
 

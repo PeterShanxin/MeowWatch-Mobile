@@ -23,7 +23,7 @@ concurrency:
 
 jobs:
   journey:
-    name: Clean-install phone, small, tablet and landscape
+    name: Clean-install five phone and tablet viewports
     runs-on: ubuntu-24.04
     timeout-minutes: 65
     steps:

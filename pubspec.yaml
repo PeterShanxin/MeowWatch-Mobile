@@ -13,6 +13,11 @@ dependencies:
   flutter:
     sdk: flutter
   meta: ^1.18.0
+  mobile_scanner: ^7.4.2
+  nearby_bridge:
+    path: packages/nearby_bridge
+  nearby_platform:
+    path: packages/nearby_platform
   path: ^1.9.1
   path_provider: ^2.1.6
   purchases_flutter: ^10.12.0

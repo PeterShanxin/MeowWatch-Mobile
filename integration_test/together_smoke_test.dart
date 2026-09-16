@@ -110,6 +110,21 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
       }
 
+      Future<int> waitPausePosition(int round) async {
+        final prefix = 'paused $round at ';
+        int? position;
+        await until(() {
+          for (final message in app.messages) {
+            if (!message.isMine && message.text.startsWith(prefix)) {
+              position = int.tryParse(message.text.substring(prefix.length));
+              if (position != null && position! >= 0) return true;
+            }
+          }
+          return false;
+        }, 'authoritative pause position $round');
+        return position!;
+      }
+
       await until(
         () => app.peers.isNotEmpty && app.peerFiles.isNotEmpty,
         'peer media and presence',
@@ -147,7 +162,10 @@ void main() {
           await signal('playing $round');
           await waitMessage('saw play $round');
           await app.togglePlay();
-          await signal('paused $round');
+          final pausedPosition = await target.controller!.position;
+          expect(pausedPosition, isNotNull);
+          await signal('paused $round at ${pausedPosition!.inMilliseconds}');
+          await capture('paused-controller-$round');
           await waitMessage('saw pause $round');
           await app.seek(const Duration(seconds: 4));
           await signal('sought $round');
@@ -162,14 +180,32 @@ void main() {
           );
           await capture('playing-$round');
           await signal('saw play $round');
-          await waitMessage('paused $round');
-          await until(() => !target.snapshot.playing, 'peer pause');
+          final expectedPosition = await waitPausePosition(round);
+          // The bridge pauses before applying the room's authoritative seek.
+          // Measure stability only once both native operations have converged.
+          await until(
+            () =>
+                !target.snapshot.playing &&
+                (target.snapshot.position.inMilliseconds - expectedPosition)
+                        .abs() <
+                    350,
+            'peer pause and authoritative position',
+          );
           final position = target.snapshot.position;
           await tester.pump(const Duration(milliseconds: 800));
           expect(
             (target.snapshot.position - position).inMilliseconds.abs(),
             lessThan(350),
           );
+          observed.add({
+            'stage': 'pause-convergence-$round',
+            'controllerPositionMs': expectedPosition,
+            'peerPositionMs': target.snapshot.position.inMilliseconds,
+            'driftMs': (target.snapshot.position - position).inMilliseconds
+                .abs(),
+            'at': DateTime.now().toUtc().toIso8601String(),
+          });
+          await capture('paused-peer-$round');
           await signal('saw pause $round');
           await waitMessage('sought $round');
           await until(

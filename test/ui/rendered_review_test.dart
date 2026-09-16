@@ -25,6 +25,7 @@ void main() {
     'small-phone': const Size(360, 640),
     'phone': const Size(412, 892),
     'tablet': const Size(1280, 800),
+    'portrait-tablet': const Size(800, 1280),
     'landscape-phone': const Size(800, 360),
   }.entries) {
     testWidgets(

@@ -139,12 +139,21 @@ void main() {
         'real Android video texture',
         timeout: const Duration(seconds: 70),
       );
-      await _waitFor(tester, find.text(_videoTitle), 'loaded media title');
       final sliderFinder = find.byType(Slider);
       await _waitFor(tester, sliderFinder, 'playback slider');
+      await _waitForCondition(
+        tester,
+        () => _slider(tester).max > 1000,
+        'loaded playback duration',
+      );
+      final viewSize = tester.view.physicalSize / tester.view.devicePixelRatio;
+      if (viewSize.height >= viewSize.width) {
+        await _waitFor(tester, find.text(_videoTitle), 'loaded media title');
+      }
       verified.addAll([
         'official_direct_video_loaded',
         'android_video_texture_rendered',
+        'playback_metadata_loaded',
       ]);
 
       final startPosition = _slider(tester).value;

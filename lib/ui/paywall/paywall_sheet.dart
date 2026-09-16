@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:purchases_flutter/purchases_flutter.dart'
+    show ProductCategory, RecurrenceMode;
 
 import '../../app/app_controller.dart';
 import '../../app/app_services.dart';
@@ -34,6 +36,7 @@ class _PaywallSheet extends StatefulWidget {
 class _PaywallSheetState extends State<_PaywallSheet> {
   String? _message;
   bool _preparing = true;
+  String? _selectedPackageId;
 
   BillingService get _billing => widget.app.billing;
 
@@ -127,162 +130,268 @@ class _PaywallSheetState extends State<_PaywallSheet> {
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
             child: AnimatedBuilder(
               animation: _billing,
-              builder: (context, _) => SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 12, 24, 28),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
+              builder: (context, _) {
+                final packages = _billing.packages;
+                final selected = packages.isEmpty
+                    ? null
+                    : packages.firstWhere(
+                        (package) => package.identifier == _selectedPackageId,
+                        orElse: () => packages.first,
+                      );
+                final plan = selected == null ? null : _PlanDetails(selected);
+                return Column(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Align(
-                      alignment: Alignment.centerRight,
-                      child: IconButton(
-                        tooltip: 'Close',
-                        constraints: const BoxConstraints(
-                          minWidth: 48,
-                          minHeight: 48,
-                        ),
-                        onPressed: _billing.isBusy
-                            ? null
-                            : () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close, color: _ivory),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(24, 4, 12, 0),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          const Icon(Icons.nightlight_round, color: _apricot),
+                          IconButton(
+                            tooltip: 'Close',
+                            constraints: const BoxConstraints(
+                              minWidth: 48,
+                              minHeight: 48,
+                            ),
+                            onPressed: _billing.isBusy
+                                ? null
+                                : () => Navigator.of(context).pop(),
+                            icon: const Icon(Icons.close, color: _ivory),
+                          ),
+                        ],
                       ),
                     ),
-                    const Icon(
-                      Icons.nightlight_round,
-                      color: _apricot,
-                      size: 40,
-                    ),
-                    const SizedBox(height: 12),
-                    Text(
-                      _billing.isPlus
-                          ? 'Your movie nights are unlimited.'
-                          : 'More movie nights.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.headlineMedium
-                          ?.copyWith(
-                            color: _ivory,
-                            fontWeight: FontWeight.w700,
-                          ),
-                    ),
-                    const SizedBox(height: 10),
-                    Text(
-                      _billing.isPlus
-                          ? 'MeowWatch Plus is active on this store account.'
-                          : 'Host as many Together Sessions as you like. Your guests always join free.',
-                      textAlign: TextAlign.center,
-                      style: Theme.of(context).textTheme.bodyLarge?.copyWith(
-                        color: _ivory.withValues(alpha: 0.82),
-                        height: 1.4,
-                      ),
-                    ),
-                    const SizedBox(height: 24),
-                    const _Benefit(
-                      icon: Icons.all_inclusive,
-                      title: 'Unlimited hosting',
-                      detail: 'Start another shared watch whenever you want.',
-                    ),
-                    const SizedBox(height: 12),
-                    const _Benefit(
-                      icon: Icons.group_outlined,
-                      title: 'Guests always join free',
-                      detail: 'Friends never need Plus to join your room.',
-                    ),
-                    const SizedBox(height: 12),
-                    const _Benefit(
-                      icon: Icons.wb_sunny_outlined,
-                      title: 'A real free session every day',
-                      detail:
-                          'Without Plus, you can still host one new Together Session per local day.',
-                    ),
-                    if (usesTestStore) ...[
-                      const SizedBox(height: 18),
-                      Container(
-                        padding: const EdgeInsets.all(14),
-                        decoration: BoxDecoration(
-                          color: _lavender.withValues(alpha: 0.12),
-                          border: Border.all(
-                            color: _lavender.withValues(alpha: 0.4),
-                          ),
-                          borderRadius: BorderRadius.circular(14),
+                    Flexible(
+                      child: SingleChildScrollView(
+                        padding: EdgeInsets.fromLTRB(
+                          24,
+                          4,
+                          24,
+                          24 + media.padding.bottom,
                         ),
-                        child: const Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
-                            Icon(Icons.science_outlined, color: _lavender),
-                            SizedBox(width: 12),
-                            Expanded(
-                              child: Text(
-                                'RevenueCat Test Store · sandbox purchase, no real charge.',
-                                style: TextStyle(color: _ivory, height: 1.35),
+                            Text(
+                              _billing.isPlus
+                                  ? 'Your movie nights are unlimited.'
+                                  : 'More movie nights.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.headlineMedium
+                                  ?.copyWith(
+                                    color: _ivory,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                            ),
+                            const SizedBox(height: 10),
+                            Text(
+                              _billing.isPlus
+                                  ? 'MeowWatch Plus is active on this store account.'
+                                  : 'Host as many Together Sessions as you like. Your guests always join free.',
+                              textAlign: TextAlign.center,
+                              style: Theme.of(context).textTheme.bodyLarge
+                                  ?.copyWith(
+                                    color: _ivory.withValues(alpha: 0.82),
+                                    height: 1.4,
+                                  ),
+                            ),
+                            if (!_billing.isPlus) ...[
+                              const SizedBox(height: 12),
+                              Text(
+                                'Free includes one hosted session per local day.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: _ivory.withValues(alpha: 0.72),
+                                ),
                               ),
+                            ],
+                            if (usesTestStore) ...[
+                              const SizedBox(height: 18),
+                              Container(
+                                padding: const EdgeInsets.all(12),
+                                decoration: BoxDecoration(
+                                  color: _lavender.withValues(alpha: 0.12),
+                                  border: Border.all(
+                                    color: _lavender.withValues(alpha: 0.4),
+                                  ),
+                                  borderRadius: BorderRadius.circular(14),
+                                ),
+                                child: const Row(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Icon(
+                                      Icons.science_outlined,
+                                      color: _lavender,
+                                    ),
+                                    SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        'RevenueCat Test Store · no real charge.',
+                                        style: TextStyle(
+                                          color: _ivory,
+                                          height: 1.35,
+                                        ),
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                            if (_message != null) ...[
+                              const SizedBox(height: 16),
+                              Semantics(
+                                liveRegion: true,
+                                child: Text(
+                                  _message!,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: _apricot,
+                                    height: 1.35,
+                                  ),
+                                ),
+                              ),
+                            ],
+                            const SizedBox(height: 20),
+                            if (_preparing || _billing.isBusy)
+                              const Center(
+                                child: Padding(
+                                  padding: EdgeInsets.symmetric(vertical: 10),
+                                  child: CircularProgressIndicator(
+                                    color: _apricot,
+                                  ),
+                                ),
+                              )
+                            else if (_billing.isPlus)
+                              _PrimaryButton(
+                                label: 'Done',
+                                onPressed: () =>
+                                    Navigator.of(context).pop(true),
+                              )
+                            else if (_billing.packages.isEmpty)
+                              const Text(
+                                'No purchase option is available right now. You can try again or restore an existing purchase.',
+                                textAlign: TextAlign.center,
+                                style: TextStyle(color: _ivory),
+                              )
+                            else if (selected != null && plan != null) ...[
+                              if (packages.length > 1) ...[
+                                const Text(
+                                  'Choose your plan',
+                                  style: TextStyle(
+                                    color: _ivory,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                RadioGroup<String>(
+                                  groupValue: selected.identifier,
+                                  onChanged: (value) => setState(
+                                    () => _selectedPackageId = value,
+                                  ),
+                                  child: Column(
+                                    children: packages.map((package) {
+                                      final option = _PlanDetails(package);
+                                      return Padding(
+                                        padding: const EdgeInsets.only(
+                                          bottom: 8,
+                                        ),
+                                        child: Material(
+                                          color: _raised,
+                                          borderRadius: BorderRadius.circular(
+                                            14,
+                                          ),
+                                          child: RadioListTile<String>(
+                                            key: ValueKey(
+                                              'plan-${package.identifier}',
+                                            ),
+                                            value: package.identifier,
+                                            activeColor: _apricot,
+                                            fillColor:
+                                                WidgetStateProperty.resolveWith(
+                                                  (states) =>
+                                                      states.contains(
+                                                        WidgetState.selected,
+                                                      )
+                                                      ? _apricot
+                                                      : _lavender,
+                                                ),
+                                            title: Text(
+                                              option.name,
+                                              style: const TextStyle(
+                                                color: _ivory,
+                                              ),
+                                            ),
+                                            subtitle: Text(
+                                              option.price,
+                                              style: const TextStyle(
+                                                color: _ivory,
+                                              ),
+                                            ),
+                                            contentPadding:
+                                                const EdgeInsets.symmetric(
+                                                  horizontal: 12,
+                                                  vertical: 4,
+                                                ),
+                                          ),
+                                        ),
+                                      );
+                                    }).toList(),
+                                  ),
+                                ),
+                              ] else
+                                Text(
+                                  plan.name,
+                                  textAlign: TextAlign.center,
+                                  style: const TextStyle(
+                                    color: _ivory,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              const SizedBox(height: 8),
+                              Text(
+                                plan.renewal,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: _ivory.withValues(alpha: 0.82),
+                                  height: 1.35,
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              _PrimaryButton(
+                                key: ValueKey(
+                                  'purchase-${selected.identifier}',
+                                ),
+                                label: 'Continue · ${plan.price}',
+                                onPressed: () => _purchase(selected),
+                              ),
+                            ],
+                            const SizedBox(height: 6),
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                foregroundColor: _lavender,
+                                minimumSize: const Size.fromHeight(48),
+                              ),
+                              onPressed: _billing.isBusy ? null : _restore,
+                              child: const Text('Restore purchases'),
+                            ),
+                            TextButton(
+                              style: TextButton.styleFrom(
+                                foregroundColor: _ivory.withValues(alpha: 0.72),
+                                minimumSize: const Size.fromHeight(48),
+                              ),
+                              onPressed: _billing.isBusy
+                                  ? null
+                                  : () => Navigator.of(context).pop(false),
+                              child: const Text('Maybe tomorrow'),
                             ),
                           ],
                         ),
                       ),
-                    ],
-                    if (_message != null) ...[
-                      const SizedBox(height: 16),
-                      Semantics(
-                        liveRegion: true,
-                        child: Text(
-                          _message!,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: _apricot, height: 1.35),
-                        ),
-                      ),
-                    ],
-                    const SizedBox(height: 20),
-                    if (_preparing || _billing.isBusy)
-                      const Center(
-                        child: Padding(
-                          padding: EdgeInsets.symmetric(vertical: 10),
-                          child: CircularProgressIndicator(color: _apricot),
-                        ),
-                      )
-                    else if (_billing.isPlus)
-                      _PrimaryButton(
-                        label: 'Done',
-                        onPressed: () => Navigator.of(context).pop(true),
-                      )
-                    else if (_billing.packages.isEmpty)
-                      const Text(
-                        'No purchase option is available right now. You can try again or restore an existing purchase.',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(color: _ivory),
-                      )
-                    else
-                      ..._billing.packages.map(
-                        (package) => Padding(
-                          padding: const EdgeInsets.only(bottom: 10),
-                          child: _PrimaryButton(
-                            key: ValueKey('purchase-${package.identifier}'),
-                            label:
-                                'Continue · ${package.storeProduct.priceString}',
-                            onPressed: () => _purchase(package),
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 6),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: _lavender,
-                        minimumSize: const Size.fromHeight(48),
-                      ),
-                      onPressed: _billing.isBusy ? null : _restore,
-                      child: const Text('Restore purchases'),
-                    ),
-                    TextButton(
-                      style: TextButton.styleFrom(
-                        foregroundColor: _ivory.withValues(alpha: 0.72),
-                        minimumSize: const Size.fromHeight(48),
-                      ),
-                      onPressed: _billing.isBusy
-                          ? null
-                          : () => Navigator.of(context).pop(false),
-                      child: const Text('Maybe tomorrow'),
                     ),
                   ],
-                ),
-              ),
+                );
+              },
             ),
           ),
         ),
@@ -291,54 +400,101 @@ class _PaywallSheetState extends State<_PaywallSheet> {
   }
 }
 
-class _Benefit extends StatelessWidget {
-  const _Benefit({
-    required this.icon,
-    required this.title,
-    required this.detail,
-  });
+class _PlanDetails {
+  const _PlanDetails(this.package);
+  final Package package;
+  StoreProduct get product => package.storeProduct;
+  bool get oneTime =>
+      product.productCategory == ProductCategory.nonSubscription ||
+      (package.packageType == PackageType.lifetime &&
+          product.subscriptionPeriod == null);
+  bool get prepaid =>
+      product.defaultOption?.isPrepaid == true ||
+      product.defaultOption?.fullPricePhase?.recurrenceMode ==
+          RecurrenceMode.nonRecurring;
 
-  final IconData icon;
-  final String title;
-  final String detail;
+  (int, String)? get period {
+    if (oneTime) return null;
+    // Product metadata outranks the merchandising package name. Custom plans
+    // can have a valid store period; missing periods use known SDK types only.
+    final iso =
+        product.subscriptionPeriod ??
+        product.defaultOption?.billingPeriod?.iso8601 ??
+        switch (package.packageType) {
+          PackageType.annual => 'P1Y',
+          PackageType.sixMonth => 'P6M',
+          PackageType.threeMonth => 'P3M',
+          PackageType.twoMonth => 'P2M',
+          PackageType.monthly => 'P1M',
+          PackageType.weekly => 'P1W',
+          _ => null,
+        };
+    final match = iso == null
+        ? null
+        : RegExp(r'^P([1-9][0-9]*)([DWMY])$').firstMatch(iso);
+    if (match == null) return null;
+    final count = int.tryParse(match[1]!);
+    if (count == null) return null;
+    final unit = switch (match[2]) {
+      'D' => 'day',
+      'W' => 'week',
+      'M' => 'month',
+      _ => 'year',
+    };
+    return (count, unit);
+  }
 
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.all(16),
-    decoration: BoxDecoration(
-      color: _raised,
-      borderRadius: BorderRadius.circular(16),
-    ),
-    child: Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, color: _apricot),
-        const SizedBox(width: 14),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                title,
-                style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                  color: _ivory,
-                  fontWeight: FontWeight.w700,
-                ),
-              ),
-              const SizedBox(height: 3),
-              Text(
-                detail,
-                style: TextStyle(
-                  color: _ivory.withValues(alpha: 0.72),
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
+  String get duration {
+    final (count, unit) = period!;
+    return '$count $unit${count == 1 ? '' : 's'}';
+  }
+
+  String get name {
+    if (oneTime) {
+      return package.packageType == PackageType.lifetime
+          ? 'Lifetime'
+          : 'One-time purchase';
+    }
+    final value = period;
+    if (value == null) {
+      return product.title.isEmpty ? 'Store plan' : product.title;
+    }
+    final (count, unit) = value;
+    if (prepaid) return '$duration prepaid';
+    if (count != 1) return 'Every $duration';
+    return switch (unit) {
+      'day' => 'Daily',
+      'week' => 'Weekly',
+      'month' => 'Monthly',
+      _ => 'Yearly',
+    };
+  }
+
+  String get price {
+    if (oneTime) return '${product.priceString} once';
+    final value = period;
+    if (value == null) return product.priceString;
+    if (prepaid) return '${product.priceString} for $duration';
+    final (count, unit) = value;
+    return '${product.priceString} / ${count == 1 ? unit : duration}';
+  }
+
+  String get renewal {
+    if (oneTime) return 'One-time purchase. No recurring subscription.';
+    if (period == null) {
+      return 'Review the billing period and renewal terms in the store before confirming.';
+    }
+    if (prepaid) return 'Access for $duration. Does not renew automatically.';
+    if (usesTestStore) {
+      return 'Test subscription. Renewals run on an accelerated schedule, then access expires automatically.';
+    }
+    if (product.defaultOption?.fullPricePhase?.recurrenceMode ==
+            RecurrenceMode.infiniteRecurring &&
+        product.defaultOption?.installmentsInfo == null) {
+      return 'Renews every $duration until cancelled in your store account.';
+    }
+    return 'Billed every $duration. Review renewal and cancellation terms in the store before confirming.';
+  }
 }
 
 class _PrimaryButton extends StatelessWidget {
@@ -361,6 +517,6 @@ class _PrimaryButton extends StatelessWidget {
       textStyle: const TextStyle(fontWeight: FontWeight.w700),
     ),
     onPressed: onPressed,
-    child: Text(label),
+    child: Text(label, textAlign: TextAlign.center),
   );
 }

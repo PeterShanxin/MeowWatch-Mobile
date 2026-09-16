@@ -10,6 +10,7 @@ import 'ui/home/home_screen.dart';
 import 'ui/home/onboarding_screen.dart';
 import 'ui/join/join_sheet.dart';
 import 'ui/media/media_sheet.dart';
+import 'ui/nearby/nearby_devices_sheet.dart';
 import 'ui/paywall/paywall_sheet.dart';
 import 'ui/room/invite_sheet.dart';
 import 'ui/room/room_screen.dart';
@@ -153,33 +154,9 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
 
   Future<void> _devices() async {
     final context = _context;
-    if (context == null) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      useSafeArea: true,
-      constraints: const BoxConstraints(maxWidth: 560),
-      builder: (context) => Padding(
-        padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Playback screen',
-              style: Theme.of(context).textTheme.headlineMedium,
-            ),
-            const SizedBox(height: 20),
-            ListTile(
-              leading: const Icon(Icons.smartphone_rounded),
-              title: const Text('This phone'),
-              subtitle: const Text('Video and room controls on this device'),
-              trailing: const Icon(Icons.check_circle_outline),
-              onTap: () => Navigator.pop(context),
-            ),
-          ],
-        ),
-      ),
-    );
+    if (context != null) {
+      await showNearbyDevicesSheet(context, app: _app!);
+    }
   }
 
   @override

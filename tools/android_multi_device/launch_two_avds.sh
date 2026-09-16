@@ -1,0 +1,210 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+usage() {
+  cat <<'EOF'
+Usage: launch_two_avds.sh [output-directory]
+
+Creates and launches a clean Pixel 6 phone AVD on emulator-5554 and a clean
+Pixel Tablet AVD on emulator-5556. The output directory receives emulator logs
+and session.env for the recording and cleanup scripts.
+EOF
+}
+
+if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
+  usage
+  exit 0
+fi
+
+output_root="${1:-build/android-multi-device}"
+session_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+mkdir -p "$output_root"
+output_root="$(cd "$output_root" && pwd -P)"
+session_dir="$output_root/$session_id"
+mkdir -p "$session_dir"
+
+sdk_root="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}"
+if [[ -z "$sdk_root" ]]; then
+  echo 'ANDROID_SDK_ROOT or ANDROID_HOME must identify the Android SDK.' >&2
+  exit 2
+fi
+
+resolve_tool() {
+  local preferred="$1"
+  local fallback="$2"
+  if [[ -x "$preferred" ]]; then
+    printf '%s\n' "$preferred"
+  elif command -v "$fallback" >/dev/null 2>&1; then
+    command -v "$fallback"
+  else
+    echo "Required Android tool not found: $fallback" >&2
+    exit 2
+  fi
+}
+
+sdkmanager="$(resolve_tool "$sdk_root/cmdline-tools/latest/bin/sdkmanager" sdkmanager)"
+avdmanager="$(resolve_tool "$sdk_root/cmdline-tools/latest/bin/avdmanager" avdmanager)"
+emulator="$(resolve_tool "$sdk_root/emulator/emulator" emulator)"
+adb="$(resolve_tool "$sdk_root/platform-tools/adb" adb)"
+
+if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
+  echo 'This launcher is intentionally limited to Linux x86_64 hosted runners.' >&2
+  exit 2
+fi
+if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
+  echo '/dev/kvm is not readable and writable; enable KVM before launching.' >&2
+  exit 2
+fi
+
+"$emulator" -accel-check | tee "$session_dir/acceleration.txt"
+
+system_image='system-images;android-35;google_apis;x86_64'
+"$sdkmanager" 'platform-tools' 'emulator' 'platforms;android-35' "$system_image"
+
+device_list="$session_dir/avdmanager-devices.txt"
+"$avdmanager" list device > "$device_list"
+for profile in pixel_6 pixel_tablet; do
+  if ! grep -Fq "\"$profile\"" "$device_list"; then
+    echo "Required AVD hardware profile is unavailable: $profile" >&2
+    exit 3
+  fi
+done
+
+phone_avd="meowwatch_phone_${session_id//[^[:alnum:]]/_}"
+tablet_avd="meowwatch_tablet_${session_id//[^[:alnum:]]/_}"
+
+printf 'no\n' | "$avdmanager" create avd \
+  --force \
+  --name "$phone_avd" \
+  --package "$system_image" \
+  --device pixel_6
+printf 'no\n' | "$avdmanager" create avd \
+  --force \
+  --name "$tablet_avd" \
+  --package "$system_image" \
+  --device pixel_tablet
+
+"$adb" start-server >/dev/null
+for serial in emulator-5554 emulator-5556; do
+  if "$adb" devices | awk 'NR > 1 { print $1 }' | grep -Fxq "$serial"; then
+    echo "Refusing to reuse an existing Android emulator serial: $serial" >&2
+    exit 3
+  fi
+done
+
+"$emulator" -avd "$phone_avd" \
+  -port 5554 \
+  -accel on \
+  -gpu swiftshader \
+  -cores 2 \
+  -memory 2048 \
+  -no-window \
+  -no-snapshot \
+  -noaudio \
+  -no-boot-anim \
+  -camera-back none \
+  -camera-front none \
+  > "$session_dir/phone-emulator.log" 2>&1 &
+phone_emulator_pid=$!
+
+"$emulator" -avd "$tablet_avd" \
+  -port 5556 \
+  -accel on \
+  -gpu swiftshader \
+  -cores 2 \
+  -memory 3072 \
+  -no-window \
+  -no-snapshot \
+  -noaudio \
+  -no-boot-anim \
+  -camera-back none \
+  -camera-front none \
+  > "$session_dir/tablet-emulator.log" 2>&1 &
+tablet_emulator_pid=$!
+
+phone_serial='emulator-5554'
+tablet_serial='emulator-5556'
+
+write_session() {
+  {
+    printf 'SESSION_ID=%q\n' "$session_id"
+    printf 'SESSION_DIR=%q\n' "$session_dir"
+    printf 'SDK_ROOT=%q\n' "$sdk_root"
+    printf 'ADB=%q\n' "$adb"
+    printf 'AVDMANAGER=%q\n' "$avdmanager"
+    printf 'PHONE_AVD=%q\n' "$phone_avd"
+    printf 'TABLET_AVD=%q\n' "$tablet_avd"
+    printf 'PHONE_SERIAL=%q\n' "$phone_serial"
+    printf 'TABLET_SERIAL=%q\n' "$tablet_serial"
+    printf 'PHONE_EMULATOR_PID=%q\n' "$phone_emulator_pid"
+    printf 'TABLET_EMULATOR_PID=%q\n' "$tablet_emulator_pid"
+  } > "$session_dir/session.env"
+}
+write_session
+
+startup_failed=0
+cleanup_failed_startup() {
+  if [[ "$startup_failed" -eq 0 ]]; then
+    return
+  fi
+  "$adb" -s "$phone_serial" emu kill >/dev/null 2>&1 || true
+  "$adb" -s "$tablet_serial" emu kill >/dev/null 2>&1 || true
+  sleep 2
+  for emulator_pid in "$phone_emulator_pid" "$tablet_emulator_pid"; do
+    if kill -0 "$emulator_pid" 2>/dev/null; then
+      kill -TERM "$emulator_pid" 2>/dev/null || true
+    fi
+  done
+}
+trap cleanup_failed_startup EXIT
+startup_failed=1
+
+wait_for_boot() {
+  local serial="$1"
+  local label="$2"
+  local pid_variable="${label}_emulator_pid"
+  local emulator_pid="${!pid_variable}"
+  local deadline=$((SECONDS + 600))
+  while (( SECONDS < deadline )); do
+    if ! kill -0 "$emulator_pid" 2>/dev/null; then
+      echo "$label emulator process exited before Android booted." >&2
+      return 1
+    fi
+    local state="$($adb -s "$serial" get-state 2>/dev/null || true)"
+    local complete="$($adb -s "$serial" shell getprop sys.boot_completed 2>/dev/null | tr -d '\r' || true)"
+    if [[ "$state" == 'device' && "$complete" == '1' ]]; then
+      "$adb" -s "$serial" shell input keyevent 82 >/dev/null 2>&1 || true
+      return 0
+    fi
+    sleep 2
+  done
+  echo "$label failed to boot on $serial within 600 seconds." >&2
+  return 1
+}
+
+wait_for_boot "$phone_serial" phone &
+phone_wait_pid=$!
+wait_for_boot "$tablet_serial" tablet &
+tablet_wait_pid=$!
+wait "$phone_wait_pid"
+wait "$tablet_wait_pid"
+
+for serial in "$phone_serial" "$tablet_serial"; do
+  "$adb" -s "$serial" shell settings put global window_animation_scale 0
+  "$adb" -s "$serial" shell settings put global transition_animation_scale 0
+  "$adb" -s "$serial" shell settings put global animator_duration_scale 0
+done
+
+"$adb" -s "$phone_serial" shell settings put system accelerometer_rotation 0
+"$adb" -s "$phone_serial" shell settings put system user_rotation 0
+"$adb" -s "$tablet_serial" shell settings put system accelerometer_rotation 0
+"$adb" -s "$tablet_serial" shell settings put system user_rotation 1
+
+"$adb" devices -l > "$session_dir/adb-devices.txt"
+write_session
+startup_failed=0
+trap - EXIT
+
+printf 'Two AVDs are ready. Session: %s\n' "$session_dir/session.env"
+printf 'Phone:  %s (%s, 2 cores, 2048 MiB)\n' "$phone_serial" "$phone_avd"
+printf 'Tablet: %s (%s, 2 cores, 3072 MiB)\n' "$tablet_serial" "$tablet_avd"

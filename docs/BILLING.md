@@ -148,6 +148,106 @@ and immediate unlimited hosting after purchase. Also verify free room creation,
 peer arrival, actual playback, reconnect, midnight rollover and target changes
 through the app UI. Do not claim those checks passed without device evidence.
 
+### Live Android Test Store integration test
+
+The catalog created for this project is recorded in
+[REVENUECAT_SETUP.md](REVENUECAT_SETUP.md). The runtime test
+`integration_test/billing_smoke_test.dart` uses the production billing adapter
+and the installed native RevenueCat SDK, with no channel mocks or fabricated
+customer information. It accepts **only** a Test Store key starting with `test_`
+to prevent accidental real-store purchases.
+
+Start with the non-purchasing catalog check on an Android device/emulator:
+
+```powershell
+flutter test integration_test/billing_smoke_test.dart -d <android-device-id> --dart-define=REVENUECAT_API_KEY=<public-test-store-key>
+```
+
+This verifies SDK configuration, a fresh customer-info request, current offering
+`default`, package `$rc_monthly`, product `meowwatch_plus_monthly`, and real SDK
+price/currency/period metadata. It does **not** prove the entitlement mapping:
+an unpurchased customer can legitimately have no entitlements. That mapping is
+asserted only after a successful purchase.
+
+Use the purchase matrix on a Test Store customer without active Plus:
+
+```powershell
+flutter test integration_test/billing_smoke_test.dart -d <android-device-id> --dart-define=REVENUECAT_API_KEY=<public-test-store-key> --dart-define=REVENUECAT_TEST_MODE=matrix
+```
+
+The test first restores with no active entitlement, then makes three purchase
+attempts in order: **cancel**, **failure**, **success**. Each attempt emits
+`RC_SMOKE_STAGE <outcome>` to the host log and waits up to 90 seconds for a real
+native result. Select the corresponding option in the RevenueCat dialog. The
+test requires cancellation/failure to leave Plus inactive, then verifies that
+success activates the sandbox `meowwatch_plus` entitlement for the expected
+product. A fresh server request and restore must retain that entitlement.
+The failure outcome specifically requires RevenueCat's
+`testStoreSimulatedPurchaseError`; network/plugin errors do not qualify.
+
+For automated native interaction and recording, use the
+[prebuilt-APK runner](../tools/billing_runtime/README.md). It reacts only to the
+current drive log's stage markers, checks the focused app and exact native
+dialog/product/buttons, and derives taps from fresh accessibility bounds. Its
+host driver saves reports and native evidence under
+`build/billing-runtime-artifacts`. The runner never invokes a build; compile the
+requested test mode and public SDK key into the APK separately.
+
+RevenueCat's Android Test Store dialog is native Android UI. Flutter widget
+finders cannot click its buttons. A person can operate it, or the host can use
+adb/UIAutomator in parallel with the running test. Inspect each current dialog
+before tapping; button labels differ between SDK versions, so do not assume
+screen coordinates or match the Flutter instruction text instead of the dialog.
+For example, capture an accessibility dump in the second terminal:
+
+```powershell
+adb -s <android-device-id> shell uiautomator dump /sdcard/meowwatch-billing-ui.xml
+adb -s <android-device-id> shell cat /sdcard/meowwatch-billing-ui.xml
+adb -s <android-device-id> shell input tap <observed-button-center-x> <observed-button-center-y>
+```
+
+Capture the native dialog and selected option as external evidence, especially
+for the failure case: a generic store/network error alone does not establish
+that the intended failure button was exercised. Flutter-only screenshots do not
+prove the native dialog was visible. A missing response times out and fails;
+there is no automatic fake-success fallback. Dismiss any leftover dialog after
+an interrupted run before starting another test.
+
+Save the `RC_SMOKE_RESULT` JSON line, including its SHA-256 `customerHash`.
+Integration test drivers can also read the same data under
+`reportData.revenueCatTestStore`. The evidence includes the actual localized
+price, verified steps, timestamps, and entitlement expiration when available;
+it omits the SDK key and raw customer ID.
+
+For a separate process-relaunch/restore check, stop the app and run against the
+same installed app data before the entitlement expires:
+
+```powershell
+adb -s <android-device-id> shell am force-stop <application-id>
+flutter test integration_test/billing_smoke_test.dart -d <android-device-id> --dart-define=REVENUECAT_API_KEY=<public-test-store-key> --dart-define=REVENUECAT_TEST_MODE=relaunch --dart-define=REVENUECAT_EXPECT_CUSTOMER_HASH=<hash-from-matrix>
+```
+
+Do not clear app data or uninstall between these runs. The relaunch mode makes
+no purchase and requires the same customer and active sandbox Plus before and
+after restore. Reconstructing a Dart service in one process is not claimed as a
+process-relaunch test; retain the external stop/start evidence.
+
+To check actual expiration, wait for that Test Store subscription to expire and
+run the same command with `REVENUECAT_TEST_MODE=expired`. This mode invalidates
+the SDK cache, requires the original customer's historical Plus entitlement to
+be inactive with a past expiration timestamp, and requires restore to leave it
+inactive. It never changes the device clock or grants/revokes entitlements in
+test code. RevenueCat currently documents a five-minute renewal interval and
+approximately 25 minutes total for monthly Test Store subscriptions; verify the
+actual entitlement response rather than inferring expiry from elapsed time.
+
+These device modes are executable acceptance checks, not evidence that they
+have already passed. They do not test the app's paywall visuals, real-money
+Google Play billing, uninstall recovery, cross-device identity transfer, or
+hosting/playback integration. Record those checks separately. See RevenueCat's
+[Test Store documentation](https://www.revenuecat.com/docs/test-and-launch/sandbox/test-store)
+and its [native Android dialog testing example](https://www.revenuecat.com/blog/engineering/testing-test-store).
+
 Official references:
 
 - [Flutter SDK installation](https://www.revenuecat.com/docs/getting-started/installation/flutter)

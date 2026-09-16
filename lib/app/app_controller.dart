@@ -86,6 +86,7 @@ class AppController extends ChangeNotifier {
   bool needsPlus = false;
   bool inPlayer = false;
   bool _closed = false;
+  Future<void>? _closing;
   int _connectGeneration = 0;
   int _mediaGeneration = 0;
   bool _resumeLoading = false;
@@ -368,10 +369,15 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> _enforceHosting() async {
+    final bridge = _bridge;
+    final generation = _connectGeneration;
     try {
-      if (!await _authorizePlay()) await _bridge?.pause();
+      if (!await _authorizePlay() && _current(generation)) {
+        await bridge?.pause();
+      }
     } catch (_) {
-      await _bridge?.pause();
+      if (!_current(generation)) return;
+      await bridge?.pause();
       report(
         'Could not verify today’s hosting allowance. Try again after checking device storage.',
       );
@@ -380,6 +386,7 @@ class AppController extends ChangeNotifier {
 
   Future<bool> _authorizePlay() async {
     final current = room;
+    final generation = _connectGeneration;
     if (current == null) return true;
     if (!isConnected) return false;
     final result = await hosting.recordSessionStarted(
@@ -388,6 +395,9 @@ class AppController extends ChangeNotifier {
       peerCount: peers.length,
       synchronizedPlaybackActive: true,
     );
+    if (!_current(generation) || !identical(room, current) || !isConnected) {
+      return false;
+    }
     if (!result.allowed) {
       needsPlus = true;
       _changed();
@@ -564,20 +574,32 @@ class AppController extends ChangeNotifier {
     await sync?.dispose();
   }
 
-  Future<void> close() async {
+  Future<void> close() => _closing ??= _close();
+
+  Future<void> _close() async {
     ++_connectGeneration;
     ++_mediaGeneration;
     _closed = true;
     _historyTimer.cancel();
     _reactionTimer?.cancel();
     _typingTimer?.cancel();
-    await saveProgress();
-    await _detachRoom();
-    phone.removeListener(_onPlayback);
-    billing.removeListener(_changed);
-    billing.dispose();
-    await phone.close();
-    super.dispose();
+    try {
+      await saveProgress();
+    } finally {
+      // A full disk must not keep the socket or native player alive.
+      try {
+        await _detachRoom();
+      } finally {
+        phone.removeListener(_onPlayback);
+        billing.removeListener(_changed);
+        billing.dispose();
+        try {
+          await phone.close();
+        } finally {
+          super.dispose();
+        }
+      }
+    }
   }
 }
 

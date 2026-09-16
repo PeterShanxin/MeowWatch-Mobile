@@ -25,6 +25,7 @@ class ControlledRepository extends AppRepository {
 
 class ControlledQuota implements HostingAccessPolicy {
   Completer<bool>? gate;
+  Completer<SessionStartResult>? startGate;
   int checks = 0;
   int starts = 0;
   @override
@@ -44,7 +45,9 @@ class ControlledQuota implements HostingAccessPolicy {
     bool explicitStart = false,
   }) async {
     starts++;
-    return SessionStartResult.freeStarted;
+    return startGate == null
+        ? SessionStartResult.freeStarted
+        : startGate!.future;
   }
 }
 
@@ -142,8 +145,28 @@ void main() {
   });
   tearDown(() async {
     repository.failWrite = false;
-    await app.close();
+    try {
+      await app.close();
+    } on FileSystemException {
+      // A close already observed by the test preserves its original error.
+    }
   });
+
+  test(
+    'shutdown releases network and player when history cannot save',
+    () async {
+      await app.load(media);
+      expect(await app.connect(ticket), isTrue);
+      final playerClosed = Completer<void>();
+      target.states.listen((_) {}, onDone: playerClosed.complete);
+      repository.failWrite = true;
+      final closing = app.close();
+      expect(identical(closing, app.close()), isTrue);
+      await expectLater(closing, throwsA(isA<FileSystemException>()));
+      await playerClosed.future.timeout(const Duration(seconds: 1));
+      expect(client.closed, isTrue);
+    },
+  );
 
   test('double start is serialized before asynchronous quota access', () async {
     quota.gate = Completer<bool>();
@@ -156,6 +179,23 @@ void main() {
     expect(clientsCreated, 1);
     expect(client.receivedPassword, 'server-password');
   });
+
+  test(
+    'late hosting denial cannot open a paywall in a new local session',
+    () async {
+      await app.load(media);
+      expect(await app.connect(ticket), isTrue);
+      quota.startGate = Completer<SessionStartResult>();
+      final playing = app.togglePlay();
+      await until(() => quota.starts == 1);
+      await app.useLocalMode();
+      quota.startGate!.complete(SessionStartResult.quotaExceeded);
+      await playing;
+      expect(app.needsPlus, isFalse);
+      expect(app.isLocal, isTrue);
+      expect(target.snapshot.playing, isFalse);
+    },
+  );
 
   test('leaving during dial cannot resurrect room or player', () async {
     client.joinGate = Completer<void>();

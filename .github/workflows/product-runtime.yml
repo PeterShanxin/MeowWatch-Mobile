@@ -1,0 +1,110 @@
+name: Product runtime matrix
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/product-runtime.yml'
+      - 'integration_test/together_smoke_test.dart'
+      - 'integration_test/billing_smoke_test.dart'
+      - 'test_driver/**'
+      - 'tools/android_multi_device/**'
+      - 'tools/billing_runtime/**'
+      - 'lib/core/**'
+      - 'lib/app/app_controller.dart'
+      - 'pubspec.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: product-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  together:
+    name: Phone and tablet together (API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Install media evidence tools
+        run: sudo apt-get update && sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Prepare native media fixture
+        run: bash tools/android_multi_device/prepare_fixture.sh
+      - name: Build independent host and guest applications
+        run: |
+          bash tools/android_multi_device/build_together_apks.sh \
+            --room "mw-ci-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --video-url http://10.0.2.2:18765/sync-fixture.mp4
+      - name: Prepare Android system image and KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sdkmanager 'emulator' 'platforms;android-35' 'system-images;android-35;google_apis;x86_64'
+      - name: Run two real Android clients and record both
+        run: bash tools/android_multi_device/ci_together.sh
+      - name: Upload two-device evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: android-phone-tablet-${{ github.run_attempt }}
+          path: |
+            build/android-multi-device/
+            build/android-multi-device-artifacts/
+            !build/android-multi-device/apks/*.apk
+            !build/android-multi-device/fixture/sync-fixture.mp4
+          retention-days: 14
+
+  billing:
+    name: RevenueCat native Test Store (API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build real Test Store matrix APK
+        run: >-
+          flutter build apk --debug --target=integration_test/billing_smoke_test.dart
+          --dart-define=REVENUECAT_TEST_MODE=matrix
+          --dart-define=REVENUECAT_API_KEY=test_gjKDzmyNmHmuDfibegUnKQKTpRh
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Exercise actual native purchase dialogs
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: python3 tools/billing_runtime/run_billing_smoke.py --serial emulator-5554 --apk build/app/outputs/flutter-apk/app-debug.apk --expect-mode matrix
+      - name: Upload native billing evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: revenuecat-native-${{ github.run_attempt }}
+          path: build/billing-runtime-artifacts/
+          retention-days: 14

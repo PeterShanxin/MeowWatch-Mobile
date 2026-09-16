@@ -124,3 +124,108 @@ ARM phone's hardware decoder, audio output, lifecycle behavior, LAN pairing,
 RevenueCat, or Cast. Those remain real-device acceptance checks. A local
 Windows 11 ARM host without supported AVD acceleration also cannot replace the
 hosted runtime result.
+
+## Two-device phone and tablet evidence
+
+`tools/android_multi_device/` prepares a truthful two-client hosted test:
+
+- a Pixel 6 profile on `emulator-5554`, portrait, 2 vCPUs and 2048 MiB RAM;
+- a Pixel Tablet profile on `emulator-5556`, landscape, 2 vCPUs and 3072 MiB
+  RAM; and
+- Android 35 `google_apis` x86_64 images accelerated through Linux KVM.
+
+The standard public `ubuntu-24.04` runner currently provides 4 x64 vCPUs,
+16 GB RAM and 14 GB SSD. This allocation intentionally uses all four virtual
+CPU slots but only 5 GB of configured guest RAM, leaving host memory for the
+Android SDK, adb, graphics emulation, the test driver, and evidence processing.
+Build the APK before launching both AVDs. Do not run concurrent Flutter or
+Gradle builds while both emulators are active.
+
+Android assigns one console/adb port pair per emulator and recommends even
+console ports. The scripts use 5554 and 5556, which deterministically produce
+the serials `emulator-5554` and `emulator-5556`. Device-targeting adb operations
+use `-s`, while server startup and device inventory remain global. An
+unqualified device command is ambiguous when two devices are connected.
+
+Run the sequence documented in
+[`tools/android_multi_device/README.md`](../tools/android_multi_device/README.md).
+The launcher verifies Linux x86_64, writable KVM access, acceleration, installed
+device profiles, and both boot-complete signals. It uses current `swiftshader`
+software graphics rather than the deprecated `swiftshader_indirect` mode; KVM
+still accelerates the x86_64 virtual CPUs.
+
+For the production two-client smoke, `build_together_apks.sh` builds the two
+roles serially before either AVD starts. Both APKs receive the same unique
+`TOGETHER_ROOM`, `SYNCPLAY_SERVER`, and `SYNCPLAY_PORT`; only
+`TOGETHER_ROLE=host|guest` differs. `run_together_smoke.sh` then launches the
+two prebuilt binaries concurrently on their explicit serials, using host VM
+service ports 39101 and 39102 and separate role-labeled artifact directories.
+Its evidence records both APK hashes, the target/driver paths, room, endpoint,
+serials, command environment, logs, and exit codes. The default endpoint is
+`syncplay.pl:8995`; STARTTLS behavior remains the production client's
+responsibility and must stay fail-closed. The build, driver, and recorder
+scripts reject nonempty output directories so a retry cannot silently reuse
+evidence from an earlier run.
+
+The two-device target needs media longer than the approximately four-second
+Flutter sample because it exercises alternating control rounds and seeks.
+`prepare_fixture.sh` downloads the official sample at a reviewed SHA-256 and
+generates an approximately 90-second MP4 with FFmpeg `-stream_loop` and codec
+copy. Flutter's asset repository identifies `bee.mp4` as CC0. Codec copy repeats
+the original H.264 video packets and AAC audio packets without inventing or
+re-encoding frames; the result is a repeated test fixture, not a polished demo.
+Its provenance, source and output hashes, durations, and stream metadata are
+saved alongside the fixture.
+
+The scoped Python server binds only host loopback on `127.0.0.1:18765` and is
+stopped by its recorded task-owned PID. Android Emulator defines `10.0.2.2` as
+the alias for host loopback, so both AVDs consume
+`http://10.0.2.2:18765/sync-fixture.mp4`. The URL is compiled into both APKs as
+`TOGETHER_VIDEO_URL` and is repeated in command provenance. This local media
+path removes public CDN timing from the synchronization assertion while the
+STARTTLS Together Session still uses the configured public Syncplay server.
+
+Each native screenrecord process is limited to 170 seconds, but the evidence
+tool rotates consecutive segments while the two prebuilt drives run. The full
+wrapper is bounded to six minutes; each drive is bounded to 330 seconds so the
+wrapper has time to finalize evidence. Pass, assertion failure, and timeout
+therefore remain recorded through command exit; all original segments and
+hashes are retained.
+
+Each AVD runs its own Android-native `screenrecord` process. The evidence tool
+refuses to touch a pre-existing recorder, records the new process ID for each
+serial and segment, and stops only those PIDs. Android caps one native recording
+at 180 seconds. The two first capture commands start a few milliseconds apart;
+their measured host-side start delta is saved in `recording-session.tsv`.
+
+Native `screenrecord` does not expose a reliable fixed-frame-rate option. The
+composition step therefore preserves every native segment and separately
+produces a 1920x1080 H.264 showcase at constant 30 fps. It aligns the sources
+using the saved first-recorder timestamps and shows black pre-roll for the later
+source, rather than falsely resetting unequal starts to the same instant. It
+only drops or duplicates existing frames, scales with aspect ratio intact, adds
+neutral borders, and labels the real source serial. The unedited native MP4
+segments and their SHA-256 hashes remain the primary evidence.
+
+Starting the next segment requires a new native process, so a short rotation
+gap can occur at a 170-second boundary. Per-device segment timing TSV files
+retain the host-side start time for every segment. Lossless concatenation and
+the showcase close those gaps for viewing convenience; they are not evidence
+of gap-free or frame-exact synchronization across a segment boundary.
+
+A passing two-AVD run demonstrates two separate Android application processes,
+responsive phone/tablet layouts, and whatever real client interaction the
+driving command performs. It does not prove two physical devices, ARM hardware
+decoding, cellular behavior, multicast/LAN discovery, Bluetooth, Cast hardware,
+or store billing. Emulator networking can also differ from a home LAN; those
+claims require named physical runtimes and separate evidence.
+
+References:
+
+- [GitHub-hosted runner resources and Android acceleration](https://docs.github.com/en/actions/reference/runners/github-hosted-runners)
+- [Android Emulator ports and command-line options](https://developer.android.com/studio/run/emulator-commandline)
+- [Targeting one of multiple devices with adb](https://developer.android.com/tools/adb#devicestatus)
+- [Android screenrecord limits](https://developer.android.com/tools/adb#screenrecord)
+- [Android Emulator KVM and graphics acceleration](https://developer.android.com/studio/run/emulator-acceleration)
+- [Android Emulator host-loopback alias](https://developer.android.com/studio/run/emulator-networking-address)
+- [Flutter bee.mp4 CC0 origin declaration](https://github.com/flutter/assets-for-api-docs#origin-of-third-party-content)

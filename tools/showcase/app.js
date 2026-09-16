@@ -12,6 +12,15 @@ const evidence = document.getElementById("evidence");
 const stopButton = document.getElementById("stopRecording");
 const previewSelect = document.getElementById("previewState");
 const previewNotice = document.getElementById("previewNotice");
+const capturedControls = document.getElementById("capturedControls");
+const capturedLabel = document.getElementById("capturedLabel");
+const capturedMetadata = document.getElementById("capturedMetadata");
+const capturedVideo = document.getElementById("capturedVideo");
+const capturedVideoControls = document.getElementById("capturedVideoControls");
+const capturedToggle = document.getElementById("toggleCapturedPlayback");
+const capturedSeek = document.getElementById("capturedSeek");
+const capturedTime = document.getElementById("capturedTime");
+const fullEvidence = document.getElementById("fullEvidence");
 const FRAME_STALE_MS = 5000;
 const CANVAS_FOOTER_HEIGHT = 100;
 let frameSource = "Waiting for Android device";
@@ -31,10 +40,106 @@ let uploadChain = Promise.resolve();
 let recordingHealthy = true;
 let finishing = false;
 let gracefulFinished = false;
+let selectedEvidence = null;
+let evidenceLoadGeneration = 0;
 
 function endpoint(path) { return `${path}?${tokenQuery}`; }
 function mutationHeaders(extra = {}) {
   return { "X-Showcase-Token": token, ...extra };
+}
+
+function evidenceMetadata(item) {
+  if (!item || !["image", "video"].includes(item.kind)
+      || typeof item.name !== "string" || !item.name || item.name.length > 1024
+      || /[\\\u0000-\u001f]/.test(item.name)
+      || item.name.split("/").some((part) => !part || part === "." || part === "..")
+      || typeof item.modifiedAt !== "string" || !Number.isFinite(Date.parse(item.modifiedAt))
+      || !Number.isSafeInteger(item.size) || item.size < 0) {
+    throw new Error("Invalid captured evidence metadata");
+  }
+  const url = new URL(endpoint(`/evidence/${item.name.split("/").map(encodeURIComponent).join("/")}`), location.href);
+  if (url.origin !== location.origin || !url.pathname.startsWith("/evidence/")) {
+    throw new Error("Captured evidence must stay on this showcase origin");
+  }
+  return { name: item.name, kind: item.kind, modifiedAt: item.modifiedAt, size: item.size, url: url.href };
+}
+
+function capturedTitle(item) {
+  return item.kind === "video" ? "Captured native Android recording" : "Captured native Android screenshot";
+}
+
+function releaseCapturedEvidence() {
+  evidenceLoadGeneration += 1;
+  capturedVideo.pause();
+  capturedVideo.removeAttribute("src");
+  capturedVideo.load();
+  selectedEvidence?.bitmap?.close();
+  selectedEvidence = null;
+}
+
+function returnToLive() {
+  releaseCapturedEvidence();
+  capturedControls.hidden = true;
+  drawStage();
+}
+
+async function showEvidenceOnCanvas(rawItem) {
+  const item = evidenceMetadata(rawItem);
+  releaseCapturedEvidence();
+  const generation = evidenceLoadGeneration;
+  selectedEvidence = { ...item, bitmap: null, error: null };
+  capturedControls.hidden = false;
+  capturedVideoControls.hidden = item.kind !== "video";
+  capturedLabel.textContent = `${capturedTitle(item)} · loading · not live`;
+  capturedMetadata.textContent = `${item.name} · file modified ${item.modifiedAt} · ${(item.size / 1024).toFixed(1)} KiB`;
+  fullEvidence.href = item.url;
+  fullEvidence.textContent = item.kind === "video" ? "Open full recording evidence" : "Open original screenshot evidence";
+  drawStage();
+  if (item.kind === "video") {
+    capturedVideo.src = item.url;
+    capturedVideo.muted = true;
+    capturedVideo.load();
+    updateCapturedPlayback();
+    try {
+      await capturedVideo.play();
+    } catch (_) {
+      if (generation === evidenceLoadGeneration) {
+        capturedLabel.textContent = `${capturedTitle(item)} · press Play to replay · not live`;
+      }
+    }
+    return;
+  }
+  try {
+    const response = await fetch(item.url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`image unavailable (${response.status})`);
+    const bitmap = await createImageBitmap(await response.blob());
+    if (generation !== evidenceLoadGeneration) { bitmap.close(); return; }
+    selectedEvidence.bitmap = bitmap;
+    capturedLabel.textContent = `${capturedTitle(item)} · not live`;
+  } catch (error) {
+    if (generation === evidenceLoadGeneration) {
+      selectedEvidence.error = error.message;
+      capturedLabel.textContent = `Captured screenshot unavailable: ${error.message}`;
+    }
+  }
+  drawStage();
+}
+
+function playbackTime(seconds) {
+  const total = Number.isFinite(seconds) ? Math.max(0, Math.floor(seconds)) : 0;
+  return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, "0")}`;
+}
+
+function updateCapturedPlayback() {
+  if (selectedEvidence?.kind !== "video") return;
+  const ready = Number.isFinite(capturedVideo.duration) && capturedVideo.duration > 0;
+  capturedSeek.disabled = !ready;
+  capturedSeek.max = ready ? capturedVideo.duration : 0;
+  capturedSeek.value = capturedVideo.currentTime || 0;
+  capturedToggle.textContent = capturedVideo.ended ? "Replay" : capturedVideo.paused ? "Play" : "Pause";
+  capturedTime.textContent = `${playbackTime(capturedVideo.currentTime)} / ${playbackTime(capturedVideo.duration)}`;
+  const state = selectedEvidence.error ? "unavailable" : capturedVideo.ended ? "ended" : capturedVideo.paused ? "paused" : "replaying";
+  capturedLabel.textContent = `${capturedTitle(selectedEvidence)} · ${state} · not live`;
 }
 
 async function loadStatus() {
@@ -189,7 +294,10 @@ function drawStage() {
   const now = Date.now();
   const sources = devices.map((device) => ({ device, entry: deviceFrames.get(device.serial) })).filter((source) => source.entry);
   let sourceSummary;
-  if (sources.length) {
+  if (selectedEvidence) {
+    drawCapturedEvidence(selectedEvidence);
+    sourceSummary = "Explicitly selected captured evidence · not live · full recording evidence is linked below";
+  } else if (sources.length) {
     const columns = sources.length === 1 ? 1 : Math.min(2, sources.length);
     const rows = Math.ceil(sources.length / columns);
     const gap = 24;
@@ -224,6 +332,37 @@ function drawStage() {
     sourceSummary = "Truthful waiting state";
   }
   drawCanvasFooter(sourceSummary);
+}
+
+function drawCapturedEvidence(item) {
+  const width = canvas.width;
+  const contentHeight = canvas.height - CANVAS_FOOTER_HEIGHT;
+  context.fillStyle = "#211b18";
+  context.fillRect(0, 0, width, 110);
+  context.fillStyle = "#f1c79e";
+  context.font = "800 20px system-ui";
+  const position = item.kind === "video" ? ` · ${playbackTime(capturedVideo.currentTime)} / ${playbackTime(capturedVideo.duration)}` : "";
+  context.fillText(`${capturedTitle(item)} · NOT LIVE${position}`, 22, 30);
+  context.fillStyle = "#f5f2ed";
+  context.font = "16px system-ui";
+  context.fillText(fitCanvasText(item.name, width - 44), 22, 58);
+  context.fillStyle = "#b5afb5";
+  context.font = "14px system-ui";
+  context.fillText(`File modified ${item.modifiedAt} · selection does not indicate a passing test`, 22, 85);
+  const media = item.kind === "video" ? capturedVideo : item.bitmap;
+  const ready = item.kind === "video" ? capturedVideo.readyState >= 2 : Boolean(media);
+  if (!ready || item.error) {
+    context.fillStyle = "#f5f2ed";
+    context.font = "24px system-ui";
+    wrapText(item.error ? `Captured evidence unavailable: ${item.error}` : "Loading captured evidence…", 40, 220, width - 80, 32);
+    return;
+  }
+  const mediaWidth = item.kind === "video" ? media.videoWidth : media.width;
+  const mediaHeight = item.kind === "video" ? media.videoHeight : media.height;
+  const scale = Math.min((width - 32) / mediaWidth, (contentHeight - 126) / mediaHeight);
+  const drawWidth = mediaWidth * scale;
+  const drawHeight = mediaHeight * scale;
+  context.drawImage(media, (width - drawWidth) / 2, 118 + (contentHeight - 126 - drawHeight) / 2, drawWidth, drawHeight);
 }
 
 function drawCanvasFooter(sourceSummary) {
@@ -355,16 +494,21 @@ async function loadEvidence() {
       return;
     }
     evidence.className = "";
-    evidence.replaceChildren(...result.items.map((item) => {
+    evidence.replaceChildren(...result.items.map(evidenceMetadata).map((item) => {
       const wrapper = document.createElement("div");
       wrapper.className = "evidence-item";
       const media = document.createElement(item.kind === "video" ? "video" : "img");
-      media.src = endpoint(`/evidence/${item.name.split("/").map(encodeURIComponent).join("/")}`);
-      if (item.kind === "video") media.controls = true;
+      media.src = item.url;
+      if (item.kind === "video") { media.controls = true; media.preload = "metadata"; }
       else media.alt = `Native CI screenshot: ${item.name}`;
       const label = document.createElement("p");
       label.textContent = `${item.name} · ${(item.size / 1024).toFixed(1)} KiB · ${item.modifiedAt}`;
-      wrapper.append(media, label);
+      const showButton = document.createElement("button");
+      showButton.type = "button";
+      showButton.textContent = "Show on canvas";
+      showButton.setAttribute("aria-label", `Show ${item.name} on canvas`);
+      showButton.addEventListener("click", () => showEvidenceOnCanvas(item));
+      wrapper.append(media, label, showButton);
       return wrapper;
     }));
   } catch (error) {
@@ -510,6 +654,29 @@ function markPageInterruption() {
 document.getElementById("refreshEvidence").addEventListener("click", loadEvidence);
 stopButton.addEventListener("click", stopRecordingGracefully);
 previewSelect.addEventListener("change", loadSelectedPreview);
+document.getElementById("returnToLive").addEventListener("click", returnToLive);
+capturedToggle.addEventListener("click", async () => {
+  if (selectedEvidence?.kind !== "video") return;
+  if (!capturedVideo.paused) capturedVideo.pause();
+  else {
+    if (capturedVideo.ended) capturedVideo.currentTime = 0;
+    try { await capturedVideo.play(); }
+    catch (_) { capturedLabel.textContent = "Captured recording cannot play; open the original evidence file."; }
+  }
+});
+capturedSeek.addEventListener("input", () => {
+  if (selectedEvidence?.kind === "video" && Number.isFinite(capturedVideo.duration)) {
+    capturedVideo.currentTime = Math.min(capturedVideo.duration, Math.max(0, Number(capturedSeek.value)));
+  }
+});
+for (const event of ["loadedmetadata", "loadeddata", "timeupdate", "play", "pause", "ended", "seeked"]) {
+  capturedVideo.addEventListener(event, updateCapturedPlayback);
+}
+capturedVideo.addEventListener("error", () => {
+  if (selectedEvidence?.kind !== "video") return;
+  selectedEvidence.error = "Original recording could not be decoded; inspect the linked source file.";
+  updateCapturedPlayback();
+});
 window.addEventListener("pagehide", markPageInterruption);
 drawStage();
 loadStatus();

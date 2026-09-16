@@ -1,7 +1,8 @@
-# Nearby MeowWatch protocol proposal, version 1
+# Nearby MeowWatch protocol, version 1
 
-**Status: shared security primitives implemented and tested; companion application
-server/client, platform storage, discovery and cross-device acceptance remain pending.**
+**Status: companion application server/client and platform adapters implemented.
+Native Android TLS, storage and NSD and Windows storage/player checks pass;
+physical phone-to-desktop LAN acceptance remains pending.**
 Prepared 2026-09-16 against Product Spec sections 7.1–7.2 and 15. Desktop reference:
 `PeterShanxin/MeowWatch` main `c7cc4be5203abe28fb1cd043c286367fd1e3ba46`, verified
 against the remote. Its AGENTS.md and full AGENT_GUIDE.md were read. The dirty
@@ -72,7 +73,7 @@ identity. Discovery is an **untrusted address hint**, not authentication.
 The `nsd` package exposes Android discovery and Windows registration, including
 TXT records and address resolution; its published platform support is a
 candidate, not proof that the desktop build or LAN works. Keep discovery behind
-an adapter and retain QR/manual IP-and-port fallback when multicast fails.
+an adapter and retain QR/full-invitation paste fallback when multicast fails.
 ([nsd documentation](https://pub.dev/packages/nsd),
 [upstream implementation](https://github.com/sebastianhaberey/nsd))
 
@@ -113,8 +114,8 @@ Persist desktop private key and device authorization secrets through
 `MEOWWATCH_DATA_DIR` is set. Store the phone's token and pin in platform secure
 storage, not preferences/history JSON. The package supports Windows and Android;
 its Windows ATL build prerequisite and Android backup exclusions must be tested
-in the actual builds. If secure storage fails, offer explicitly ephemeral
-pairing; do not silently fall back to plaintext files. Never reuse the desktop
+in the actual builds. Secure-storage failure stops pairing and control; there
+is no plaintext or ephemeral-credential fallback. Never reuse the desktop
 release-signing key for TLS or pairing.
 ([secure storage package](https://pub.dev/packages/flutter_secure_storage))
 
@@ -126,35 +127,32 @@ and a **120-second monotonic expiry**. Refresh/cancel invalidates the previous
 invitation and pending approvals immediately. Restart invalidates invitations.
 
 Default: display a QR payload containing protocol version, desktop ID, numeric
-LAN address/port, certificate SHA-256, pair ID and pair secret. Use a dedicated
-`meowwatch-pair:` payload, distinct from public room invites. A human-visible
-device name, countdown and full certificate identity accompany the QR.
+LAN address/port, certificate SHA-256, pair ID and pair secret. Use the dedicated
+pairing payload defined in [NEARBY_WIRE.md](NEARBY_WIRE.md), distinct from public
+room invites. The desktop displays a countdown alongside the QR.
 The mobile scanner parses locally and never opens an external URL. Do not send
 pairing payloads through analytics, logs or public link shorteners.
 
-Manual fallback: select the discovered desktop or type its IP/port, then enter
-the **26-character base32 encoding of the same 128-bit secret**, grouped for
-readability. The desktop displays the code and a Copy action. This is a
-short-lived code, not a six-digit password. A six-digit code with ordinary
-HMAC would permit offline guessing; adding it later requires a reviewed PAKE
-implementation rather than weakening this contract.
+Manual fallback: **Copy full invite** on the desktop and paste it in the phone's
+Nearby sheet. It carries the same certificate pin and high-entropy secret as
+the QR, so multicast discovery and camera access are not required. A bare
+numeric or base32 code is not a supported pairing input. The unused manual-code
+codec does not imply an implemented provisional TLS pairing flow.
 
 ### Authenticating the first TLS connection
 
-For QR, accept the certificate only when its actual SHA-256 equals the scanned
-pin. Manual pairing may establish one **provisional**, isolated TLS transport
-to a self-signed certificate. That transport can exchange only the pairing
-frames below; it cannot receive room data, mint a command handle, or send any
-playback/chat command. It is not a generally trusted `HttpClient` callback.
+For both QR and pasted invitations, accept the certificate only when its actual
+SHA-256 equals the out-of-band invitation pin. There is no provisional unpinned
+transport. Discovery metadata alone cannot establish trust or enable controls.
 
-Both modes then perform a certificate-bound, mutual HMAC proof using the
-out-of-band high-entropy pair secret. This proposal uses standard HMAC-SHA256
+Both inputs then perform a certificate-bound, mutual HMAC proof using the
+out-of-band high-entropy pair secret. The protocol uses standard HMAC-SHA256
 as a proof, not as a replacement encryption algorithm. The exact transcript
 and active-MITM tests are security-critical implementation requirements.
 
 1. Phone sends `pair.hello` with version, fresh 32-byte `clientNonce`, random
-   `clientId`, and bounded `clientName`. QR includes `pairId`; manual mode asks
-   for the one open invitation. Do not send the secret itself.
+   `clientId`, bounded `clientName`, and the invitation's `pairId`. Do not send
+   the secret itself.
 2. Desktop sends `pair.challenge` with `pairId`, desktop ID and fresh 32-byte
    `serverNonce`. A challenge expires after 10 seconds and is usable once.
 3. Define `LP(x)` as uint32 big-endian byte length followed by bytes. Transcript
@@ -407,8 +405,12 @@ adapter obligations, supported command arguments and the secure-store contract.
   Native Windows interface/profile enumeration rejects the current Public
   network. Mobile target/controller behavior has regression coverage, including
   ownership, failed handoff, room mismatch and phone restoration.
-- **Unverified:** actual Android TLS/storage/NSD runtime, cross-device LAN
-  discovery, production desktop/phone pairing ceremony, and two-client
+- **Confirmed:** API 35 Android performs a real pinned TLS exchange, owner
+  approval, fresh-client authentication, control and revocation. Native protected
+  credentials and tombstones survive two app restarts; Android NSD observes a
+  local test advertisement. These are same-device runtime checks.
+- **Unverified:** physical cross-device LAN discovery, production desktop/phone
+  pairing ceremony, and two-client
   ghost-participant acceptance. Test adapters and same-host encrypted sockets
   do not establish physical mobile-to-desktop acceptance.
 
@@ -424,8 +426,8 @@ after native waits and immediately before side effects, reject changed media
 generations, redact snapshots and throttle routine events.
 Exact client/server handshake and event fields are in [NEARBY_WIRE.md](NEARBY_WIRE.md).
 Current command codec intentionally rejects `session.prepare` until an approved
-desktop room adapter exists. Manual-code encoding is implemented; the isolated
-provisional manual-pairing transport and user ceremony still need integration.
+desktop room adapter exists. Both supported pairing inputs are pinned full
+invitations; provisional code-only pairing is not part of the shipped flow.
 
 Self-revocation enters a terminal phase, immediately retires the control lease,
 and emits one success receipt only after the durable tombstone write completes.

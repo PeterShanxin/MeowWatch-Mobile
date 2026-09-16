@@ -5,6 +5,8 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -104,6 +106,95 @@ class SecurityBoundsTests(unittest.TestCase):
             with mock.patch.dict(os.environ, {"ANDROID_SDK_ROOT": str(sdk)}, clear=True):
                 with mock.patch.object(server.shutil, "which", return_value=None):
                     self.assertEqual(server.discover_adb(), adb)
+
+
+class FrontendEvidenceTests(unittest.TestCase):
+    @unittest.skipUnless(shutil.which("node"), "JavaScript contract requires Node")
+    def test_captured_media_stays_local_literal_and_explicitly_selected(self) -> None:
+        script = r'''
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const vm = require("node:vm");
+class Element {
+  constructor(tag) {
+    this.tagName = tag; this.children = []; this.events = {};
+    this.options = []; this.paused = true; this.currentTime = 0;
+    this.duration = 30; this.readyState = 2; this.videoWidth = 1280; this.videoHeight = 720;
+  }
+  set innerHTML(_) { throw new Error("Untrusted metadata must not enter HTML"); }
+  append(...children) { this.children.push(...children); }
+  replaceChildren(...children) { this.children = children; }
+  setAttribute(name, value) { this[name] = value; }
+  removeAttribute(name) { delete this[name]; }
+  addEventListener(name, callback) { this.events[name] = callback; }
+  pause() { this.paused = true; }
+  play() { this.paused = false; return Promise.resolve(); }
+  load() {}
+}
+const drawn = [];
+const context = new Proxy({
+  measureText: (text) => ({width: String(text).length * 8}),
+  drawImage: (...args) => drawn.push(args[0]),
+}, {get: (target, key) => key in target ? target[key] : () => {}});
+const elements = new Map();
+const document = {
+  getElementById: (id) => {
+    if (!elements.has(id)) elements.set(id, new Element(id));
+    return elements.get(id);
+  },
+  createElement: (tag) => new Element(tag),
+  createTextNode: (text) => ({textContent: text}),
+};
+const canvas = document.getElementById("stage");
+canvas.getContext = () => context; canvas.width = 1280; canvas.height = 720;
+const items = [
+  {name: 'failed-run/<img onerror=bad>.png', kind: 'image', size: 42, modifiedAt: '2026-09-16T06:00:00.000Z'},
+  {name: 'passed-run/two devices #1.mp4', kind: 'video', size: 99, modifiedAt: '2026-09-16T07:00:00.000Z'},
+];
+const sandbox = vm.createContext({
+  URL, URLSearchParams, console, document,
+  location: {search:'?token=local-test', href:'http://127.0.0.1:8765/?token=local-test', origin:'http://127.0.0.1:8765'},
+  fetch: async () => ({ok: true, json: async () => ({items}), blob: async () => ({})}),
+  createImageBitmap: async () => ({width: 10, height: 10, close() {}}),
+});
+// Evaluate definitions without starting polling, recording, or browser I/O.
+const source = fs.readFileSync('tools/showcase/app.js', 'utf8');
+vm.runInContext(source.split('document.getElementById("refreshEvidence").addEventListener')[0], sandbox);
+(async () => {
+  await vm.runInContext('loadEvidence()', sandbox);
+  assert.equal(vm.runInContext('selectedEvidence', sandbox), null, 'gallery never auto-selects a passing or failed run');
+  const gallery = elements.get('evidence').children;
+  assert.equal(gallery[0].children[1].textContent.includes(items[0].name), true);
+  assert.equal(gallery[0].children[2].textContent, 'Show on canvas');
+  const imageUrl = new URL(gallery[0].children[0].src);
+  assert.equal(imageUrl.origin, 'http://127.0.0.1:8765');
+  assert.equal(decodeURIComponent(imageUrl.pathname), '/evidence/' + items[0].name);
+  for (const name of ['../private.png', '/absolute.png', 'a/../private.png', 'a\\private.png', 'https://elsewhere/image.png']) {
+    sandbox.badItem = {...items[0], name};
+    assert.throws(() => vm.runInContext('evidenceMetadata(badItem)', sandbox));
+  }
+  await gallery[1].children[2].events.click();
+  const video = elements.get('capturedVideo');
+  assert.equal(video.muted, true);
+  assert.equal(video.paused, false);
+  vm.runInContext('drawStage(); updateCapturedPlayback()', sandbox);
+  assert.equal(drawn.at(-1), video, 'canvas receives actual HTML video frames');
+  assert.match(elements.get('capturedLabel').textContent, /Captured native Android recording.*not live/);
+  assert.equal(elements.get('capturedMetadata').textContent.includes(items[1].name), true);
+  assert.equal(elements.get('capturedMetadata').textContent.includes(items[1].modifiedAt), true);
+  assert.equal(elements.get('fullEvidence').textContent, 'Open full recording evidence');
+  vm.runInContext('returnToLive()', sandbox);
+  assert.equal(video.paused, true);
+  assert.equal(video.src, undefined);
+  assert.equal(vm.runInContext('selectedEvidence', sandbox), null);
+  assert.equal(elements.get('capturedControls').hidden, true);
+})().catch((error) => { console.error(error); process.exitCode = 1; });
+'''
+        result = subprocess.run(
+            [shutil.which("node"), "-e", script],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
 
 if __name__ == "__main__":

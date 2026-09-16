@@ -77,6 +77,8 @@ class RoomScreen extends StatelessWidget {
                         Text(
                           app.isNearby
                               ? app.nearby!.label
+                              : app.isCasting
+                              ? app.cast!.receiverName
                               : app.isLocal
                               ? 'Your own screening'
                               : app.room!.config.room,
@@ -89,6 +91,10 @@ class RoomScreen extends StatelessWidget {
                               ? app.nearby!.connected
                                     ? 'Playing on nearby desktop'
                                     : 'Desktop disconnected'
+                              : app.isCasting
+                              ? app.cast!.connected
+                                    ? 'Playing on your TV'
+                                    : 'TV disconnected'
                               : app.isLocal
                               ? 'Local mode'
                               : _connectionLabel,
@@ -120,7 +126,11 @@ class RoomScreen extends StatelessWidget {
               onSeek: onSeek,
               compact: landscape,
             );
-            final stage = _VideoStage(app: app, onLoad: onLoad);
+            final stage = _VideoStage(
+              app: app,
+              onLoad: onLoad,
+              onDevices: onDevices,
+            );
             if (landscape) {
               return Stack(
                 children: [
@@ -273,9 +283,13 @@ class RoomScreen extends StatelessWidget {
 }
 
 class _VideoStage extends StatelessWidget {
-  const _VideoStage({required this.app, required this.onLoad});
+  const _VideoStage({
+    required this.app,
+    required this.onLoad,
+    required this.onDevices,
+  });
   final AppController app;
-  final VoidCallback onLoad;
+  final VoidCallback onLoad, onDevices;
   @override
   Widget build(BuildContext context) {
     final target = app.target;
@@ -303,26 +317,32 @@ class _VideoStage extends StatelessWidget {
                 Text('Opening your video…'),
               ],
             )
-          else if (app.isNearby)
+          else if (app.isNearby || app.isCasting)
             SingleChildScrollView(
               padding: const EdgeInsets.all(24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Icon(
-                    Icons.desktop_windows_outlined,
+                    app.isCasting
+                        ? Icons.cast_connected_rounded
+                        : Icons.desktop_windows_outlined,
                     size: 46,
                     color: Theme.of(context).colorScheme.primary,
                   ),
                   const SizedBox(height: 16),
                   Text(
                     state.error ??
-                        (state.media == null
+                        (app.isCasting
+                            ? 'Watching on ${app.cast!.receiverName}'
+                            : state.media == null
                             ? 'Choose this video’s file on your desktop'
+                            : state.ready
+                            ? 'Watching on ${app.nearby!.label}'
                             : 'Reconnect to the desktop to keep watching'),
                     textAlign: TextAlign.center,
                   ),
-                  if (state.media == null) ...[
+                  if (app.isNearby && state.media == null) ...[
                     const SizedBox(height: 8),
                     Text(
                       'Local phone files stay on this device.',
@@ -332,6 +352,12 @@ class _VideoStage extends StatelessWidget {
                       ),
                     ),
                   ],
+                  const SizedBox(height: 16),
+                  OutlinedButton.icon(
+                    onPressed: onDevices,
+                    icon: const Icon(Icons.devices_rounded),
+                    label: const Text('Choose screen'),
+                  ),
                 ],
               ),
             )

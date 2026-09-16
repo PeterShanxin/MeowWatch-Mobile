@@ -1,7 +1,9 @@
 import 'dart:async';
 
+import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
+import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/session/playback_sync_bridge.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
@@ -188,6 +190,198 @@ void main() {
   );
 
   test(
+    'buffer recovery is bounded and a persistent native pause still publishes',
+    () async {
+      await bridge.load(movie);
+      await bridge.play();
+      await bridge.dispose();
+      fakeAsync((clock) {
+        // Bind the listener in this zone so its recovery timer uses this clock.
+        bridge = PlaybackSyncBridge(
+          target: target,
+          sync: sync,
+          authorizePlayback: () async => true,
+        )..start();
+        unawaited(bridge.markSourceOpen(movie.uri.toString()));
+        emitNative(target, playing: false, buffering: true);
+        expect(sync.published.last.paused, isFalse);
+        emitNative(target, playing: false, buffering: false);
+        expect(sync.published.last.paused, isFalse);
+        clock.elapse(bridge.settleWindow);
+        expect(sync.published.last.paused, isTrue);
+        expect(target.commands.where((c) => c == 'play').length, 1);
+      });
+    },
+  );
+
+  test(
+    'seek preserves buffer intent and explicit user pause overrides it',
+    () async {
+      await bridge.load(movie);
+      await bridge.play();
+      emitNative(target, playing: false, buffering: true);
+      await bridge.seek(const Duration(seconds: 20));
+      expect(sync.published.last.position.inSeconds, 20);
+      expect(sync.published.last.paused, isFalse);
+      expect(sync.changes.last, isTrue);
+      emitNative(target, playing: false, buffering: true);
+      await bridge.pause();
+      expect(sync.published.last.paused, isTrue);
+      expect(sync.changes.last, isFalse);
+    },
+  );
+
+  test('source replacement cancels buffer recovery publication', () async {
+    await bridge.load(movie);
+    await bridge.play();
+    await bridge.dispose();
+    fakeAsync((clock) {
+      bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () async => true,
+      )..start();
+      unawaited(bridge.markSourceOpen(movie.uri.toString()));
+      emitNative(target, playing: false, buffering: true);
+      emitNative(target, playing: false, buffering: false);
+      final beforeReplacement = sync.published.length;
+      bridge.beginSourceLoad();
+      clock.elapse(bridge.settleWindow);
+      expect(sync.published.length, beforeReplacement);
+      expect(clock.pendingTimers, isEmpty);
+    });
+  });
+
+  for (final command in ['play', 'seek']) {
+    test(
+      '$command during buffering retains intent through READY callback',
+      () async {
+        await bridge.dispose();
+        await target.close();
+        final bufferingTarget = BufferingTestTarget();
+        target = bufferingTarget;
+        bridge = PlaybackSyncBridge(
+          target: target,
+          sync: sync,
+          authorizePlayback: () async => true,
+        )..start();
+        await bridge.load(movie);
+        await bridge.play();
+        emitNative(target, playing: false, buffering: true);
+        bufferingTarget.bufferCommands = true;
+        if (command == 'play') {
+          expect(await bridge.play(), isTrue);
+        } else {
+          await bridge.seek(const Duration(seconds: 20));
+        }
+        expect(target.snapshot.buffering, isTrue);
+        expect(target.snapshot.playing, isFalse);
+        expect(sync.published.last.paused, isFalse);
+        emitNative(target, playing: false, buffering: false);
+        expect(sync.published.last.paused, isFalse);
+        emitNative(target, playing: true, buffering: false);
+        expect(sync.published.last.paused, isFalse);
+      },
+    );
+  }
+
+  test('late native play echo cannot undo an expected peer pause', () async {
+    await bridge.load(movie);
+    var checks = 0;
+    authorize = () async {
+      checks++;
+      return true;
+    };
+    sync.peer(
+      const PeerPlayState(
+        position: Duration(seconds: 12),
+        paused: true,
+        setBy: 'peer',
+      ),
+    );
+    await until(() => target.snapshot.position.inSeconds == 12);
+    emitNative(target, playing: true, buffering: false);
+    await Future<void>.delayed(Duration.zero);
+    expect(checks, 0);
+    expect(target.commands, isNot(contains('play')));
+    expect(sync.published.last.paused, isTrue);
+  });
+
+  test('late external play authorization cannot undo a user pause', () async {
+    await bridge.load(movie);
+    final gate = Completer<bool>();
+    authorize = () => gate.future;
+    emitNative(target, playing: true, buffering: false);
+    await until(() => target.commands.contains('pause'));
+    expect(sync.published.last.paused, isTrue);
+    await bridge.pause();
+    gate.complete(true);
+    await Future<void>.delayed(Duration.zero);
+    expect(target.commands, isNot(contains('play')));
+    expect(sync.published.every((state) => state.paused), isTrue);
+  });
+
+  test(
+    'buffering native events cannot pause a real second Syncplay client',
+    () async {
+      final server = await SyncplayRoomServer.start();
+      final a = SyncplayClient();
+      final b = SyncplayClient();
+      final firstTarget = SyncTestTarget();
+      final secondTarget = SyncTestTarget();
+      final firstBridge = PlaybackSyncBridge(
+        target: firstTarget,
+        sync: a,
+        authorizePlayback: () async => true,
+      )..start();
+      final secondBridge = PlaybackSyncBridge(
+        target: secondTarget,
+        sync: b,
+        authorizePlayback: () async => true,
+      )..start();
+      addTearDown(() async {
+        await firstBridge.dispose();
+        await secondBridge.dispose();
+        await a.dispose();
+        await b.dispose();
+        await firstTarget.close();
+        await secondTarget.close();
+        await server.close();
+      });
+      await server.dial(a, name: 'alice');
+      await server.dial(b, name: 'bob');
+      await firstBridge.load(movie);
+      await secondBridge.load(movie);
+      await firstBridge.play();
+      await until(() => secondTarget.snapshot.playing);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      final beforeBuffer = server.acceptedChanges.length;
+
+      // ExoPlayer sends STATE_BUFFERING and then onIsPlayingChanged(false)
+      // while playWhenReady remains true. Flutter exposes separate snapshots.
+      emitNative(firstTarget, playing: true, buffering: true);
+      emitNative(firstTarget, playing: false, buffering: true);
+      await Future<void>.delayed(const Duration(milliseconds: 150));
+      expect(server.roomPaused, isFalse);
+      expect(secondTarget.snapshot.playing, isTrue);
+      expect(server.acceptedChanges.length, beforeBuffer);
+
+      // READY arrives before the matching isPlaying=true callback as well.
+      emitNative(firstTarget, playing: false, buffering: false);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(server.roomPaused, isFalse);
+      emitNative(firstTarget, playing: true, buffering: false);
+      await Future<void>.delayed(const Duration(milliseconds: 80));
+      expect(server.acceptedChanges.length, beforeBuffer);
+
+      emitNative(firstTarget, playing: false, buffering: true);
+      await firstBridge.pause();
+      await until(() => server.roomPaused && !secondTarget.snapshot.playing);
+      expect(server.roomSetBy, 'alice');
+    },
+  );
+
+  test(
     'two real clients drive two targets through bridge commands in both directions',
     () async {
       final server = await SyncplayRoomServer.start();
@@ -236,6 +430,40 @@ void main() {
       expect(server.roomSetBy, 'bob');
     },
   );
+}
+
+void emitNative(
+  SyncTestTarget target, {
+  required bool playing,
+  required bool buffering,
+}) {
+  final state = target.snapshot;
+  target.emit(
+    PlaybackSnapshot(
+      media: state.media,
+      position: state.position,
+      duration: state.duration,
+      playing: playing,
+      buffering: buffering,
+      connection: state.connection,
+    ),
+  );
+}
+
+class BufferingTestTarget extends SyncTestTarget {
+  bool bufferCommands = false;
+
+  @override
+  Future<void> play() async {
+    await super.play();
+    if (bufferCommands) emitNative(this, playing: false, buffering: true);
+  }
+
+  @override
+  Future<void> seek(Duration position) async {
+    await super.seek(position);
+    if (bufferCommands) emitNative(this, playing: false, buffering: true);
+  }
 }
 
 Future<void> until(bool Function() condition) async {

@@ -5,7 +5,12 @@ import 'package:flutter/services.dart';
 
 import 'app/app_controller.dart';
 import 'app/app_services.dart';
+import 'app/incoming_links.dart';
+import 'core/cast/cast_playback_target.dart';
+import 'core/connect/room_config.dart';
+import 'core/session/room_invite.dart';
 import 'ui/app_theme.dart';
+import 'ui/devices/playback_devices_sheet.dart';
 import 'ui/home/home_screen.dart';
 import 'ui/home/onboarding_screen.dart';
 import 'ui/join/join_sheet.dart';
@@ -14,10 +19,12 @@ import 'ui/nearby/nearby_devices_sheet.dart';
 import 'ui/paywall/paywall_sheet.dart';
 import 'ui/room/invite_sheet.dart';
 import 'ui/room/room_screen.dart';
+import 'ui/settings/about_sheet.dart';
 import 'ui/settings/settings_sheet.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  registerMeowWatchLicenses();
   SystemChrome.setSystemUIOverlayStyle(
     const SystemUiOverlayStyle(
       statusBarColor: Colors.transparent,
@@ -26,12 +33,13 @@ void main() {
       systemNavigationBarIconBrightness: Brightness.light,
     ),
   );
-  runApp(const MainApp());
+  runApp(MainApp(incomingLinkSource: AppLinksIncomingLinkSource()));
 }
 
 class MainApp extends StatefulWidget {
-  const MainApp({super.key, this.controller});
+  const MainApp({super.key, this.controller, this.incomingLinkSource});
   final AppController? controller;
+  final IncomingLinkSource? incomingLinkSource;
   @override
   State<MainApp> createState() => _MainAppState();
 }
@@ -42,12 +50,31 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   AppController? _app;
   Object? _loadError;
   bool _paywallOpen = false;
+  bool _modalOpen = false;
   String? _lastMessage;
+  IncomingLinks? _incomingLinks;
+  final List<Uri> _pendingIncomingInvites = [];
+  String? _activeIncomingInvite;
+  String? _incomingError;
+  bool _incomingFlowOpen = false;
+  bool _incomingDrainScheduled = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    final source = widget.incomingLinkSource;
+    if (source != null) {
+      _incomingLinks = IncomingLinks(source);
+      unawaited(
+        _incomingLinks!.start(
+          onLink: _receiveIncomingLink,
+          onError: (_) => _queueIncomingError(
+            'Could not read that room invitation. Open it again and retry.',
+          ),
+        ),
+      );
+    }
     unawaited(_open());
   }
 
@@ -61,6 +88,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
       _app = app;
       app.addListener(_changed);
       setState(() => _loadError = null);
+      _scheduleIncomingDrain();
       if (widget.controller == null) unawaited(app.billing.configure());
     } catch (error) {
       if (mounted) setState(() => _loadError = error);
@@ -89,8 +117,149 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
       if (app.needsPlus && !_paywallOpen) {
         unawaited(_upgrade(retryIntent: true));
       }
+      _scheduleIncomingDrain();
     });
   }
+
+  void _receiveIncomingLink(Uri uri) {
+    if (!mounted) return;
+    try {
+      if (uri.scheme != 'meowwatch' || uri.host != 'join') {
+        throw const FormatException('This is not a room invitation.');
+      }
+      parseRoomInvite(uri.toString(), _app?.username ?? 'Guest');
+    } on FormatException catch (error) {
+      _queueIncomingError(
+        'Could not open that room invitation. ${error.message}',
+      );
+      return;
+    }
+
+    final value = uri.toString();
+    if (_pendingIncomingInvites.any((pending) => pending.toString() == value) ||
+        _activeIncomingInvite == value) {
+      return;
+    }
+    if (_pendingIncomingInvites.length >= 4) {
+      _incomingError ??=
+          'Several room invitations arrived at once. Finish the current invitation, then open the one you want again.';
+    } else {
+      _pendingIncomingInvites.add(uri);
+    }
+    _scheduleIncomingDrain();
+  }
+
+  void _queueIncomingError(String message) {
+    if (!mounted) return;
+    _incomingError = message;
+    _scheduleIncomingDrain();
+  }
+
+  void _scheduleIncomingDrain() {
+    if (!mounted || _incomingDrainScheduled) return;
+    _incomingDrainScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _incomingDrainScheduled = false;
+      if (mounted) unawaited(_drainIncoming());
+    });
+    WidgetsBinding.instance.ensureVisualUpdate();
+  }
+
+  Future<void> _drainIncoming() async {
+    if (!mounted) return;
+    final error = _incomingError;
+    final messenger = _messenger.currentState;
+    if (error != null && messenger != null) {
+      _incomingError = null;
+      messenger.showSnackBar(SnackBar(content: Text(error)));
+    }
+
+    final app = _app;
+    final context = _context;
+    final pending = _pendingIncomingInvites.firstOrNull;
+    if (_incomingFlowOpen ||
+        pending == null ||
+        app == null ||
+        context == null ||
+        app.firstLaunch ||
+        app.busy ||
+        _paywallOpen ||
+        _modalOpen) {
+      return;
+    }
+
+    _pendingIncomingInvites.removeAt(0);
+    _activeIncomingInvite = pending.toString();
+    _incomingFlowOpen = true;
+    try {
+      await _reviewIncomingInvite(context, app, pending);
+    } finally {
+      _incomingFlowOpen = false;
+      _activeIncomingInvite = null;
+      _scheduleIncomingDrain();
+    }
+  }
+
+  Future<void> _reviewIncomingInvite(
+    BuildContext context,
+    AppController app,
+    Uri invite,
+  ) async {
+    if (!mounted) return;
+    final config = parseRoomInvite(invite.toString(), app.username);
+    final current = app.room?.config;
+    if (_sameRoom(current, config)) {
+      _messenger.currentState?.showSnackBar(
+        const SnackBar(content: Text('You’re already in this room.')),
+      );
+      return;
+    }
+
+    if (current != null) {
+      final leave = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Leave current room?'),
+          content: Text(
+            'You received an invitation for “${config.room}”. Leave your current room and stop its playback before reviewing the invitation.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Stay in current room'),
+            ),
+            FilledButton(
+              key: const Key('leave-and-review-invite-button'),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Leave & review invite'),
+            ),
+          ],
+        ),
+      );
+      if (leave != true || !mounted) return;
+      await _run(app.leavePlayer);
+      if (!mounted || app.room != null || app.busy) return;
+    }
+
+    final reviewContext = _context;
+    if (reviewContext == null || !reviewContext.mounted) return;
+    final value = await showJoinSheet(
+      reviewContext,
+      app: app,
+      initialInvite: invite.toString(),
+    );
+    if (value != null && mounted) {
+      await _run(() async {
+        await app.joinRoom(value);
+      });
+    }
+  }
+
+  static bool _sameRoom(RoomConfig? left, RoomConfig right) =>
+      left != null &&
+      left.server.toLowerCase() == right.server.toLowerCase() &&
+      left.port == right.port &&
+      left.room == right.room;
 
   Future<void> _run(Future<void> Function() operation) async {
     try {
@@ -110,20 +279,32 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   });
   Future<void> _join() async {
     final context = _context;
-    if (context == null) return;
-    final value = await showJoinSheet(context, app: _app!);
-    if (value != null && mounted) {
-      await _run(() async {
-        await _app!.joinRoom(value);
-      });
+    if (context == null || _modalOpen) return;
+    _modalOpen = true;
+    try {
+      final value = await showJoinSheet(context, app: _app!);
+      if (value != null && mounted) {
+        await _run(() async {
+          await _app!.joinRoom(value);
+        });
+      }
+    } finally {
+      _modalOpen = false;
+      _scheduleIncomingDrain();
     }
   }
 
   Future<void> _load() async {
     final context = _context;
-    if (context == null) return;
-    final media = await showMediaSheet(context, app: _app!);
-    if (media != null && mounted) await _run(() => _app!.load(media));
+    if (context == null || _modalOpen) return;
+    _modalOpen = true;
+    try {
+      final media = await showMediaSheet(context, app: _app!);
+      if (media != null && mounted) await _run(() => _app!.load(media));
+    } finally {
+      _modalOpen = false;
+      _scheduleIncomingDrain();
+    }
   }
 
   Future<void> _upgrade({bool retryIntent = false}) async {
@@ -142,20 +323,70 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
       }
     } finally {
       _paywallOpen = false;
+      _scheduleIncomingDrain();
     }
   }
 
   Future<void> _settings() async {
     final context = _context;
-    if (context != null) {
+    if (context == null || _modalOpen) return;
+    _modalOpen = true;
+    try {
       await showSettingsSheet(context, app: _app!, onUpgrade: () => _upgrade());
+    } finally {
+      _modalOpen = false;
+      _scheduleIncomingDrain();
     }
   }
 
   Future<void> _devices() async {
     final context = _context;
-    if (context != null) {
-      await showNearbyDevicesSheet(context, app: _app!);
+    if (context == null || _modalOpen) return;
+    _modalOpen = true;
+    try {
+      final app = _app!;
+      final choice = await showPlaybackDevicesSheet(context, app: app);
+      if (!mounted) return;
+      switch (choice) {
+        case PlaybackDeviceChoice.phone:
+          if (app.isCasting) await _run(app.returnFromCast);
+          if (app.isNearby) {
+            await _run(() async {
+              await app.watchOnPhone();
+            });
+          }
+        case PlaybackDeviceChoice.nearby:
+          final deviceContext = _context;
+          if (deviceContext != null && deviceContext.mounted) {
+            await showNearbyDevicesSheet(deviceContext, app: app);
+          }
+        case PlaybackDeviceChoice.cast:
+          await _run(() async {
+            if (app.isCasting) {
+              await app.cast!.showChooser();
+            } else {
+              await app.castTo(CastPlaybackTarget());
+            }
+          });
+        case null:
+          break;
+      }
+    } finally {
+      _modalOpen = false;
+      _scheduleIncomingDrain();
+    }
+  }
+
+  Future<void> _invite() async {
+    final context = _context;
+    final app = _app;
+    if (context == null || app == null || _modalOpen) return;
+    _modalOpen = true;
+    try {
+      await showInviteSheet(context, app);
+    } finally {
+      _modalOpen = false;
+      _scheduleIncomingDrain();
     }
   }
 
@@ -176,6 +407,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    unawaited(_incomingLinks?.dispose());
     _app?.removeListener(_changed);
     if (widget.controller == null) {
       unawaited(_app?.close().catchError((Object _) {}));
@@ -241,9 +473,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
                     RoomScreen(
                       app: app,
                       onLoad: _load,
-                      onInvite: () {
-                        if (_context != null) showInviteSheet(_context!, app);
-                      },
+                      onInvite: _invite,
                       onDevices: _devices,
                       onLeave: () => _run(app.leavePlayer),
                       onStartRoom: _start,
@@ -273,13 +503,13 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
                                 children: [
                                   const CircularProgressIndicator(),
                                   const SizedBox(height: 24),
-                                  const Text(
-                                    'Finding your room…',
-                                    style: TextStyle(fontSize: 22),
+                                  Text(
+                                    app.busyLabel,
+                                    style: const TextStyle(fontSize: 22),
                                   ),
                                   const SizedBox(height: 12),
                                   const Text(
-                                    'Establishing a secure connection.',
+                                    'Getting everything ready.',
                                     textAlign: TextAlign.center,
                                   ),
                                   const SizedBox(height: 20),

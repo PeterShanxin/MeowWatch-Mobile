@@ -2,35 +2,46 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
 import '../../app/app_controller.dart';
+import '../../core/connect/room_config.dart';
 import '../../core/session/room_invite.dart';
 
 Future<String?> showJoinSheet(
   BuildContext context, {
   required AppController app,
+  String? initialInvite,
 }) {
   return showModalBottomSheet<String>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: true,
-    builder: (context) => _JoinSheet(app: app),
+    builder: (context) => _JoinSheet(app: app, initialInvite: initialInvite),
   );
 }
 
 class _JoinSheet extends StatefulWidget {
-  const _JoinSheet({required this.app});
+  const _JoinSheet({required this.app, this.initialInvite});
 
   final AppController app;
+  final String? initialInvite;
 
   @override
   State<_JoinSheet> createState() => _JoinSheetState();
 }
 
 class _JoinSheetState extends State<_JoinSheet> {
-  final TextEditingController _controller = TextEditingController();
+  late final TextEditingController _controller;
   final FocusNode _focusNode = FocusNode();
   String? _error;
   bool _pasting = false;
+
+  bool get _isIncomingInvite => widget.initialInvite != null;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialInvite ?? '');
+  }
 
   @override
   void dispose() {
@@ -85,10 +96,20 @@ class _JoinSheetState extends State<_JoinSheet> {
     Navigator.of(context).pop(value);
   }
 
+  RoomConfig? _parsedIncomingConfig() {
+    if (!_isIncomingInvite) return null;
+    try {
+      return parseRoomInvite(_controller.text, widget.app.username);
+    } on FormatException {
+      return null;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
+    final incomingConfig = _parsedIncomingConfig();
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -104,14 +125,18 @@ class _JoinSheetState extends State<_JoinSheet> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Text(
-                  'Join their movie night',
+                  _isIncomingInvite
+                      ? 'Room invitation received'
+                      : 'Join their movie night',
                   style: theme.textTheme.headlineSmall?.copyWith(
                     fontWeight: FontWeight.w700,
                   ),
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  'Paste a MeowWatch invite link or enter the room code they sent you.',
+                  _isIncomingInvite
+                      ? 'Review the room and server, then choose whether to join.'
+                      : 'Paste a MeowWatch invite link or enter the room code they sent you.',
                   style: theme.textTheme.bodyMedium?.copyWith(
                     color: theme.colorScheme.onSurfaceVariant,
                     height: 1.45,
@@ -122,7 +147,7 @@ class _JoinSheetState extends State<_JoinSheet> {
                   key: const Key('join-code-field'),
                   controller: _controller,
                   focusNode: _focusNode,
-                  autofocus: true,
+                  autofocus: !_isIncomingInvite,
                   maxLength: 512,
                   maxLines: 2,
                   minLines: 1,
@@ -143,10 +168,39 @@ class _JoinSheetState extends State<_JoinSheet> {
                     ),
                   ),
                   onChanged: (_) {
-                    if (_error != null) setState(() => _error = null);
+                    if (_error != null || _isIncomingInvite) {
+                      setState(() => _error = null);
+                    }
                   },
                   onSubmitted: (_) => _submit(),
                 ),
+                if (incomingConfig != null) ...[
+                  const SizedBox(height: 4),
+                  Semantics(
+                    container: true,
+                    label:
+                        'Room ${incomingConfig.room}, server ${incomingConfig.server}, port ${incomingConfig.port}',
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: theme.colorScheme.surfaceContainerHighest,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            Text('Room: ${incomingConfig.room}'),
+                            const SizedBox(height: 4),
+                            Text(
+                              'Server: ${incomingConfig.server}:${incomingConfig.port}',
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 16),
                 SizedBox(
                   height: 54,
@@ -154,7 +208,9 @@ class _JoinSheetState extends State<_JoinSheet> {
                     key: const Key('join-submit-button'),
                     onPressed: _submit,
                     icon: const Icon(Icons.login_rounded),
-                    label: const Text('Join room'),
+                    label: Text(
+                      _isIncomingInvite ? 'Join this room' : 'Join room',
+                    ),
                   ),
                 ),
               ],

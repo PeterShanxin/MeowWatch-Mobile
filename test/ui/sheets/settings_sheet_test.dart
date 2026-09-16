@@ -8,6 +8,38 @@ import 'package:meowwatch_mobile/ui/settings/settings_sheet.dart';
 import 'sheet_test_support.dart';
 
 void main() {
+  testWidgets('opens About, privacy and licenses from settings', (
+    tester,
+  ) async {
+    final app = createTestApp(billing: TestBilling());
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () =>
+                  showSettingsSheet(context, app: app, onUpgrade: () {}),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    final about = find.byKey(const Key('about-privacy-licenses-button'));
+    await tester.ensureVisible(about);
+    await tester.tap(about);
+    await tester.pumpAndSettle();
+
+    expect(find.text('About MeowWatch'), findsOneWidget);
+    expect(find.text('Together Rooms'), findsOneWidget);
+    expect(find.text('RevenueCat'), findsOneWidget);
+    expect(find.text('Nearby MeowWatch'), findsOneWidget);
+    await app.close();
+  });
+
   testWidgets('saves display name and opens the supplied upgrade flow', (
     tester,
   ) async {

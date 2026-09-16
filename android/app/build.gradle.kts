@@ -15,10 +15,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
         applicationId = "com.meowwatch.meowwatch_mobile"
-        // You can update the following values to match your application needs.
-        // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
         targetSdk = flutter.targetSdkVersion
         versionCode = flutter.versionCode
@@ -27,8 +24,8 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
+            // Next Gen test artifacts use debug signing, including release mode.
+            // These APKs are installable test builds, not Google Play releases.
             signingConfig = signingConfigs.getByName("debug")
         }
     }
@@ -42,4 +39,9 @@ kotlin {
 
 flutter {
     source = "../.."
+}
+
+dependencies {
+    implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("com.google.android.gms:play-services-cast-framework:22.3.1")
 }

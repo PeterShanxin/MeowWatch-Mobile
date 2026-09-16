@@ -9,6 +9,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../core/billing/billing_service.dart';
 import '../core/billing/hosting_access_policy.dart';
+import '../core/cast/cast_playback_target.dart';
 import '../core/chat/chat_store.dart';
 import '../core/connect/room_code.dart';
 import '../core/connect/room_config.dart';
@@ -97,10 +98,24 @@ class AppController extends ChangeNotifier {
   StreamSubscription<NearbyFrame>? _nearbySocial;
   List<ChatMessage> _nearbyMessages = const [];
   String? _nearbyEpoch;
+  CastPlaybackTarget? _cast;
+  CastPlaybackTarget? _pendingCast;
+  PlaybackSnapshot? _lastCastPlayback;
+  int _targetGeneration = 0;
+  bool _returningFromCast = false;
+  bool _castNeedsConfirmation = false;
+  bool _confirmingCast = false;
 
   bool get isNearby => _nearby != null;
   NearbyDesktopTarget? get nearby => _nearby;
-  PlaybackTarget get target => _nearby ?? phone;
+  bool get isCasting => _cast != null;
+  CastPlaybackTarget? get cast => _cast;
+  String get busyLabel => _pendingCast != null
+      ? 'Connecting to your TV…'
+      : _returningFromCast
+      ? 'Returning to this phone…'
+      : 'Finding your room…';
+  PlaybackTarget get target => _nearby ?? _cast ?? phone;
   bool get isConnected =>
       (!isNearby || _nearby!.connected) &&
       connection.status == SyncConnectionStatus.connected;
@@ -186,6 +201,11 @@ class AppController extends ChangeNotifier {
   /// Ownership transfers here; a rejected candidate is closed without commands.
   Future<bool> adoptNearby(NearbyDesktopTarget desktop) async {
     if (identical(_nearby, desktop)) return desktop.connected;
+    if (isCasting) {
+      await desktop.close();
+      report('Return to this phone before choosing your desktop.');
+      return false;
+    }
     if (busy || _closed) {
       await desktop.close();
       return false;
@@ -513,6 +533,321 @@ class AppController extends ChangeNotifier {
     if (!_current(generation)) throw const _ConnectionCancelled();
   }
 
+  bool _targetCurrent(int generation, int connectionGeneration) =>
+      _current(connectionGeneration) && generation == _targetGeneration;
+
+  void _requireTarget(int generation, int connectionGeneration) {
+    if (!_targetCurrent(generation, connectionGeneration)) {
+      throw const _ConnectionCancelled();
+    }
+  }
+
+  PlaybackSyncBridge? _bridgeForTarget(PlaybackTarget playback) {
+    final sync = _sync;
+    if (sync == null) return null;
+    final generation = _targetGeneration;
+    final connectionGeneration = _connectGeneration;
+    bool current() =>
+        _targetCurrent(generation, connectionGeneration) &&
+        identical(target, playback);
+    return PlaybackSyncBridge(
+      target: playback,
+      sync: sync,
+      authorizePlayback: () async {
+        if (!current() || _returningFromCast || _confirmingCast) return false;
+        final allowed = await _authorizePlay();
+        return current() && allowed;
+      },
+      onError: (_) {
+        if (current()) report('Playback sync needs attention. Try again.');
+      },
+    )..start();
+  }
+
+  /// Only the player changes; room membership and its billing identity remain.
+  /// The controller owns the candidate, including cleanup when it is rejected.
+  Future<void> castTo(CastPlaybackTarget candidate) async {
+    if (identical(candidate, _cast)) return;
+    if (busy || _closed || isNearby || isCasting) {
+      await _closeCast(candidate);
+      if (!_closed && (isNearby || isCasting)) {
+        report('Return to this phone before choosing a TV.');
+      }
+      return;
+    }
+    final saved = phone.snapshot;
+    final media = saved.media;
+    if (!saved.ready || media == null || !CastPlaybackTarget.supports(media)) {
+      await _closeCast(candidate);
+      report(CastPlaybackTarget.unsupportedMessage);
+      return;
+    }
+    busy = true;
+    message = null;
+    final generation = ++_targetGeneration;
+    final connectionGeneration = _connectGeneration;
+    ++_mediaGeneration;
+    final previousBridge = _bridge;
+    _pendingCast = candidate;
+    var accepted = false;
+    _changed();
+    try {
+      await saveProgress();
+      _requireTarget(generation, connectionGeneration);
+      // Retain the bridge for rollback, but gate peer commands while the phone
+      // is paused and the receiver is being prepared. No second client joins.
+      previousBridge?.beginSourceLoad();
+      await phone.pause();
+      _requireTarget(generation, connectionGeneration);
+      await candidate.connect();
+      _requireTarget(generation, connectionGeneration);
+      await candidate.load(media, position: saved.position);
+      _requireTarget(generation, connectionGeneration);
+      if (!candidate.connected ||
+          !candidate.snapshot.ready ||
+          candidate.snapshot.media?.uri != media.uri) {
+        throw StateError('The TV did not accept the video.');
+      }
+      await candidate.pause();
+      _requireTarget(generation, connectionGeneration);
+      await previousBridge?.dispose();
+      _requireTarget(generation, connectionGeneration);
+      _cast = candidate;
+      _castNeedsConfirmation = false;
+      _pendingCast = null;
+      accepted = true;
+      _lastCastPlayback = candidate.snapshot;
+      candidate.addListener(_onCastPlayback);
+      _bridge = _bridgeForTarget(candidate);
+      if (_bridge != null) {
+        await _bridge!.markSourceOpen(media.uri.toString());
+      }
+      _requireTarget(generation, connectionGeneration);
+      if (saved.playing && _sync?.lastObservedRoomState?.setBy == null) {
+        if (_bridge != null) {
+          await _bridge!.play();
+        } else {
+          await candidate.play();
+        }
+      }
+      _requireTarget(generation, connectionGeneration);
+      inPlayer = true;
+      await saveProgress();
+    } catch (_) {
+      if (!accepted) await _closeCast(candidate);
+      if (_targetCurrent(generation, connectionGeneration)) {
+        if (!accepted) {
+          try {
+            // A bridge created by an earlier target handoff carries that
+            // generation. Rebind on rollback without replacing the socket.
+            await previousBridge?.dispose();
+            _requireTarget(generation, connectionGeneration);
+            _bridge = _bridgeForTarget(phone);
+            await _bridge?.markSourceOpen(media.uri.toString());
+            _requireTarget(generation, connectionGeneration);
+            if (saved.playing && _sync?.lastObservedRoomState?.setBy == null) {
+              if (_bridge != null) {
+                await _bridge!.play();
+              } else {
+                await phone.play();
+              }
+            }
+          } catch (_) {
+            // Preserve the handoff failure and leave explicit recovery visible.
+          }
+          report(
+            'Could not switch to the TV. Your phone session is still open.',
+          );
+        } else {
+          report(
+            'The TV could not continue. Choose Return to phone to recover.',
+          );
+        }
+      }
+    } finally {
+      if (identical(_pendingCast, candidate)) _pendingCast = null;
+      if (!identical(_cast, candidate)) await _closeCast(candidate);
+      busy = false;
+      _changed();
+    }
+  }
+
+  /// An explicit recovery action; receiver loss alone never plays the phone.
+  Future<void> returnFromCast() async {
+    final receiver = _cast;
+    if (receiver == null || busy || _closed) return;
+    final saved = receiver.snapshot.ready
+        ? receiver.snapshot
+        : _lastCastPlayback;
+    final media = saved?.media;
+    if (media == null) {
+      report('Open a video on this phone before continuing.');
+      return;
+    }
+    busy = true;
+    _returningFromCast = true;
+    message = null;
+    final generation = ++_targetGeneration;
+    final connectionGeneration = _connectGeneration;
+    ++_mediaGeneration;
+    final previousBridge = _bridge;
+    var accepted = false;
+    _changed();
+    try {
+      previousBridge?.beginSourceLoad();
+      if (receiver.connected) await receiver.pause();
+      _requireTarget(generation, connectionGeneration);
+      await phone.pause();
+      _requireTarget(generation, connectionGeneration);
+      if (phone.snapshot.ready && phone.snapshot.media?.uri == media.uri) {
+        await phone.seek(saved!.position);
+      } else {
+        await phone.load(media, position: saved!.position);
+      }
+      _requireTarget(generation, connectionGeneration);
+      if (!phone.snapshot.ready || phone.snapshot.media?.uri != media.uri) {
+        throw StateError('The phone did not accept the video.');
+      }
+      await previousBridge?.dispose();
+      _requireTarget(generation, connectionGeneration);
+      receiver.removeListener(_onCastPlayback);
+      _cast = null;
+      _castNeedsConfirmation = false;
+      _lastCastPlayback = null;
+      accepted = true;
+      _bridge = _bridgeForTarget(phone);
+      if (_bridge != null) {
+        // Confirmation may observe a playing room. The handoff authorization
+        // guard denies that play before any native play command can run.
+        await _bridge!.markSourceOpen(media.uri.toString());
+        _requireTarget(generation, connectionGeneration);
+        await _bridge!.seek(saved.position);
+        _requireTarget(generation, connectionGeneration);
+        await _bridge!.pause();
+      }
+      _requireTarget(generation, connectionGeneration);
+      await _closeCast(receiver);
+      _requireTarget(generation, connectionGeneration);
+      await saveProgress();
+    } catch (_) {
+      if (_targetCurrent(generation, connectionGeneration)) {
+        if (!accepted && receiver.connected && receiver.snapshot.ready) {
+          try {
+            await previousBridge?.dispose();
+            _requireTarget(generation, connectionGeneration);
+            _bridge = _bridgeForTarget(receiver);
+            await _bridge?.markSourceOpen(media.uri.toString());
+          } catch (_) {
+            // Preserve the original return failure and the receiver selection.
+          }
+        }
+        report(
+          accepted
+              ? 'Could not continue playback. Press Play when ready.'
+              : 'Could not return to this phone. Check the TV before retrying.',
+        );
+      }
+    } finally {
+      _returningFromCast = false;
+      busy = false;
+      _changed();
+    }
+  }
+
+  void _onCastPlayback() {
+    final receiver = _cast;
+    if (_closed || receiver == null) return;
+    final state = receiver.snapshot;
+    if (state.ready) {
+      _lastCastPlayback = state;
+      if (_castNeedsConfirmation && state.playing && !_confirmingCast) {
+        unawaited(
+          receiver.pause().catchError((Object _) {
+            report(
+              'The TV reconnected. Restore control or return to this phone.',
+            );
+          }),
+        );
+      }
+    } else if (state.connection == PlaybackConnection.disconnected ||
+        state.connection == PlaybackConnection.failed) {
+      _castNeedsConfirmation = true;
+      _bridge?.beginSourceLoad();
+      _sync?.updateLocalState(position: state.position, paused: true);
+      _sync?.notifyLocalChange(doSeek: false);
+      message = state.error ?? 'The TV disconnected. Choose Return to phone.';
+    }
+    _changed();
+  }
+
+  Future<bool> _confirmCastForCommand() async {
+    final receiver = _cast;
+    if (receiver == null || !_castNeedsConfirmation) return true;
+    final saved = receiver.snapshot;
+    if (!receiver.connected || !saved.ready || saved.media == null) {
+      return false;
+    }
+    final generation = _targetGeneration;
+    final connectionGeneration = _connectGeneration;
+    busy = true;
+    _confirmingCast = true;
+    _changed();
+    try {
+      await receiver.pause();
+      _requireTarget(generation, connectionGeneration);
+      final bridge = _bridge;
+      if (bridge != null) {
+        // Reconnection itself never starts playback. The explicit command
+        // below runs only after its accepted source is confirmed while paused.
+        await bridge.markSourceOpen(saved.media!.uri.toString());
+        _requireTarget(generation, connectionGeneration);
+        await bridge.seek(saved.position);
+        _requireTarget(generation, connectionGeneration);
+        await bridge.pause();
+      }
+      _requireTarget(generation, connectionGeneration);
+      _castNeedsConfirmation = false;
+      return true;
+    } catch (_) {
+      if (_targetCurrent(generation, connectionGeneration)) {
+        report('Could not restore TV control. Choose Return to phone.');
+      }
+      return false;
+    } finally {
+      _confirmingCast = false;
+      busy = false;
+      _changed();
+    }
+  }
+
+  Future<void> _closeCast(CastPlaybackTarget receiver) async {
+    try {
+      await receiver.close().timeout(const Duration(seconds: 5));
+    } catch (_) {
+      // Cleanup must not replace the original handoff/storage error. The
+      // receiver was paused before a successful return to phone.
+      if (!_closed && message == null) {
+        report('Could not confirm TV disconnection. Check the receiver.');
+      }
+    }
+  }
+
+  Future<void> _detachCast() async {
+    ++_targetGeneration;
+    final receiver = _cast;
+    final pending = _pendingCast;
+    _cast = null;
+    _castNeedsConfirmation = false;
+    _pendingCast = null;
+    _lastCastPlayback = null;
+    receiver?.removeListener(_onCastPlayback);
+    _bridge?.beginSourceLoad();
+    if (pending != null) await _closeCast(pending);
+    if (receiver != null && !identical(receiver, pending)) {
+      await _closeCast(receiver);
+    }
+  }
+
   Future<bool> _runConnect(
     RoomTicket Function() makeTicket, {
     bool adoptExistingSource = true,
@@ -766,8 +1101,13 @@ class AppController extends ChangeNotifier {
       return;
     }
     if (busy || _closed) return;
+    if (isCasting && !CastPlaybackTarget.supports(media)) {
+      report(CastPlaybackTarget.unsupportedMessage);
+      return;
+    }
     final mediaGeneration = ++_mediaGeneration;
     await saveProgress();
+    if (_closed || mediaGeneration != _mediaGeneration) return;
     message = null;
     inPlayer = true;
     _changed();
@@ -807,7 +1147,15 @@ class AppController extends ChangeNotifier {
       return;
     }
     if (busy || _closed) return;
-    if (target.snapshot.playing) {
+    if (isCasting && (!cast!.connected || !target.snapshot.ready)) {
+      report(
+        'The TV is unavailable. Choose Return to phone or open the video again.',
+      );
+      return;
+    }
+    final playing = target.snapshot.playing;
+    if (isCasting && !await _confirmCastForCommand()) return;
+    if (playing) {
       if (_bridge != null) {
         await _bridge!.pause();
       } else {
@@ -829,6 +1177,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     if (busy || _closed) return;
+    if (isCasting && !await _confirmCastForCommand()) return;
     if (_bridge != null) {
       await _bridge!.seek(position);
     } else {
@@ -866,6 +1215,8 @@ class AppController extends ChangeNotifier {
     }
     await saveProgress();
     if (!_current(generation)) return;
+    await _detachCast();
+    if (!_current(generation)) return;
     await _detachRoom();
     if (!_current(generation)) return;
     room = null;
@@ -885,6 +1236,8 @@ class AppController extends ChangeNotifier {
     }
     await saveProgress();
     if (!_current(generation)) return;
+    await _detachCast();
+    if (!_current(generation)) return;
     await target.pause();
     if (!_current(generation)) return;
     await _detachRoom();
@@ -895,6 +1248,17 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> background() async {
+    if (busy && (_pendingCast != null || isCasting)) {
+      ++_targetGeneration;
+      final pending = _pendingCast;
+      _pendingCast = null;
+      if (pending != null) await _closeCast(pending);
+      await phone.pause();
+      report(
+        'Device switching was interrupted. Open the video again to continue.',
+      );
+      return;
+    }
     if (busy) ++_connectGeneration;
     if (isNearby) {
       // Releasing the companion lease never pauses or leaves the desktop room.
@@ -1019,7 +1383,11 @@ class AppController extends ChangeNotifier {
         try {
           await _detachNearby();
         } finally {
-          await _detachRoom();
+          try {
+            await _detachCast();
+          } finally {
+            await _detachRoom();
+          }
         }
       } finally {
         phone.removeListener(_onPlayback);

@@ -9,9 +9,11 @@ import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterFragmentActivity() {
     private var pendingPicker: MethodChannel.Result? = null
+    private var castBridge: CastBridge? = null
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        castBridge = CastBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         LanInterfaces.register(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowwatch.mobile/media")
             .setMethodCallHandler { call, result ->
@@ -37,6 +39,12 @@ class MainActivity : FlutterFragmentActivity() {
                     else -> result.notImplemented()
                 }
             }
+    }
+
+    override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        castBridge?.dispose()
+        castBridge = null
+        super.cleanUpFlutterEngine(flutterEngine)
     }
 
     @Deprecated("Activity result bridge retained for Flutter's embedding")

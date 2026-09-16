@@ -142,7 +142,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                     ),
                     const SizedBox(height: 14),
                     Text(
-                      'No account needed. Your name stays on this device.',
+                      'No account needed. Change your name anytime.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall?.copyWith(
                         color: theme.colorScheme.onSurfaceVariant,

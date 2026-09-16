@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_controller.dart';
 import '../../app/app_services.dart';
 import '../../core/billing/billing_service.dart';
+import 'about_sheet.dart';
 
 const _navy = Color(0xFF10141F);
 const _raised = Color(0xFF1A2232);
@@ -333,13 +334,35 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Text(
-                            'Your display name and watch history are stored locally on this device. In a Together Room, your display name, room and playback state, and chat are shared through the room’s public Syncplay server.',
+                            'Your watch history stays in this app’s local '
+                            'storage. Together Rooms, RevenueCat and paired '
+                            'Nearby desktops each receive the data needed for '
+                            'their feature.',
                             style: TextStyle(
                               color: _ivory.withValues(alpha: 0.76),
                               height: 1.45,
                             ),
                           ),
                           const SizedBox(height: 12),
+                          OutlinedButton.icon(
+                            key: const Key('about-privacy-licenses-button'),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: _ivory,
+                              minimumSize: const Size.fromHeight(48),
+                              side: BorderSide(
+                                color: _ivory.withValues(alpha: 0.28),
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(14),
+                              ),
+                            ),
+                            onPressed: _working || _billing.isBusy
+                                ? null
+                                : () => showAboutSheet(context),
+                            icon: const Icon(Icons.info_outline),
+                            label: const Text('About, privacy & licenses'),
+                          ),
+                          const SizedBox(height: 10),
                           OutlinedButton.icon(
                             style: OutlinedButton.styleFrom(
                               foregroundColor: _ivory,

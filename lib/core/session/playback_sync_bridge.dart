@@ -38,6 +38,10 @@ class PlaybackSyncBridge {
   PeerPlayState? _latestPeer;
   PeerPlayState? _expected;
   DateTime _expectedAt = DateTime.fromMillisecondsSinceEpoch(0);
+  bool? _publishedPaused;
+  bool _buffering = false;
+  Timer? _bufferRecovery;
+  bool _externalPlayPending = false;
 
   void start() {
     if (_disposed || _playerSub != null) return;
@@ -72,6 +76,7 @@ class PlaybackSyncBridge {
   int beginSourceLoad() {
     _confirmed = null;
     _expected = null;
+    _publishedPaused = null;
     _nextIntent();
     return ++_sourceGeneration;
   }
@@ -147,7 +152,28 @@ class PlaybackSyncBridge {
   }
 
   void _onPlayer(PlaybackSnapshot state) {
-    if (!_hasSource || _applying != 0) return;
+    if (!_hasSource) return;
+    // ExoPlayer's isPlaying is false while buffering even when playWhenReady
+    // remains true. A heartbeat with that false flag would pause the room.
+    if (state.buffering) {
+      _buffering = true;
+      _bufferRecovery?.cancel();
+      _bufferRecovery = null;
+      return;
+    }
+    if (_applying != 0) return;
+    if (_buffering) {
+      if (!state.playing && _publishedPaused == false) {
+        // READY/bufferingEnd precedes the matching isPlaying callback. Wait
+        // only for that event to settle; a persistent native pause still wins.
+        _bufferRecovery ??= Timer(settleWindow, () {
+          _resetBuffering();
+          _onPlayer(target.snapshot);
+        });
+        return;
+      }
+      _resetBuffering();
+    }
     final expected = _expected;
     if (expected != null &&
         DateTime.now().difference(_expectedAt) < settleWindow) {
@@ -161,6 +187,20 @@ class PlaybackSyncBridge {
                   const Duration(milliseconds: 500);
       if (!matches) return;
     }
+    if (state.playing && _publishedPaused == true) {
+      // First reject stale native echoes of an expected peer command above.
+      // TV remotes and system controls then pass the same quota boundary as
+      // play(), keeping the paused heartbeat until authorization completes.
+      if (!_externalPlayPending) {
+        _externalPlayPending = true;
+        _background(
+          _play(externallyStarted: true).then<void>((_) {}).whenComplete(() {
+            _externalPlayPending = false;
+          }),
+        );
+      }
+      return;
+    }
     _publish(state, changed: false);
   }
 
@@ -168,14 +208,18 @@ class PlaybackSyncBridge {
     PlaybackSnapshot state, {
     required bool changed,
     bool seek = false,
+    bool? paused,
   }) {
     if (!_hasSource) return;
-    sync.updateLocalState(position: state.position, paused: !state.playing);
+    if (state.buffering) _buffering = true;
+    _publishedPaused = paused ?? !state.playing;
+    sync.updateLocalState(position: state.position, paused: _publishedPaused!);
     if (changed) sync.notifyLocalChange(doSeek: seek);
   }
 
   void _acknowledge(PeerPlayState state) {
     _expected = state;
+    _publishedPaused = state.paused;
     _expectedAt = DateTime.now();
     // Synchronous acknowledgement is required before Syncplay replies to the
     // current State. Native player commands may complete much later.
@@ -227,15 +271,24 @@ class PlaybackSyncBridge {
       _hasSource && intent == _intent && source == _sourceGeneration;
 
   int _nextIntent() {
+    _resetBuffering();
     _superseded.complete();
     _superseded = Completer<void>();
     return ++_intent;
   }
 
+  void _resetBuffering() {
+    _bufferRecovery?.cancel();
+    _bufferRecovery = null;
+    _buffering = false;
+  }
+
   Future<bool> _authorize() =>
       Future.any([authorizePlayback(), _superseded.future.then((_) => false)]);
 
-  Future<bool> play() async {
+  Future<bool> play() => _play();
+
+  Future<bool> _play({bool externallyStarted = false}) async {
     if (!_hasSource) return false;
     final intent = _nextIntent();
     final source = _sourceGeneration;
@@ -244,6 +297,10 @@ class PlaybackSyncBridge {
       if (!_current(intent, source)) return;
       _applying++;
       try {
+        if (externallyStarted) {
+          await target.pause().timeout(commandTimeout);
+          if (!_current(intent, source)) return;
+        }
         if (!await _authorize()) {
           if (_current(intent, source)) await _denyPlayback();
           return;
@@ -252,7 +309,7 @@ class PlaybackSyncBridge {
         _expected = null;
         await target.play().timeout(commandTimeout);
         if (!_current(intent, source)) return;
-        _publish(target.snapshot, changed: true);
+        _publish(target.snapshot, changed: true, paused: false);
         played = true;
       } finally {
         _applying--;
@@ -284,7 +341,14 @@ class PlaybackSyncBridge {
         _expected = null;
         await command().timeout(commandTimeout);
         if (_current(intent, source)) {
-          _publish(target.snapshot, changed: true, seek: seek);
+          _publish(
+            target.snapshot,
+            changed: true,
+            seek: seek,
+            // Explicit pause always wins, including during buffering. Seek
+            // keeps the accepted intent instead of mistaking a stall for pause.
+            paused: seek ? _publishedPaused : true,
+          );
         }
       } finally {
         _applying--;
@@ -295,7 +359,7 @@ class PlaybackSyncBridge {
   Future<void> _denyPlayback() async {
     await target.pause().timeout(commandTimeout);
     _expected = null;
-    _publish(target.snapshot, changed: true);
+    _publish(target.snapshot, changed: true, paused: true);
   }
 
   /// The controller calls this when the last peer leaves. Connection loss

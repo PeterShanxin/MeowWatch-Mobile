@@ -88,4 +88,48 @@ void main() {
     expect(tester.takeException(), isNull);
     await fixture.close();
   });
+
+  testWidgets(
+    'incoming invite is visibly prefilled and requires confirmation',
+    (tester) async {
+      final fixture = UiTestApp.create();
+      const invite =
+          'meowwatch://join?room=quiet-otter&server=syncplay.pl&port=8995';
+      String? result;
+
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => ElevatedButton(
+                onPressed: () async {
+                  result = await showJoinSheet(
+                    context,
+                    app: fixture.controller,
+                    initialInvite: invite,
+                  );
+                },
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Room invitation received'), findsOneWidget);
+      expect(find.text('Room: quiet-otter'), findsOneWidget);
+      expect(find.text('Server: syncplay.pl:8995'), findsOneWidget);
+      expect(find.text('Join this room'), findsOneWidget);
+      expect(result, isNull);
+      expect(fixture.controller.room, isNull);
+
+      await tester.tap(find.byKey(const Key('join-submit-button')));
+      await tester.pumpAndSettle();
+      expect(result, invite);
+      expect(fixture.controller.room, isNull);
+      await fixture.close();
+    },
+  );
 }

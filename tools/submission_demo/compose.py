@@ -273,9 +273,9 @@ def render_shot(plan: dict, shot: dict, folder: Path, ffmpeg: str, preset: str) 
             words(shot["title"], "(w-text_w)/2", 102, 34)
             boxes = {"phone": (150, 207, 340, 680), "tablet": (670, 251, 1090, 610)}
         elif shot["device"] == "phone":
-            words(shot["title"], 120, 340, 54, font="serif", wrap=27)
-            words(shot["caption"], 120, 540, 32, wrap=40)
-            boxes = {"phone": (1160, 150, 360, 780)}
+            words(shot["title"], 104, 280, 58, font="serif", wrap=26)
+            words(shot["caption"], 104, 514, 34, wrap=38)
+            boxes = {"phone": (1160, 76, 450, 975)}
         else:
             words(shot["title"], "(w-text_w)/2", 111, 38)
             boxes = {"tablet": (400, 210, 1120, 650)}
@@ -301,12 +301,19 @@ def render_shot(plan: dict, shot: dict, folder: Path, ffmpeg: str, preset: str) 
             words(clip["label"], x, y - 53, 25)
         if shot["kind"] == "pair" or shot.get("device") == "tablet":
             words(shot["caption"], "(w-text_w)/2", 916, 26, wrap=90)
+        single_phone = shot["kind"] == "single" and shot["device"] == "phone"
         if shot.get("disclosure"):
-            words(shot["disclosure"], 64, 982, 20, BLUE)
+            if single_phone:
+                words(shot["disclosure"], 104, 800, 24, CREAM, wrap=55)
+            else:
+                words(shot["disclosure"], 64, 982, 20, BLUE)
         runtimes = " / ".join(dict.fromkeys(plan["sources"][clip["source"]]["runtime"] for clip in shot["clips"]))
         if shot["kind"] == "pair":
             runtimes += " · approximate recording alignment · 1×"
-        words(runtimes, 64, 1014, 18, BLUE)
+        if single_phone:
+            words(runtimes, 104, 952, 24, BLUE, wrap=52)
+        else:
+            words(runtimes, 64, 1014, 18, BLUE)
     graph.append(f"[0:v:0]scale={logo_size}:{logo_size}[mark]")
     graph.append(f"[{current}][mark]overlay={logo_x}:{logo_y}:shortest=1:format=rgb[branded]")
     current = "branded"

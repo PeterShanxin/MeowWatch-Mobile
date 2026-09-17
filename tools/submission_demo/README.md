@@ -8,6 +8,9 @@ device content. It proportionally scales the complete capture; no cropping,
 app-pixel replacement, generated motion, zooms, transitions or frozen padding.
 Compositing uses RGB and one consistent limited-range BT.709 delivery conversion,
 so graphics and native shots do not switch color metadata at editorial cuts.
+Single-phone shots reserve a 450 × 975 area for the complete capture and use
+24px source disclosures beside it. Paired and tablet shots retain their separate
+footer area, so larger phone captions never cover either device's content.
 
 This tool performs an edit, not product acceptance. It cannot determine whether
 an input is authentic, whether the recorded build passed, or whether a claim is

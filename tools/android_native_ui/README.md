@@ -50,6 +50,9 @@ ordinary install is required before inspecting instrumentation. Exit status,
 strict terminal `Success` and the installed self-target are all checked.
 Installation diagnostics retain only recognized modes/status/error codes,
 byte counts and output hashes, never raw installer payloads or paths.
+The installed component check matches Android PackageManager's shortened
+`package/.SnapshotInstrumentation` output and requires the exact self-target.
+Missing, duplicate, additional or differently targeted instrumentation fails.
 
 Each `am instrument -w -r` request carries a new random 128-bit nonce. The helper
 returns one XML snapshot as Base64 in its instrumentation result, together with

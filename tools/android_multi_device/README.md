@@ -14,6 +14,23 @@ Android screenrecord behavior; fresh footage must establish whether reduced
 encoding load improves stalls. CLI callers that omit these options retain
 the original full-resolution, 8 Mbps behavior.
 
+Before either recorder or the driven command starts, each task-owned Android
+directory must pass an actual `.mp4` creation/removal probe. Preparation uses a
+20-second readiness window with bounded ADB calls and retains failed probes in
+`storage-readiness.log`. A successful `mkdir` alone is insufficient during cold
+boot: MediaProvider may not yet have attached the external storage volume.
+Storage probes may repeat before capture; a failed recording is never restarted
+as though no evidence had been lost.
+
+Recorder startup requires a live host ADB process, a uniquely identified native
+PID stable across two observations, and a nonempty original MP4. A transient PID
+or an immediate file-open error cannot release the showcase command. Startup is
+bounded, and the original segment diagnostics are retained on failure. After
+startup, a failed recorder stops the task-owned showcase command promptly;
+available segments are still collected, the run fails, and no replacement take
+is silently started. Native 170-second rotations remain separate segments with
+their real timing gaps.
+
 ## Hosted Ubuntu sequence
 
 Generate the long-form media fixture and build both role-specific APKs serially
@@ -62,8 +79,10 @@ call that targets a device includes the serial; do the same in custom commands.
 The server-start and device-inventory calls are intentionally global. If no
 command is supplied, recording lasts for `--seconds`.
 
-The phone is portrait and the tablet is landscape. Every native segment retains
-the real rendered pixels from its AVD. The recorder saves a host timestamp
+Every native segment retains the real rendered pixels and observed orientation
+from its AVD. Inspect the current window geometry and `recording-sizes.tsv`;
+a hardware profile's natural dimensions do not prove its current orientation.
+The recorder saves a host timestamp
 immediately before each ADB `screenrecord` command. Composition reads every
 segment's timestamp and original MP4, places it at its estimated offset, and
 shows black `RECORDING GAP` panels between available intervals and after the

@@ -18,6 +18,7 @@ from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, install_o
 
 OBSERVER_PACKAGE = "com.meowwatch.native_ui_observer"
 COMPONENT = f"{OBSERVER_PACKAGE}/{OBSERVER_PACKAGE}.SnapshotInstrumentation"
+SHORT_COMPONENT = f"{OBSERVER_PACKAGE}/.SnapshotInstrumentation"
 DEFAULT_APK = Path("build/android-native-ui/native-ui-observer.apk")
 MAX_XML_BYTES = 262144
 MAX_OUTPUT_BYTES = 360000
@@ -151,7 +152,14 @@ class NativeUiObserver:
             raise RuntimeFailure("standalone native UI observer installation failed")
         instrumentation = self.adb.run("shell", "pm", "list", "instrumentation", OBSERVER_PACKAGE).stdout.decode(
             "utf-8", errors="replace")
-        expected = f"instrumentation:{COMPONENT} (target={OBSERVER_PACKAGE})"
+        # PackageManagerShellCommand uses ComponentName.flattenToShortString().
+        # Keep the exact self-target check while matching Android's wire output.
+        expected = f"instrumentation:{SHORT_COMPONENT} (target={OBSERVER_PACKAGE})"
+        self.installation["instrumentationCheck"] = {
+            "matchesExactSelfTarget": instrumentation.strip() == expected,
+            "stdoutBytes": len(instrumentation.encode("utf-8")),
+            "stdoutSha256": hashlib.sha256(instrumentation.encode("utf-8")).hexdigest(),
+        }
         if instrumentation.strip() != expected:
             raise ObserverIntegrityFailure("native UI instrumentation does not target only its own package")
         self.installed = True

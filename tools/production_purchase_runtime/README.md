@@ -10,8 +10,14 @@ The journey consumes one free hosted session with an independently connected
 real STARTTLS protocol peer, proves the next Start opens the paywall, performs
 native Test Store cancellation/failure/success, invokes SDK restore through
 Settings for the same current customer, selects and persists Cinema Noir, then
-plays two additional distinct paid hosted sessions. Cancellation and failure
-must expose the exact RevenueCat SDK error codes from that purchase; generic UI
+plays two additional distinct paid hosted sessions. Before the original final
+Cinema Noir assertion, it selects and persists Glass Aurora, enters the first
+paid production room with that theme still active, and sends the Movie night
+`🎬` reaction through the product picker. The independently connected headless
+TLS peer must receive the exact reaction control payload from the app's current
+server username; a local callback or mock receipt cannot satisfy this check.
+Cancellation and failure must expose the exact RevenueCat SDK error codes from
+that purchase; generic UI
 failure text cannot pass. Read-only controller, SDK and persisted ledger
 observations establish the assertions. The peer observes real server playback
 state but has no decoder.
@@ -63,6 +69,9 @@ time by at most 3 seconds, each rotation gap is capped at 15 seconds, and the
 segments must cover at least 90% of the journey interval. A recorder that exits
 early with a valid short MP4 therefore fails the gate. The
 runner validates the complete UI evidence, three distinct durable session IDs,
-one free/two paid records, actual TLS peer play observations and all native
-dialog outcomes before reporting success. Real acceptance still requires a
+one free/two paid records, actual TLS peer play and premium-reaction observations,
+the persisted Glass Aurora room transition, and all native dialog outcomes before
+reporting success. The journey now reports 12 verified steps and 12 native
+screenshots: the original ten of each plus `glass-aurora-applied` and
+`movie-night-reaction-sent`. Real acceptance still requires a
 passing hosted run and visual inspection of its screenshots and recordings.

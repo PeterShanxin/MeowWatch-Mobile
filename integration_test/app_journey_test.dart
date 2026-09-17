@@ -327,7 +327,11 @@ void main() {
         inInclusiveRange(51000, 53000),
       );
       verified.add('sample_picker_loaded_official_trailer_paused');
-      await _tap(tester, find.byTooltip('Play'), 'play the sample film');
+      final samplePlay = await _waitForAny(tester, [
+        find.byTooltip('Play'),
+        find.byTooltip('Play together'),
+      ], 'enabled sample play control');
+      await _tap(tester, samplePlay, 'play the sample film');
       await _waitForCondition(
         tester,
         () => samplePlayer.value.position.inMilliseconds >= 4000,
@@ -347,7 +351,11 @@ void main() {
         screenshots,
         'sample-film-playing',
       );
-      await _tap(tester, find.byTooltip('Pause'), 'pause the sample film');
+      final samplePause = await _waitForAny(tester, [
+        find.byTooltip('Pause'),
+        find.byTooltip('Pause together'),
+      ], 'enabled sample pause control');
+      await _tap(tester, samplePause, 'pause the sample film');
       await _waitForCondition(
         tester,
         () => !samplePlayer.value.isPlaying,

@@ -35,11 +35,33 @@ if [[ "${1:-}" == shell ]]; then
       remote="${*: -1}"
       mkdir -p "$(device_path "$remote")"
       ;;
+    touch)
+      remote="${*: -1}"
+      count_file="$FAKE_ANDROID_STORAGE/$serial.touch.count"
+      count=0
+      [[ -f "$count_file" ]] && count=$(cat "$count_file")
+      printf '%s' "$((count + 1))" > "$count_file"
+      if [[ "$serial" == emulator-5554 ]] && \
+         { [[ "${FAKE_SCENARIO:-}" == storage-never ]] || \
+           [[ "${FAKE_SCENARIO:-}" == storage-late && "$count" -lt 2 ]]; }; then
+        echo 'touch: Operation not permitted; external_primary not attached' >&2
+        exit 1
+      fi
+      touch "$(device_path "$remote")"
+      ;;
+    test)
+      test "$2" "$(device_path "$3")"
+      ;;
     pidof)
       if [[ -s "$pid_file" ]]; then
         pid=$(cat "$pid_file")
         if kill -0 "$pid" 2>/dev/null; then
           printf '%s\n' "$pid"
+          if [[ "${FAKE_SCENARIO:-}" == recorder-open-denied && \
+                "$serial" == emulator-5554 ]]; then
+            kill -TERM "$pid"
+            sleep 0.1
+          fi
         fi
       fi
       ;;
@@ -52,6 +74,17 @@ if [[ "${1:-}" == shell ]]; then
       local_file=$(device_path "$remote")
       echo "fake screenrecord diagnostic for $serial" >&2
       printf '%s' "$$" > "$pid_file"
+      if [[ "${FAKE_SCENARIO:-}" == recorder-open-denied && \
+            "$serial" == emulator-5554 ]]; then
+        echo "Unable to open '$remote': Operation not permitted" >&2
+        trap 'rm -f "$pid_file"; exit 1' TERM
+        while :; do sleep 0.1; done
+      fi
+      mkdir -p "$(dirname "$local_file")"
+      if [[ "${FAKE_SCENARIO:-}" != recorder-no-file || \
+            "$serial" != emulator-5554 ]]; then
+        head -c 8192 /dev/zero > "$local_file"
+      fi
       finish_recording() {
         mkdir -p "$(dirname "$local_file")"
         if [[ "${FAKE_SCENARIO:-}" == missing-phone-clip && \
@@ -64,12 +97,20 @@ if [[ "${1:-}" == shell ]]; then
         exit 0
       }
       trap finish_recording INT TERM
-      while :; do sleep 0.1; done
+      while :; do
+        if [[ "${FAKE_SCENARIO:-}" == recorder-dies-later && \
+              "$serial" == emulator-5554 && -e "$FAKE_COMMAND_MARKER" ]]; then
+          echo 'encoder failed after startup' >&2
+          rm -f "$pid_file"
+          exit 1
+        fi
+        sleep 0.1
+      done
       ;;
     rm)
       remote="${*: -1}"
       if [[ "${FAKE_SCENARIO:-}" == cleanup-warning && \
-            "$serial" == emulator-5554 && "$remote" == *.mp4 ]]; then
+            "$serial" == emulator-5554 && "$remote" == */phone-*.mp4 ]]; then
         echo 'remote cleanup unavailable' >&2
         exit 1
       fi
@@ -209,15 +250,63 @@ run_case() {
     FAKE_ADB_LOG="$case_root/adb.log" \
     FAKE_ANDROID_STORAGE="$case_root/device" \
     FAKE_SCENARIO="$scenario" \
+    FAKE_COMMAND_MARKER="$case_root/command-started" \
     bash "$repo_root/tools/android_multi_device/record_two_devices.sh" \
       --session "$test_root/session.env" \
       --output "$case_root/evidence" \
       --seconds 5 \
       "$@" \
-      -- sh -c 'exit "$1"' recorder-contract "$command_exit"
+      -- sh -c ': > "$2"; if [ "$3" = recorder-dies-later ]; then sleep 20; : > "$2.completed"; fi; exit "$1"' \
+        recorder-contract "$command_exit" "$case_root/command-started" "$scenario" \
+        > "$case_root/run.log" 2>&1
   case_status=$?
   set -e
+  cat "$case_root/run.log"
 }
+
+run_case startup_denied recorder-open-denied 0
+test "$case_status" -ne 0
+test ! -e "$test_root/startup_denied/command-started"
+test ! -e "$test_root/startup_denied/evidence/recorder-control/phone.ready"
+test -e "$test_root/startup_denied/evidence/recorder-control/phone.failed"
+grep -Fq 'Operation not permitted' \
+  "$test_root/startup_denied/evidence/phone-emulator-5554/segments/phone-000.mp4.screenrecord.log"
+test "$(grep -Ec $'^emulator-5554\tshell screenrecord ' \
+  "$test_root/startup_denied/adb.log")" -eq 1
+
+run_case no_file recorder-no-file 0
+test "$case_status" -ne 0
+test ! -e "$test_root/no_file/command-started"
+test ! -e "$test_root/no_file/evidence/recorder-control/phone.ready"
+test -e "$test_root/no_file/evidence/recorder-control/phone.failed"
+test "$(grep -Ec $'^emulator-5554\tshell screenrecord ' \
+  "$test_root/no_file/adb.log")" -eq 1
+
+run_case storage_late storage-late 0
+test "$case_status" -eq 0
+test "$(cat "$test_root/storage_late/device/emulator-5554.touch.count")" -eq 3
+test "$(grep -Fc 'external_primary not attached' \
+  "$test_root/storage_late/evidence/phone-emulator-5554/storage-readiness.log")" -eq 2
+test "$(grep -Ec $'^emulator-5554\tshell screenrecord ' \
+  "$test_root/storage_late/adb.log")" -eq 1
+
+run_case storage_never storage-never 0
+test "$case_status" -ne 0
+test ! -e "$test_root/storage_never/command-started"
+test "$(grep -c 'shell screenrecord ' "$test_root/storage_never/adb.log" || true)" -eq 0
+grep -Fq 'not writable within 20 seconds' \
+  "$test_root/storage_never/evidence/phone-emulator-5554/storage-readiness.log"
+
+run_case later_exit recorder-dies-later 0
+test "$case_status" -ne 0
+test -e "$test_root/later_exit/command-started"
+test ! -e "$test_root/later_exit/command-started.completed"
+test -e "$test_root/later_exit/evidence/recorder-control/phone.failed"
+grep -Fq 'stopping the task-owned showcase command' "$test_root/later_exit/run.log"
+test "$(grep -Ec $'^emulator-5554\tshell screenrecord ' \
+  "$test_root/later_exit/adb.log")" -eq 1
+test -s "$test_root/later_exit/evidence/phone-emulator-5554/segments/phone-000.mp4"
+echo 'storage, stable native startup and active recorder failure contracts passed'
 
 run_case transient transient 0
 test "$case_status" -eq 0

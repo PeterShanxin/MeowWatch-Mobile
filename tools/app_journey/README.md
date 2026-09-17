@@ -50,9 +50,17 @@ and taps **Try a short film**. It verifies the actual player data source is the
 shipped official Sintel URL, initialization is paused, and duration is 51–53
 seconds. It explicitly plays, waits for at least four seconds of native progress,
 captures `sample-film-playing.png`, and pauses through the UI. The result records
-the source, title, duration and progress in `observations.sampleVideo`. This
-picker interaction is awaiting native execution; the passing standalone
-playback smoke does not substitute for it.
+the source, title, duration and progress in `observations.sampleVideo`. Playback
+controls are selected using both the normal and compact landscape tooltips.
+[Run 35208903814](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903814)
+at `6edcb03` records the exact sample source, paused initialization, 52.209-second
+duration, and over four seconds of native progress on phone, small, tablet, and
+tablet-landscape. Small, tablet, and tablet-landscape complete the full journey.
+Phone completes its product steps but fails a Flutter semantics assertion during
+widget teardown; its early `result.json` pass is not an overall pass. Landscape
+loads the sample paused but the old finder misses its compact Play tooltip.
+The corrected compact-control lookup still requires a fresh native run. The
+passing standalone playback smoke does not substitute for this picker gate.
 
 ## Run and collect evidence
 

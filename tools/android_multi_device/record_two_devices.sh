@@ -174,6 +174,28 @@ configure_output_size() {
 remote_suffix="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 phone_remote_dir="/sdcard/meowwatch-evidence-$remote_suffix-phone"
 tablet_remote_dir="/sdcard/meowwatch-evidence-$remote_suffix-tablet"
+prepare_recording_storage() {
+  local serial="$1"
+  local remote_dir="$2"
+  local probe="$remote_dir/storage-probe.mp4"
+  local deadline=$((SECONDS + 20))
+  # mkdir can succeed before MediaProvider attaches external_primary. Probe an
+  # actual MP4 creation before starting either recorder or the showcase command.
+  while (( SECONDS < deadline )); do
+    if timeout --signal=TERM --kill-after=2s 3s \
+         "$ADB" -s "$serial" shell mkdir -p "$remote_dir" && \
+       timeout --signal=TERM --kill-after=2s 3s \
+         "$ADB" -s "$serial" shell touch "$probe" && \
+       timeout --signal=TERM --kill-after=2s 3s \
+         "$ADB" -s "$serial" shell rm -f "$probe"; then
+      echo 'Owned Android recording directory is writable.'
+      return 0
+    fi
+    sleep 0.5
+  done
+  echo 'Android evidence storage was not writable within 20 seconds.'
+  return 1
+}
 for spec in \
   "$PHONE_SERIAL:$phone_remote_dir:$phone_dir" \
   "$TABLET_SERIAL:$tablet_remote_dir:$tablet_dir"; do
@@ -181,11 +203,16 @@ for spec in \
   remainder="${spec#*:}"
   remote_dir="${remainder%%:*}"
   destination="${remainder#*:}"
-  if ! "$ADB" -s "$serial" shell mkdir -p "$remote_dir" \
-      >> "$destination/screenrecord.log" 2>&1; then
-    echo "Could not create the owned Android recording directory on $serial." >&2
-    "$ADB" -s "$PHONE_SERIAL" shell rmdir "$phone_remote_dir" >/dev/null 2>&1 || true
-    "$ADB" -s "$TABLET_SERIAL" shell rmdir "$tablet_remote_dir" >/dev/null 2>&1 || true
+  if ! prepare_recording_storage "$serial" "$remote_dir" \
+      > "$destination/storage-readiness.log" 2>&1; then
+    echo "Could not prepare writable Android recording storage on $serial." >&2
+    timeout --signal=TERM --kill-after=2s 3s \
+      "$ADB" -s "$serial" shell rm -f "$remote_dir/storage-probe.mp4" \
+      >/dev/null 2>&1 || true
+    timeout --signal=TERM --kill-after=2s 3s \
+      "$ADB" -s "$PHONE_SERIAL" shell rmdir "$phone_remote_dir" >/dev/null 2>&1 || true
+    timeout --signal=TERM --kill-after=2s 3s \
+      "$ADB" -s "$TABLET_SERIAL" shell rmdir "$tablet_remote_dir" >/dev/null 2>&1 || true
     exit 4
   fi
 done
@@ -239,20 +266,53 @@ record_segments() {
     local host_pid=$!
 
     local remote_pid=''
+    local stable_pid=''
+    local recorder_ready=0
     local deadline=$((SECONDS + 10))
     while (( SECONDS < deadline )); do
-      remote_pid="$($ADB -s "$serial" shell pidof screenrecord 2>/dev/null \
+      if ! kill -0 "$host_pid" 2>/dev/null; then
+        break
+      fi
+      remote_pid="$(timeout --signal=TERM --kill-after=2s 2s \
+        "$ADB" -s "$serial" shell pidof screenrecord 2>/dev/null \
         | tr -d '\r\n' || true)"
       if [[ "$remote_pid" =~ ^[0-9]+$ ]]; then
-        break
+        printf '%s\n' "$remote_pid" > "$pid_file"
+        if timeout --signal=TERM --kill-after=2s 2s \
+             "$ADB" -s "$serial" shell test -s "$remote_segment" && \
+           kill -0 "$host_pid" 2>/dev/null; then
+          if [[ "$stable_pid" == "$remote_pid" ]]; then
+            recorder_ready=1
+            break
+          fi
+          stable_pid="$remote_pid"
+        else
+          stable_pid=''
+        fi
+      else
+        stable_pid=''
       fi
       sleep 0.25
     done
-    if [[ ! "$remote_pid" =~ ^[0-9]+$ ]]; then
-      echo "$label recorder PID was not uniquely identified." \
+    if [[ "$recorder_ready" -ne 1 ]]; then
+      echo "$label recorder exited or did not produce a nonempty MP4 with a stable PID." \
         >> "$destination/screenrecord.log"
       touch "$control_dir/$label.failed"
+      if kill -0 "$host_pid" 2>/dev/null; then
+        local current_pid
+        current_pid="$(timeout --signal=TERM --kill-after=2s 2s \
+          "$ADB" -s "$serial" shell pidof screenrecord 2>/dev/null \
+          | tr -d '\r\n' || true)"
+        if [[ "$remote_pid" =~ ^[0-9]+$ && "$current_pid" == "$remote_pid" ]]; then
+          timeout --signal=TERM --kill-after=2s 3s \
+            "$ADB" -s "$serial" shell "kill -2 $remote_pid" >/dev/null 2>&1 || true
+        fi
+        # Terminate only this task's ADB/timeout command if startup failed. Do
+        # not wait for the 170-second native limit or start a replacement take.
+        kill -TERM "$host_pid" 2>/dev/null || true
+      fi
       wait "$host_pid" 2>/dev/null || true
+      rm -f "$pid_file"
       if ! retry_exact_device_command "$serial" 8 shell rm -f "$remote_segment" \
           >> "$destination/screenrecord.log" 2>&1; then
         touch "$control_dir/$label.cleanup-warning"
@@ -266,8 +326,14 @@ record_segments() {
     if [[ "$segment" -eq 0 ]]; then
       printf '%s\n' "$command_ns" > "$ready_file"
     fi
-    wait "$host_pid" 2>/dev/null || true
+    local recorder_status=0
+    wait "$host_pid" 2>/dev/null || recorder_status=$?
     rm -f "$pid_file"
+    if [[ "$recorder_status" -ne 0 ]]; then
+      echo "$label recorder exited with status $recorder_status; no replacement take will be started." \
+        >> "$destination/screenrecord.log"
+      touch "$control_dir/$label.failed"
+    fi
     local local_segment="$destination/segments/$segment_name"
     local partial_segment="$local_segment.partial"
     rm -f "$partial_segment"
@@ -289,6 +355,7 @@ record_segments() {
         >> "$destination/screenrecord.log"
       touch "$control_dir/$label.cleanup-warning"
     fi
+    if [[ "$recorder_status" -ne 0 ]]; then return 1; fi
     segment=$((segment + 1))
   done
 }
@@ -304,6 +371,11 @@ stop_recorders() {
     return
   fi
   recorders_stopped=1
+  if [[ -n "${showcase_pid:-}" ]] && kill -0 "$showcase_pid" 2>/dev/null; then
+    kill -TERM "$showcase_pid" 2>/dev/null || true
+    wait "$showcase_pid" 2>/dev/null || true
+    showcase_pid=''
+  fi
   touch "$control_dir/phone.stop" "$control_dir/tablet.stop" || true
   last_phone_pid=''
   last_tablet_pid=''
@@ -349,13 +421,20 @@ while [[ ! -s "$control_dir/phone.ready" || ! -s "$control_dir/tablet.ready" ]];
     echo 'Both native recorders did not become ready.' >&2
     exit 4
   fi
-  if ! kill -0 "$phone_recorder_loop_pid" 2>/dev/null || \
+  if [[ -e "$control_dir/phone.failed" || -e "$control_dir/tablet.failed" ]] || \
+     ! kill -0 "$phone_recorder_loop_pid" 2>/dev/null || \
      ! kill -0 "$tablet_recorder_loop_pid" 2>/dev/null; then
     echo 'A native recorder exited before both devices became ready.' >&2
     exit 4
   fi
   sleep 0.25
 done
+if [[ -e "$control_dir/phone.failed" || -e "$control_dir/tablet.failed" ]] || \
+   ! kill -0 "$phone_recorder_loop_pid" 2>/dev/null || \
+   ! kill -0 "$tablet_recorder_loop_pid" 2>/dev/null; then
+  echo 'A native recorder failed before the showcase command could start.' >&2
+  exit 4
+fi
 
 phone_first_ns="$(tr -d '\r\n' < "$control_dir/phone.ready")"
 tablet_first_ns="$(tr -d '\r\n' < "$control_dir/tablet.ready")"
@@ -375,11 +454,24 @@ tablet_first_ns="$(tr -d '\r\n' < "$control_dir/tablet.ready")"
 command_status=0
 set +e
 if (( ${#showcase_command[@]} > 0 )); then
-  timeout --signal=INT --kill-after=30s "${duration}s" "${showcase_command[@]}"
-  command_status=$?
+  timeout --signal=INT --kill-after=30s "${duration}s" "${showcase_command[@]}" &
 else
-  sleep "$duration"
+  sleep "$duration" &
 fi
+showcase_pid=$!
+while kill -0 "$showcase_pid" 2>/dev/null; do
+  if [[ -e "$control_dir/phone.failed" || -e "$control_dir/tablet.failed" ]] || \
+     ! kill -0 "$phone_recorder_loop_pid" 2>/dev/null || \
+     ! kill -0 "$tablet_recorder_loop_pid" 2>/dev/null; then
+    echo 'A native recorder failed; stopping the task-owned showcase command.' >&2
+    kill -TERM "$showcase_pid" 2>/dev/null || true
+    break
+  fi
+  sleep 0.25
+done
+wait "$showcase_pid"
+command_status=$?
+showcase_pid=''
 set -e
 stop_recorders
 trap - INT TERM EXIT

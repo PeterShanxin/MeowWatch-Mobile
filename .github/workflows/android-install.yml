@@ -11,6 +11,7 @@ on:
       - "pubspec.lock"
       - "pubspec.yaml"
       - "tools/android_install/**"
+      - "tools/android_native_ui/**"
       - "tools/incoming_media_runtime/**"
   push:
     branches: [main]
@@ -22,6 +23,7 @@ on:
       - "pubspec.lock"
       - "pubspec.yaml"
       - "tools/android_install/**"
+      - "tools/android_native_ui/**"
       - "tools/incoming_media_runtime/**"
 
 permissions:
@@ -83,7 +85,7 @@ jobs:
       - name: Check install runner contracts
         run: |
           python3 -m unittest tools.android_install.test_runner
-          python3 -m unittest tools.incoming_media_runtime.test_run
+          python3 -m unittest discover -s tools/incoming_media_runtime -p 'test_*.py'
           python3 -m tools.android_install.runner --help
 
       - name: Build normal ${{ matrix.build-mode }} application
@@ -95,6 +97,9 @@ jobs:
               --target=lib/main.dart \
               --dart-define=REVENUECAT_API_KEY=
           fi
+
+      - name: Build independent native accessibility observer
+        run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
 
       - name: Package installable ${{ matrix.build-mode }} artifact
         run: |

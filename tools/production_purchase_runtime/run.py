@@ -38,6 +38,8 @@ REQUIRED = {
     "native_success_through_production_paywall",
     "sdk_restore_via_settings_retains_entitlement_for_same_customer",
     "sdk_restore_after_customer_info_cache_invalidation",
+    "glass_aurora_selected_persisted_and_paid_room_usable",
+    "movie_night_premium_reaction_sent_via_ui_and_received_by_real_tls_peer",
     "premium_theme_selected_via_ui_and_persisted",
     "two_distinct_paid_hosts_via_ui_with_real_tls_peer",
 }
@@ -154,6 +156,7 @@ def validate_recording_coverage(
 SCREENSHOTS = {
     "free-home", "free-host-playing", "quota-paywall", "purchase-cancel",
     "purchase-failure", "purchase-unlocked-room", "plus-restored",
+    "glass-aurora-applied", "movie-night-reaction-sent",
     "plus-theme-applied", "plus-host-one-playing", "plus-host-two-playing",
 }
 
@@ -349,6 +352,16 @@ def validate_evidence(report: object, artifacts: Path, actions: list[dict[str, o
         raise RuntimeError("Failure must report RevenueCat testStoreSimulatedPurchaseError")
     if evidence.get("restoreKeptSameCustomer") is not True:
         raise RuntimeError("Settings restore must retain Plus for the same SDK customer")
+    if evidence.get("glassAuroraPersisted") is not True:
+        raise RuntimeError("Glass Aurora was not persisted through production UI")
+    if evidence.get("glassAuroraRoomUsable") is not True:
+        raise RuntimeError("Glass Aurora was not retained in a usable paid room")
+    if evidence.get("movieNightReaction") != "🎬":
+        raise RuntimeError("Movie night reaction was not sent through the production picker")
+    if evidence.get("movieNightReactionPeerReceived") is not True:
+        raise RuntimeError("Headless TLS peer did not receive the premium reaction")
+    if evidence.get("movieNightReactionSenderMatched") is not True:
+        raise RuntimeError("Premium reaction did not carry the app's server username")
     if not isinstance(evidence.get("localizedPrice"), str) or not evidence["localizedPrice"].strip():
         raise RuntimeError("Actual catalog price missing")
     screenshots = evidence.get("screenshots")
@@ -383,6 +396,15 @@ def validate_evidence(report: object, artifacts: Path, actions: list[dict[str, o
             raise RuntimeError("Native playback did not advance")
         if session.get("remainingFreeHosts") != 0 or not session.get("server"):
             raise RuntimeError("Missing session quota/server observation")
+    first_paid = sessions[1]
+    if first_paid.get("theme") != "glassAurora":
+        raise RuntimeError("First paid room did not retain Glass Aurora")
+    if first_paid.get("premiumReaction") != "🎬":
+        raise RuntimeError("First paid room did not send the Movie night reaction")
+    if first_paid.get("peerReceivedPremiumReaction") is not True:
+        raise RuntimeError("First paid room lacks the real TLS peer reaction receipt")
+    if first_paid.get("peerReactionSenderMatched") is not True:
+        raise RuntimeError("First paid room reaction sender does not match the app")
     return evidence
 
 

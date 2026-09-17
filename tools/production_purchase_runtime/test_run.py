@@ -28,12 +28,19 @@ class EvidenceContract(unittest.TestCase):
             "customerHash": "a" * 64, "localizedPrice": "$2.99",
             "cancelErrorCode": "1", "failureErrorCode": "42",
             "restoreKeptSameCustomer": True,
+            "glassAuroraPersisted": True, "glassAuroraRoomUsable": True,
+            "movieNightReaction": "🎬", "movieNightReactionPeerReceived": True,
+            "movieNightReactionSenderMatched": True,
             "sessions": [{
                 "id": f"room-{index}", "usedFreeHost": index == 0, "plus": index > 0,
                 "peerCompletedTlsHello": True, "peerObservedPlaying": True,
                 "nativePositionMs": 1250, "remainingFreeHosts": 0, "server": "syncplay.pl:8995",
             } for index in range(3)],
         }
+        self.evidence["sessions"][1].update({
+            "theme": "glassAurora", "premiumReaction": "🎬",
+            "peerReceivedPremiumReaction": True, "peerReactionSenderMatched": True,
+        })
 
     def validate(self):
         return runner.validate_evidence({"purchaseJourney": self.evidence}, self.root, self.actions)
@@ -112,6 +119,43 @@ class EvidenceContract(unittest.TestCase):
                 self.evidence[key] = value
                 self.validate()
             self.evidence[key] = original
+
+    def test_rejects_missing_or_fabricated_plus_feature_evidence(self):
+        top_level = [
+            ("glassAuroraPersisted", False),
+            ("glassAuroraRoomUsable", False),
+            ("movieNightReaction", "❤️"),
+            ("movieNightReactionPeerReceived", False),
+            ("movieNightReactionSenderMatched", False),
+        ]
+        for key, value in top_level:
+            original = self.evidence[key]
+            with self.subTest(scope="journey-missing", key=key), self.assertRaises(RuntimeError):
+                del self.evidence[key]
+                self.validate()
+            self.evidence[key] = original
+            with self.subTest(scope="journey-wrong", key=key), self.assertRaises(RuntimeError):
+                self.evidence[key] = value
+                self.validate()
+            self.evidence[key] = original
+
+        first_paid = self.evidence["sessions"][1]
+        session_fields = [
+            ("theme", "cinemaNoir"),
+            ("premiumReaction", "❤️"),
+            ("peerReceivedPremiumReaction", False),
+            ("peerReactionSenderMatched", False),
+        ]
+        for key, value in session_fields:
+            original = first_paid[key]
+            with self.subTest(scope="first-paid-missing", key=key), self.assertRaises(RuntimeError):
+                del first_paid[key]
+                self.validate()
+            first_paid[key] = original
+            with self.subTest(scope="first-paid-wrong", key=key), self.assertRaises(RuntimeError):
+                first_paid[key] = value
+                self.validate()
+            first_paid[key] = original
 
 
 class RecordingCoverageContract(unittest.TestCase):

@@ -210,7 +210,9 @@ done
 "$adb" -s "$phone_serial" shell settings put system accelerometer_rotation 0
 "$adb" -s "$phone_serial" shell settings put system user_rotation 0
 "$adb" -s "$tablet_serial" shell settings put system accelerometer_rotation 0
-"$adb" -s "$tablet_serial" shell settings put system user_rotation 1
+# Pixel Tablet's natural 2560x1600 display is already landscape. Rotating it
+# by 90 degrees produces a portrait app viewport and incorrect capture framing.
+"$adb" -s "$tablet_serial" shell settings put system user_rotation 0
 
 "$adb" devices -l > "$session_dir/adb-devices.txt"
 write_session

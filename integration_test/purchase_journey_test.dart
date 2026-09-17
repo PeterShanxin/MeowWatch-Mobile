@@ -5,9 +5,11 @@ import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:meowwatch_mobile/app/app_controller.dart';
 import 'package:meowwatch_mobile/app/app_services.dart';
 import 'package:meowwatch_mobile/core/billing/billing_service.dart';
 import 'package:meowwatch_mobile/core/billing/file_hosting_quota_store.dart';
+import 'package:meowwatch_mobile/core/chat/chat_signals.dart';
 import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 import 'package:meowwatch_mobile/main.dart';
 import 'package:purchases_flutter/purchases_flutter.dart'
@@ -82,7 +84,12 @@ void main() {
       verified.add('clean_production_services_and_free_customer');
       await capture('free-home');
 
-      Future<void> runHostedSession(String stage, {required bool free}) async {
+      Future<void> runHostedSession(
+        String stage, {
+        required bool free,
+        String? expectedTheme,
+        bool sendPremiumReaction = false,
+      }) async {
         await _tap(tester, find.byKey(const Key('start-room-button')));
         await _wait(
           tester,
@@ -121,14 +128,10 @@ void main() {
           await tester.enterText(find.byType(TextField), _video);
           FocusManager.instance.primaryFocus?.unfocus();
           await _tap(tester, find.text('Use this link'));
-          await _wait(
-            tester,
-            () =>
-                find.byType(VideoPlayer).evaluate().isNotEmpty &&
-                app.target.snapshot.duration.inMilliseconds > 1000,
-            'native video',
-            seconds: 70,
-          );
+          // Native readiness does not establish that the independent peer has
+          // observed the same room state. Require a stable initial pause on
+          // both real participants before issuing the single Play action.
+          await _waitForInitialPausedRoomState(tester, app, peer, stage: stage);
           final initialPosition = app.target.snapshot.position;
           await _tap(tester, _roomPlaybackControl('Play'));
           await _wait(
@@ -140,7 +143,55 @@ void main() {
                 peer.lastObservedRoomState?.paused == false,
             'native play and real server play observation',
             seconds: 30,
+            diagnostics: () => _playbackDiagnostics(app, peer, stage: stage),
           );
+          if (expectedTheme != null) {
+            expect(app.theme, expectedTheme);
+            expect(app.repository.theme, expectedTheme);
+            final roomPersisted =
+                jsonDecode(await app.repository.file.readAsString()) as Map;
+            expect(roomPersisted['theme'], expectedTheme);
+            if (expectedTheme == 'glassAurora') {
+              evidence['glassAuroraRoomUsable'] = true;
+            }
+          }
+          String? premiumReaction;
+          var peerReceivedPremiumReaction = false;
+          var peerReactionSenderMatched = false;
+          if (sendPremiumReaction) {
+            const selectedReaction = '🎬';
+            premiumReaction = selectedReaction;
+            final expectedPayload = encodeReaction(selectedReaction);
+            final peerReceipt = peer.chat.firstWhere(
+              (message) => message.text == expectedPayload,
+            );
+            await _tap(tester, find.byTooltip('Send a reaction'));
+            expect(find.text('Movie night · Plus'), findsOneWidget);
+            await _tap(
+              tester,
+              find.byKey(const ValueKey('reaction-$selectedReaction')),
+            );
+            final received = await peerReceipt.timeout(
+              const Duration(seconds: 30),
+            );
+            peerReceivedPremiumReaction = received.text == expectedPayload;
+            peerReactionSenderMatched = received.username == app.username;
+            expect(peerReceivedPremiumReaction, isTrue);
+            expect(peerReactionSenderMatched, isTrue);
+            await _wait(
+              tester,
+              () =>
+                  app.reaction?.emoji == selectedReaction &&
+                  app.reaction?.username == app.username,
+              'premium reaction echo',
+            );
+            evidence.addAll({
+              'movieNightReaction': selectedReaction,
+              'movieNightReactionPeerReceived': peerReceivedPremiumReaction,
+              'movieNightReactionSenderMatched': peerReactionSenderMatched,
+            });
+            await capture('movie-night-reaction-sent');
+          }
           expect(await app.hosting.remainingFreeHostsToday(), 0);
           final stored = jsonDecode((await ledger.read())!) as Map;
           final entry = (stored['sessions'] as Map)[room.id] as Map;
@@ -153,6 +204,12 @@ void main() {
             'nativePositionMs': app.target.snapshot.position.inMilliseconds,
             'peerObservedPlaying': peer.lastObservedRoomState?.paused == false,
             'peerCompletedTlsHello': peer.hasCompletedHello,
+            'theme': app.theme,
+            if (premiumReaction != null) ...{
+              'premiumReaction': premiumReaction,
+              'peerReceivedPremiumReaction': peerReceivedPremiumReaction,
+              'peerReactionSenderMatched': peerReactionSenderMatched,
+            },
             'plus': app.billing.isPlus,
             'remainingFreeHosts': await app.hosting.remainingFreeHostsToday(),
           });
@@ -333,12 +390,52 @@ void main() {
       verified.add('sdk_restore_after_customer_info_cache_invalidation');
 
       await _tap(tester, find.byKey(const Key('choose-appearance-button')));
+      await _tap(tester, find.byKey(const Key('theme-choice-glassAurora')));
+      await _wait(tester, () => app.theme == 'glassAurora', 'Glass Aurora');
+      await _wait(
+        tester,
+        () => find.text('Glass Aurora applied.').evaluate().isNotEmpty,
+        'saved Glass Aurora feedback',
+      );
+      expect(app.repository.theme, 'glassAurora');
+      final glassPersisted =
+          jsonDecode(await app.repository.file.readAsString()) as Map;
+      expect(glassPersisted['theme'], 'glassAurora');
+      evidence['glassAuroraPersisted'] = true;
+      await capture('glass-aurora-applied');
+      await tester.binding.handlePopRoute();
+      await _wait(
+        tester,
+        () => find.byKey(const Key('theme-choice-cozy')).evaluate().isEmpty,
+        'appearance dismissal',
+      );
+      await tester.binding.handlePopRoute();
+      await _home(tester);
+
+      await runHostedSession(
+        'plus-host-one-playing',
+        free: false,
+        expectedTheme: 'glassAurora',
+        sendPremiumReaction: true,
+      );
+      expect(evidence['glassAuroraRoomUsable'], isTrue);
+      expect(evidence['movieNightReactionPeerReceived'], isTrue);
+      expect(evidence['movieNightReactionSenderMatched'], isTrue);
+      verified.add('glass_aurora_selected_persisted_and_paid_room_usable');
+      verified.add(
+        'movie_night_premium_reaction_sent_via_ui_and_received_by_real_tls_peer',
+      );
+
+      // Preserve the original final-theme acceptance after proving Glass Aurora
+      // survives navigation into a usable production room.
+      await _tap(tester, find.byTooltip('Profile and settings'));
+      await _tap(tester, find.byKey(const Key('choose-appearance-button')));
       await _tap(tester, find.byKey(const Key('theme-choice-cinemaNoir')));
-      await _wait(tester, () => app.theme == 'cinemaNoir', 'paid theme');
+      await _wait(tester, () => app.theme == 'cinemaNoir', 'Cinema Noir');
       await _wait(
         tester,
         () => find.text('Cinema Noir applied.').evaluate().isNotEmpty,
-        'saved theme feedback',
+        'saved Cinema Noir feedback',
       );
       expect(app.repository.theme, 'cinemaNoir');
       final persisted =
@@ -355,7 +452,6 @@ void main() {
       await tester.binding.handlePopRoute();
       await _home(tester);
 
-      await runHostedSession('plus-host-one-playing', free: false);
       await runHostedSession('plus-host-two-playing', free: false);
       verified.add('two_distinct_paid_hosts_via_ui_with_real_tls_peer');
       final finalLedger = jsonDecode((await ledger.read())!) as Map;
@@ -410,12 +506,79 @@ Future<void> _wait(
   bool Function() condition,
   String description, {
   int seconds = 20,
+  String Function()? diagnostics,
 }) async {
   final watch = Stopwatch()..start();
   while (!condition()) {
     if (watch.elapsed >= Duration(seconds: seconds)) {
-      throw TestFailure('Timed out waiting for $description.');
+      final detail = diagnostics?.call();
+      throw TestFailure(
+        'Timed out waiting for $description.'
+        '${detail == null ? '' : ' $detail'}',
+      );
     }
     await tester.pump(_poll);
   }
+}
+
+Future<void> _waitForInitialPausedRoomState(
+  WidgetTester tester,
+  AppController app,
+  SyncplayClient peer, {
+  required String stage,
+}) async {
+  const stableFor = Duration(milliseconds: 800);
+  const positionTolerance = Duration(milliseconds: 1500);
+  final deadline = Stopwatch()..start();
+  Stopwatch? stable;
+  while (deadline.elapsed < const Duration(seconds: 70)) {
+    final native = app.target.snapshot;
+    final server = peer.lastObservedRoomState;
+    final drift = server == null
+        ? null
+        : Duration(
+            milliseconds: (native.position - server.position).inMilliseconds
+                .abs(),
+          );
+    final converged =
+        find.byType(VideoPlayer).evaluate().isNotEmpty &&
+        native.ready &&
+        native.duration.inMilliseconds > 1000 &&
+        !native.buffering &&
+        !native.playing &&
+        !app.playRequested &&
+        server != null &&
+        server.paused &&
+        drift! <= positionTolerance;
+    if (converged) {
+      stable ??= Stopwatch()..start();
+      if (stable.elapsed >= stableFor) return;
+    } else {
+      stable = null;
+    }
+    await tester.pump(_poll);
+  }
+  throw TestFailure(
+    'Timed out waiting for stable initial native/server pause. '
+    '${_playbackDiagnostics(app, peer, stage: stage)}',
+  );
+}
+
+String _playbackDiagnostics(
+  AppController app,
+  SyncplayClient peer, {
+  required String stage,
+}) {
+  final native = app.target.snapshot;
+  final server = peer.lastObservedRoomState;
+  return 'stage=$stage '
+      'lifecycle=${WidgetsBinding.instance.lifecycleState?.name} '
+      'connection=${app.connection.status.name} '
+      'nativeReady=${native.ready} nativeBuffering=${native.buffering} '
+      'nativePlaying=${native.playing} playRequested=${app.playRequested} '
+      'nativePositionMs=${native.position.inMilliseconds} '
+      'nativeDurationMs=${native.duration.inMilliseconds} '
+      'serverPaused=${server?.paused} '
+      'serverPositionMs=${server?.position.inMilliseconds} '
+      'serverSetter=${server?.setBy} message=${app.message}';
 }

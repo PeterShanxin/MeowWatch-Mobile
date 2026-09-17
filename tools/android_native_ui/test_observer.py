@@ -7,7 +7,7 @@ import xml.etree.ElementTree as ET
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_native_ui.observer import (
-    COMPONENT, MAX_ATTRIBUTE, MAX_DEPTH, MAX_NODES, MAX_OUTPUT_BYTES, MAX_XML_BYTES,
+    COMPONENT, SHORT_COMPONENT, MAX_ATTRIBUTE, MAX_DEPTH, MAX_NODES, MAX_OUTPUT_BYTES, MAX_XML_BYTES,
     NativeUiObserver, OBSERVER_PACKAGE, ObserverIntegrityFailure, parse_snapshot,
     installation_diagnostics,
 )
@@ -38,13 +38,15 @@ def response(xml=None, *, nonce=NONCE, uptime=1234, node_count=None):
 
 class FakeAdb:
     def __init__(self, *, serial="emulator-5554", qemu=b"1", already_installed=False,
-                 target=OBSERVER_PACKAGE, pids=None, first_timeout=False, stale=False):
+                 target=OBSERVER_PACKAGE, pids=None, first_timeout=False, stale=False,
+                 instrumentation_output=None):
         self.serial, self.qemu = serial, qemu
         self.already_installed, self.target = already_installed, target
         self.pids = iter(pids or [b"123"] * 50)
         self.first_timeout, self.stale = first_timeout, stale
         self.commands = []
         self.nonces = []
+        self.instrumentation_output = instrumentation_output
 
     def run(self, *arguments, **kwargs):
         self.commands.append((arguments, kwargs))
@@ -59,7 +61,8 @@ class FakeAdb:
             else:
                 output = b"Performing Incremental Install\nSuccess\nInstall command complete in 372 ms\n"
         elif arguments == ("shell", "pm", "list", "instrumentation", OBSERVER_PACKAGE):
-            output = f"instrumentation:{COMPONENT} (target={self.target})\n".encode()
+            output = (self.instrumentation_output if self.instrumentation_output is not None else
+                      f"instrumentation:{SHORT_COMPONENT} (target={self.target})\n".encode())
         elif arguments == ("shell", "pidof", PACKAGE):
             output = next(self.pids)
         elif arguments[:3] == ("shell", "am", "instrument"):
@@ -227,6 +230,24 @@ class NativeObserverTests(unittest.TestCase):
                 observer.observe()
             observer.cleanup()
             self.assertFalse(any(args[:3] == ("shell", "am", "instrument") for args, _ in adb.commands))
+
+    def test_android_short_component_is_verified_without_accepting_extra_instrumentation(self):
+        exact = f"instrumentation:{SHORT_COMPONENT} (target={OBSERVER_PACKAGE})\n".encode()
+        with tempfile.TemporaryDirectory() as directory:
+            observer = self.helper(Path(directory), FakeAdb(instrumentation_output=exact))
+            result = observer.install()
+            self.assertTrue(result["installation"]["instrumentationCheck"]["matchesExactSelfTarget"])
+            observer.cleanup()
+        for output in (b"", exact + exact, exact.replace(b".SnapshotInstrumentation", b".Other"),
+                       exact + b"unrelated private output\n"):
+            with self.subTest(output=output), tempfile.TemporaryDirectory() as directory:
+                adb = FakeAdb(instrumentation_output=output)
+                observer = self.helper(Path(directory), adb)
+                with self.assertRaises(ObserverIntegrityFailure):
+                    observer.install()
+                self.assertFalse(observer.installation["instrumentationCheck"]["matchesExactSelfTarget"])
+                observer.cleanup()
+                self.assertFalse(any(args[:3] == ("shell", "am", "instrument") for args, _ in adb.commands))
 
     def test_capture_fails_if_the_real_application_process_changes(self):
         with tempfile.TemporaryDirectory() as directory:

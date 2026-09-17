@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove normal Android cold/warm share intake reaches explicit user review."""
+"""Prove normal Android share review and confirmed HTTPS/content video playback."""
 
 from __future__ import annotations
 
@@ -246,6 +246,8 @@ class Runner:
     def run(self) -> dict[str, object]:
         report = self.prepare()
         report["cases"] = [self.run_case(case) for case in CASES]
+        from tools.incoming_media_runtime.confirmed import ConfirmedIntake
+        report["confirmedPlayback"] = ConfirmedIntake(self.adb, self.output).run()
         report["completed"] = True
         return report
 

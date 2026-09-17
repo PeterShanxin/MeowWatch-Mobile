@@ -71,6 +71,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/production_together -p 'test_*.py'
           python3 -m unittest tools.android_multi_device.test_fixture_contract -v
+          python3 -m unittest tools.android_multi_device.test_fixture_server -v
           python3 -m unittest tools.android_multi_device.test_prepare_sdk_packages tools.android_multi_device.test_sdk_launch_contract tools.android_multi_device.test_prepare_sdk_setup tools.android_multi_device.test_prepare_system_launcher tools.android_multi_device.test_device_readiness -v
           flutter test tools/production_together/json_request_test.dart
           bash -n tools/android_multi_device/ci_together.sh

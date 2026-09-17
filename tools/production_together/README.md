@@ -109,9 +109,39 @@ This test starts from first-run UI and uses production room creation and joining
 it remains an instrumented acceptance build, separate from the normal release
 APK clean-install workflow.
 
+The production runner supervises each owned host driver with `anr_guard.py`.
+During the journey it checks Android's native `am_anr` events for the exact app
+package and a PID observed in this run, including fresh `am_proc_start` events.
+It records an initial event baseline without clearing logcat, preserves new raw
+events by appending them, and saves the first matching ANR separately. Each
+probe has a six-second total command budget and runs no UIAutomator operation.
+Native focus is also checked before and after each driver; once both finish,
+both apps are checked again using the original baselines and observed PIDs.
+Thus successful Flutter assertions cannot override a native app ANR.
+Both final checks run even when a driver or the first final check fails. A
+shared failure latch stops active drivers but never skips a final native check.
+Each final check writes into a separate directory and preserves the original
+role result as `prior-guard-result.json`; an earlier failed role remains failed
+even if its final native check is clean. Missing original baseline evidence
+fails that check and triggers bounded diagnostics. Original driver exits and
+both final guard exits are retained in `native-anr-exits.tsv`, and any nonzero
+exit fails the wrapper.
+
+Any ANR or failed probe creates a shared failure latch. Each active role stops
+only its own verified host process group; the guard never closes a native
+dialog, force-stops the Android app, changes root access, or restarts ADB.
+Failure evidence under each role's `native-anr/` (or `native-anr-final/`) includes
+raw window state, screenshot, XML, logcat, and `dumpsys activity lastanr` with an
+eight-second limit. All diagnostic commands have individual time limits;
+`diagnostics.json` explicitly records incomplete captures. The failure remains
+a failure if evidence collection times out. These checks detect native ANRs;
+they do not establish the cause of a stall or replace video/playback gates.
+
 Run the focused tests with:
 
 ```powershell
 python -m unittest tools/production_together/test_coordination_server.py
+python -m unittest tools/production_together/test_anr_guard.py
+python -m unittest tools/production_together/test_anr_wrapper.py
 flutter test tools/production_together/json_request_test.dart
 ```

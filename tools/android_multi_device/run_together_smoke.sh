@@ -289,13 +289,20 @@ run_role() {
   local apk="$3"
   local vmservice_port="$4"
   local destination="$5"
+  local -a native_guard=()
+  if [[ "$target" == 'integration_test/production_together_test.dart' ]]; then
+    native_guard=(python3 -m tools.production_together.anr_guard
+      --adb "$ADB" --serial "$serial" --role "$role"
+      --output "$destination/native-anr"
+      --failure-latch "$output_dir/native-anr-failure.json" --)
+  fi
   set +e
   TOGETHER_ROLE="$role" \
   TOGETHER_ROOM="$room" \
   SYNCPLAY_SERVER="$server" \
   SYNCPLAY_PORT="$port" \
   TOGETHER_VIDEO_URL="$video_url" \
-  timeout --signal=INT --kill-after=30s "$drive_timeout" flutter drive \
+  "${native_guard[@]}" timeout --signal=INT --kill-after=30s "$drive_timeout" flutter drive \
       --no-pub \
       --driver="$driver" \
       --target="$target" \
@@ -328,11 +335,44 @@ set -e
 
 host_status="$(tr -d '\r\n' < "$host_output/exit-code.txt")"
 guest_status="$(tr -d '\r\n' < "$guest_output/exit-code.txt")"
+host_final_status=0
+guest_final_status=0
+if [[ "$target" == 'integration_test/production_together_test.dart' ]]; then
+  # The earlier role can finish before its peer. Recheck both native apps using
+  # their original baselines and observed PIDs, even if either driver failed.
+  # Each guard bounds its own commands; one failure must not skip its peer.
+  set +e
+  for role in host guest; do
+    if [[ "$role" == host ]]; then
+      serial="$PHONE_SERIAL"
+      destination="$host_output"
+    else
+      serial="$TABLET_SERIAL"
+      destination="$guest_output"
+    fi
+    python3 -m tools.production_together.anr_guard \
+      --adb "$ADB" --serial "$serial" --role "$role" \
+      --output "$destination/native-anr-final" \
+      --failure-latch "$output_dir/native-anr-failure.json" \
+      --after-roles "$destination/native-anr"
+    final_status=$?
+    printf '%s\n' "$final_status" > "$destination/native-anr-final-exit-code.txt"
+    if [[ "$role" == host ]]; then
+      host_final_status="$final_status"
+    else
+      guest_final_status="$final_status"
+    fi
+  done
+  set -e
+  printf 'role\tdriverExit\tfinalGuardExit\nhost\t%s\t%s\nguest\t%s\t%s\n' \
+    "$host_status" "$host_final_status" "$guest_status" "$guest_final_status" \
+    > "$output_dir/native-anr-exits.tsv"
+fi
 mkdir -p "$host_output/driver" "$guest_output/driver"
 cp -a "$host_driver_output/." "$host_output/driver/"
 cp -a "$guest_driver_output/." "$guest_output/driver/"
 printf 'Host drive exit: %s; guest drive exit: %s\n' "$host_status" "$guest_status"
-if [[ "$host_status" -ne 0 || "$guest_status" -ne 0 ]]; then
+if [[ "$host_status" -ne 0 || "$guest_status" -ne 0 || "$host_final_status" -ne 0 || "$guest_final_status" -ne 0 ]]; then
   capture_device_diagnostics host "$PHONE_SERIAL" "$host_output"
   capture_device_diagnostics guest "$TABLET_SERIAL" "$guest_output"
   exit 1

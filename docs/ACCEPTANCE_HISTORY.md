@@ -334,3 +334,122 @@ baseline. They do not supersede failures at the current `feaeb77` checkpoint.
 - A second early product audit found four user-facing defects: missing endpoint details in the visible invite code, prose that made the app's own shared invite fail SEND intake, rediscovery of a saved room onto a later server, and peer commands restarting a background phone. These are fixed with 48 passing focused controller, Cast, Nearby, lifecycle and invite tests. Phone playback requires an explicit Play after returning; Cast remote controls and Nearby lease release retain their existing behavior. Fresh native verification remains required.
 - The owner's preferred cat-and-play icon has three close flat refinements, with A / Balanced selected. The reproducible [brand kit](BRAND.md) includes opaque 1024/512/256 PNGs, vector masters, seven-size desktop ICO, simplified small icons and Android adaptive/themed resources. Export hashes, dimensions, ICO decoding and the adaptive safe circle pass. Home/onboarding/About use the new mark; fresh widget-rendered phone/tablet home images have been inspected. Actual launcher/splash checks remain part of the next Android install run, including API 29.
 - A standalone RevenueCat relaunch gate now purchases with the real Test Store, records and terminates the original Android PID, installs a same-customer relaunch APK without clearing data, and verifies a distinct process and real SDK Plus/restore after cache invalidation. Its 36 Python billing-driver contracts pass; native execution is pending. This does not claim reinstall or lost-identity recovery.
+
+## Historical d946d1b cohort and ec856b5 preparation
+
+## Current baseline and isolated SDK comparison
+
+The completed baseline cohort is associated with PR source head
+`d946d1bc1ad9fb3cba2c9b3ba17199bad4b9da52`: **6 passing, 4 failed and 1 cancelled
+workflow**. Cancelled runs are neither passing nor failed acceptance. Native
+results use Android emulators; no candidate result or artifact is silently
+substituted for baseline evidence.
+
+The baseline five-layout job actually checked out synthetic PR merge
+`d9961f4f52e3e66c775e473c512c0bc2f8722ada`, while the manually dispatched candidate
+checked out branch commit `d946d1bc1ad9fb3cba2c9b3ba17199bad4b9da52`. Both have source
+tree `5bd55dda62f7827ad517fceedfa42c3af667dc12`. They use different SDKs and produce
+different artifacts; matching source trees do not make the APKs interchangeable.
+
+### Passing baseline evidence
+
+- [Check 35219098640](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098640)
+  passes **656 app, 76 TLS and 14 platform tests**, formatting, analysis and the
+  checked runner contracts. Gitleaks reports zero findings at the source head
+  above, covering 465 tracked files and 43 all-ref commits.
+- [Playback 35219098556](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098556),
+  [SAF relaunch 35219098707](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098707),
+  [Nearby 35219098609](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098609)
+  and all jobs in [matrix 35219098750](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098750)
+  pass within their existing emulator/transport boundaries.
+- [Purchase 35219098642](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098642)
+  passes all **12 stages and 12 screenshots**: one free host, quota paywall,
+  native Test Store cancel/failure/success, same-customer restore with cache
+  invalidation, Glass Aurora, peer-received premium reaction, Cinema Noir and
+  two distinct paid hosts. All three sessions have real native advancement and
+  peer-observed play. This is one API 35 native player plus a headless TLS peer,
+  not two filmed players or a real charge. The screenshots were visually
+  reviewed; its three raw recordings decode and remain separate segments.
+  Do not carry over the different `9b7e9ed` recordings' hashes or gap values.
+
+### Remaining baseline failures and cancellation
+
+- [Install 35219098539](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098539)
+  passes debug API 29 and release API 35, including accepted URL/content sharing.
+  Only debug API 35 fails: its native observer cannot obtain the complete tree
+  needed for the remaining incoming-media assertion. This is not evidence that
+  the already observed media playback failed.
+- [Lifecycle 35219098578](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098578)
+  observes real playback advancing from 17 to 28 seconds, then correctly rejects
+  a recording that misses its measured tail. The old metadata-validator problem
+  is not the current failure. No product lifecycle conclusion or HOME/resume/
+  restart pass follows from incomplete recording coverage.
+- [Baseline product journey 35219098711](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098711)
+  passes **3/5 complete drivers**: small phone, portrait tablet and landscape
+  phone. Phone and landscape tablet both record all 20 app steps and 14
+  screenshots, then return driver failure on Flutter `object.dart:6670` during
+  teardown. Their successful app-step records do not override driver failure.
+- [Baseline Together 35219098687](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098687)
+  passes readiness and native ANR guards, reaches basic two-way playback/social,
+  actual shared-link playback and the visible 404 error, then fails recovery
+  Play with `object.dart:6670`. It does not prove subsequent recovery/replay.
+  Its final phone segment contains one frame with zero duration and fails the
+  compositor; no complete paired-film acceptance is claimed.
+- [RevenueCat relaunch/expiry 35219098758](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219098758)
+  was automatically cancelled by the new PR push. It is not a new expiry pass
+  or product failure. The latest accepted expiry remains
+  [35212468121 at 9b7e9ed](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468121):
+  real Test Store expiry, fresh SDK inactive entitlement and restore remaining
+  inactive for the same customer. No lost-identity/reinstall recovery is implied.
+
+### Candidate evidence and current diagnostic runs
+
+[Candidate product journey 35219122572](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219122572)
+passes **5/5 complete native layouts** with the same application source tree.
+It uses a disposable Flutter 3.44.0 SDK copy with the pinned, still-unmerged
+semantics patch from [Flutter PR #190431](https://github.com/flutter/flutter/pull/190431),
+commit `65e4783d8a1019029da88ee2435892ef638a9937`. The preparation receipt verifies
+unchanged source SDK hashes and the candidate output hash; the upstream
+regression also passes. This establishes the candidate run's result, not SDK
+adoption, a baseline five-layout pass, or a general fix for all native failures.
+
+[Candidate Together 35219125461](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35219125461)
+fails before media because fixed participant names collide on the public server.
+It never reaches the recovery boundary and cannot support a conclusion about
+whether the candidate fixes `object.dart:6670` there.
+
+Head `d3592795b724d7e8ef9e2a33245f1be8d91f12c1` makes acceptance participant names
+unique per run; application code is unchanged.
+[Check 35221322293](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35221322293)
+passes. The candidate repeat
+[35221336722](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35221336722)
+exposes another harness mismatch: the public server truncates the longer names
+to 16 characters. The next revision uses 15/16-character role names; a direct
+production-client TLS probe confirms that both requested names survive login
+unchanged. Full paired validation remains open.
+Other duplicate native runs from that push were explicitly cancelled while
+diagnosed harness issues await correction; they add no acceptance result.
+
+Historical checkpoints, original demo-source provenance and earlier test counts are retained in [Acceptance history](ACCEPTANCE_HISTORY.md).
+
+## Current local corrections and review artifacts
+
+The native observer now retries temporary incomplete roots within one bounded
+UiAutomation connection and retains classified failure evidence. Its protocol-v2
+helper compiles and verifies against Android API 35; the combined observer,
+incoming-media and lifecycle contracts pass 101 tests. Fresh Android execution
+is still required. Recording corrections validate original frame timestamps;
+single-frame segments without duration remain explicit gaps in review edits.
+The lifecycle journey retains restored-pause stability checks before a new
+explicit Play action, then verifies actual advancement in the same process.
+This leaves the final recording boundary on genuine playback rather than
+requiring duplicate frames from a correctly static paused screen.
+The compositor and submission editor pass 30 integrated contracts, including
+schema-v3 timing and rejection of an untimed still as submission footage.
+
+The desktop companion at `f5a91035973c7d8f1c2a20a6a5acd1e22fc70c8e`
+also builds from a new detached checkout with locked dependencies and official
+Flutter 3.47.2. The complete unsigned Windows x64 Release review package includes
+an isolated-profile launcher, licenses and file hashes. This is build evidence;
+native-window and physical Android-to-Windows LAN acceptance remain separate.
+[Desktop PR #279](https://github.com/PeterShanxin/MeowWatch/pull/279) remains draft.

@@ -53,37 +53,28 @@ day; joining a room and reconnecting do not consume another session.
 **MeowWatch Plus** unlocks unlimited hosting through RevenueCat's entitlement
 state. The accepted emulator purchase journey is described below.
 
-**Acceptance notes:** All 11 workflows at `9b7e9ed` have finished: seven pass and
-four fail. Native results use Android emulators. The independent phone/tablet
-runtime matrix passes all three jobs. The full
-[production Together journey 35212468221](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468221)
-reaches real create/join, two-way native play/pause/seek, chat, reactions and peer
-presence, then fails a Flutter semantics assertion during the extended
-shared-link flow. Original footage also reveals an earlier app ANR dialog
-obscuring the phone while widget automation continued beneath it. These steps
-do not prove a normally operable user journey. Recordings exist with explicit
-gaps, but the complete journey and paired demo film remain unaccepted; recovery
-and repeated-room branches are not proved by the earlier steps.
+**Acceptance notes:** The completed `ec856b5` baseline has six passing and five
+failed workflows. Native results use Android emulators. Playback, SAF relaunch,
+Nearby transport, the phone/tablet runtime matrix and actual RevenueCat expiry
+pass. Full production Together, normal lifecycle and complete recorded purchase
+acceptance still need successful reruns; prefixes of those flows are not whole
+journey passes.
 
 The guide, Settings replay, Local playback, Continue Watching and actual
-**Try a short film** button pass 20 steps with 14 screenshots on phone,
-portrait tablet, landscape tablet and landscape phone in
-[product journey 35212468253](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468253).
-Small phone records those same app steps, then fails during Flutter semantics
-teardown; its complete driver is not counted as passing. The sample uses the
-unmodified Sintel trailer, credited to Blender Foundation under CC BY 3.0,
-through the normal direct-media path. All five app observations decode its
-52,209 ms duration and advance at least four seconds. Final raw-film inspection
-remains separate from the app screenshots and assertions.
+**Try a short film** button have 20 recorded steps and 14 screenshots per layout
+in [product journey 35223362621](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35223362621).
+Phone, small phone and landscape phone complete their drivers. Both tablet
+layouts fail Flutter geometry teardown after those steps, so only 3/5 drivers
+pass. The sample uses the unmodified Sintel trailer, credited to Blender
+Foundation under CC BY 3.0, through the normal direct-media path. It does not
+imply playback of ordinary YouTube or other platform webpages.
 
-Release API 35 passes clean install and confirmed HTTPS/content-URI sharing,
-with 12/9 seconds of observed playback advancement and a temporary read-only
-content grant. Debug API 29/35 fail the new incoming-media harness checks;
-corrections await native rerun. SAF relaunch independently retains its grant and
-restores an eight-second playback position across two processes. Normal
-lifecycle reaches real playback but fails recording validation; local metadata
-and clock corrections do not establish HOME/resume/restart acceptance. Physical
-Android-to-Windows Nearby control and Cast receiver acceptance remain open.
+Debug API 29 and release API 35 now pass clean install and confirmed HTTPS and
+content-URI sharing. Debug API 35 still fails an incomplete native accessibility
+observation. Normal lifecycle reaches real playback but fails recording-tail
+coverage before HOME/resume/restart. Physical Android-to-Windows Nearby control
+and Cast receiver acceptance remain open. The [current acceptance ledger](STATUS.md)
+records the exact failures, scoped local corrections and historical provenance.
 
 History now shows local last-watched dates, and room QR scanning leads to review
 and explicit confirmation. Widget tests cover rejection, cancellation,
@@ -134,11 +125,13 @@ night reaction received by the TLS peer, persisted Cinema Noir, and two
 distinct paid hosted sessions. Native playback advances in all three rooms.
 The review confirms the actual theme, reaction, offering and restore screens.
 
-[RevenueCat relaunch and expiry 35212468121](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468121)
-also passes. The real Test Store purchase at 10:58:48 UTC expires at 11:03:48;
-fresh SDK data observes inactive Plus at 11:03:52, and a cache-invalidated
-restore keeps it inactive for that same customer and original purchase. This
-uses the actual subscription expiry, without changing the clock or entitlement.
+[RevenueCat relaunch and expiry 35223362820](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35223362820)
+at `ec856b5` also passes. The same customer retains Plus across two actual
+processes without uninstalling or clearing data. Its real Test Store purchase
+at 12:58:32 UTC expires at 13:03:32; fresh SDK data observes inactive Plus at
+13:03:41, and cache-invalidated restore keeps it inactive for that customer and
+original purchase. The clock and entitlement are not simulated. Only the native
+purchase dialogs have video; the relaunch/expiry proof is retained SDK evidence.
 
 The purchase journey uses **one native Android player and a headless TLS peer
 in one process**. Its restore checks retain the same customer; they do not
@@ -151,10 +144,10 @@ files have approximately **3.384/2.623-second playable gaps**, distinct from
 the recorder's 1.281/1.705-second coverage gaps. Final editing must use explicit
 cuts rather than imply uninterrupted actions across those boundaries.
 
-The earlier `70575be` purchase run remains historical 10-stage evidence. The
-prepared [native screenshot provenance](../assets/submission/screenshot-provenance.json)
-still identifies that older build and its original recording hashes; it is not
-relabeled as the new 12-stage run.
+The [native screenshot provenance](../assets/submission/screenshot-provenance.json)
+identifies `9b7e9ed` and its original recording hashes. The later d946 purchase
+run also passes 12 stages; ec856 fails recording coverage. Neither replaces the
+pinned source of the screenshot or edited purchase chapter.
 
 ## Relationship to the original desktop MeowWatch
 
@@ -207,7 +200,7 @@ Before submission:
 3. Complete physical Android-to-Windows Nearby pairing and control acceptance,
    then include it only if the recording is stable.
 4. Finish extended recovery/repeated-room acceptance and fresh debug
-   incoming-media checks; resolve the remaining lifecycle and small-phone
+   incoming-media checks; resolve the remaining lifecycle and tablet
    teardown failures. Inspect guide/sample recordings and complete the full
    clean-install demo rehearsal. Keep QR image-decoding and camera evidence
    clearly distinguished.
@@ -230,7 +223,7 @@ will be omitted rather than represented by a simulated or unstable screen.
   [brand kit](BRAND.md).
 - [x] An original [native home screenshot](../assets/submission/meowwatch-android-1179x2556.png)
   is exactly **1179 × 2556 px**, without a device frame, resizing or cropping.
-  Its provenance identifies the accepted `70575be` emulator capture. The image
+  Its provenance identifies the accepted `9b7e9ed` emulator capture. The image
   shows Home; it does not depict the new guide or establish clean video footage.
 - [x] Gallery thumbnail is readable at a 3:2 ratio (1200 × 800).
 - [x] RevenueCat project ID: `ca9218b2`, recorded from Project settings in

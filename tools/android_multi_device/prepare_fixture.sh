@@ -7,7 +7,8 @@ Usage: prepare_fixture.sh [--output <directory>] [--seconds <15-600>]
 
 Downloads Flutter's CC0 bee.mp4 at its pinned SHA-256 and repeats its original
 compressed video and audio packets into a longer MP4 without synthesizing app
-frames. The default output is build/android-multi-device/fixture.
+frames. Also writes an identical Bee.mp4 alias for production UI recordings.
+The default output is build/android-multi-device/fixture.
 EOF
 }
 
@@ -88,6 +89,11 @@ if ! awk -v actual="$fixture_duration" -v requested="$seconds" \
   exit 5
 fi
 
+# A friendly filename changes the real player title, not the recorded pixels.
+recording_alias="$output_dir/Bee.mp4"
+cp "$fixture_file" "$recording_alias"
+cmp -s "$fixture_file" "$recording_alias"
+sha256sum "$recording_alias" > "$output_dir/Bee.mp4.sha256"
 sha256sum "$source_file" > "$output_dir/bee-source.mp4.sha256"
 sha256sum "$fixture_file" > "$output_dir/sync-fixture.mp4.sha256"
 ffprobe -v error \
@@ -102,6 +108,7 @@ ffprobe -v error \
   printf 'license_evidence\t%s\n' "$license_url"
   printf 'reviewed_source_sha256\t%s\n' "$source_sha256"
   printf 'generation\tffmpeg stream_loop with codec copy\n'
+  printf 'recording_alias\tBee.mp4 (byte-identical copy of sync-fixture.mp4)\n'
   printf 'requested_duration_seconds\t%s\n' "$seconds"
   printf 'actual_duration_seconds\t%s\n' "$fixture_duration"
   printf 'generated_utc\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"

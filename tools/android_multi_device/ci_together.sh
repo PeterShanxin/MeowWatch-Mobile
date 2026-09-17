@@ -79,6 +79,14 @@ if [[ ! "$room" =~ ^[A-Za-z0-9._-]+$ || -z "$server" || \
   exit 3
 fi
 expected_video_url='http://10.0.2.2:18765/sync-fixture.mp4'
+if [[ "$production_ui" -eq 1 && "$video_url" == 'http://10.0.2.2:18765/Bee.mp4' ]]; then
+  expected_video_url='http://10.0.2.2:18765/Bee.mp4'
+  if [[ ! -s "$runtime_root/fixture/Bee.mp4" ]] || \
+      ! cmp -s "$fixture_file" "$runtime_root/fixture/Bee.mp4"; then
+    echo 'Production recording alias must be a byte-identical copy of the scoped fixture.' >&2
+    exit 3
+  fi
+fi
 if [[ "$video_url" != "$expected_video_url" ]]; then
   echo "Prepared APK video URL does not match the scoped fixture: $video_url" >&2
   exit 3

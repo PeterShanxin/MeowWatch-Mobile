@@ -72,12 +72,12 @@ void main() {
       final peerRole = isHost ? 'guest' : 'host';
       // Public Syncplay servers reserve names across rooms. Parallel baseline
       // and candidate runs must not force each other's participants to rename.
-      final nameSuffix = sha256
+      final runTag = sha256
           .convert(utf8.encode(_runId))
           .toString()
-          .substring(0, 10);
-      final name = '${isHost ? 'Host' : 'Guest'} $nameSuffix';
-      final peerName = '${isHost ? 'Guest' : 'Host'} $nameSuffix';
+          .substring(0, 4);
+      final name = '${isHost ? 'Mochi' : 'Bean'} $runTag';
+      final peerName = '${isHost ? 'Bean' : 'Mochi'} $runTag';
       final screenshots = <String>[];
       final verified = <String>[];
       final observations = <Map<String, Object?>>[];
@@ -418,7 +418,7 @@ void main() {
         'guest_pause_synchronized',
       ]);
 
-      const guestChat = 'Ready for movie night, Host! 🍿';
+      const guestChat = 'Ready for movie night! 🍿';
       const hostChat = 'Ready here too. Press play when you are comfy.';
       if (isHost) {
         await _waitForRemoteMessage(tester, app, guestChat);

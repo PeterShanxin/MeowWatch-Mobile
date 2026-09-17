@@ -15,7 +15,7 @@ Future<String?> showJoinSheet(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
-    showDragHandle: true,
+    showDragHandle: false,
     builder: (context) => _JoinSheet(app: app, initialInvite: initialInvite),
   );
 }
@@ -33,6 +33,7 @@ class _JoinSheet extends StatefulWidget {
 class _JoinSheetState extends State<_JoinSheet> {
   late final TextEditingController _controller;
   final FocusNode _focusNode = FocusNode();
+  final GlobalKey _fieldVisibilityKey = GlobalKey();
   String? _error;
   bool _pasting = false;
   bool _scanning = false;
@@ -106,18 +107,34 @@ class _JoinSheetState extends State<_JoinSheet> {
     if (_scanning) return;
     final value = _controller.text.trim();
     if (value.isEmpty) {
-      setState(() => _error = 'Enter the room code your friend shared.');
-      _focusNode.requestFocus();
+      _showInputError('Enter the room code your friend shared.');
       return;
     }
     try {
       parseRoomInvite(value, widget.app.username);
     } on FormatException catch (error) {
-      setState(() => _error = error.message);
-      _focusNode.requestFocus();
+      _showInputError(error.message);
       return;
     }
     Navigator.of(context).pop(value);
+  }
+
+  void _showInputError(String message) {
+    setState(() => _error = message);
+    _focusNode.requestFocus();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _error != message) return;
+      final fieldContext = _fieldVisibilityKey.currentContext;
+      if (fieldContext == null) return;
+      // Focus may already belong to the field after scrolling to submit.
+      // Reveal its error after layout, above even a short keyboard viewport.
+      Scrollable.ensureVisible(
+        fieldContext,
+        alignment: 1,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    });
   }
 
   RoomConfig? _parsedIncomingConfig() {
@@ -140,7 +157,8 @@ class _JoinSheetState extends State<_JoinSheet> {
       padding: EdgeInsets.only(bottom: bottomInset),
       child: SingleChildScrollView(
         key: const Key('join-sheet-scroll-view'),
-        padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+        hitTestBehavior: HitTestBehavior.deferToChild,
+        padding: const EdgeInsets.fromLTRB(24, 0, 24, 28),
         child: Center(
           child: ConstrainedBox(
             constraints: const BoxConstraints(maxWidth: 560),
@@ -148,6 +166,40 @@ class _JoinSheetState extends State<_JoinSheet> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                // Let the handle scroll away with the heading so the keyboard
+                // leaves enough room for both the input and its error.
+                Center(
+                  child: Semantics(
+                    key: const Key('join-sheet-dismiss'),
+                    container: true,
+                    button: true,
+                    label: MaterialLocalizations.of(
+                      context,
+                    ).modalBarrierDismissLabel,
+                    onTap: () => Navigator.of(context).pop(),
+                    // Let the outer BottomSheet handle pointer dragging while
+                    // retaining this node's accessible dismiss action.
+                    child: IgnorePointer(
+                      child: SizedBox(
+                        width: 48,
+                        height: 48,
+                        child: Center(
+                          child: Container(
+                            width: 32,
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color:
+                                  theme.bottomSheetTheme.dragHandleColor ??
+                                  theme.colorScheme.onSurfaceVariant,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 4),
                 Text(
                   _isIncomingInvite
                       ? 'Room invitation received'
@@ -167,36 +219,39 @@ class _JoinSheetState extends State<_JoinSheet> {
                   ),
                 ),
                 const SizedBox(height: 22),
-                TextField(
-                  key: const Key('join-code-field'),
-                  controller: _controller,
-                  focusNode: _focusNode,
-                  autofocus: !_isIncomingInvite,
-                  maxLength: 512,
-                  maxLines: 2,
-                  minLines: 1,
-                  textInputAction: TextInputAction.done,
-                  autocorrect: false,
-                  enableSuggestions: false,
-                  decoration: InputDecoration(
-                    labelText: 'Room code or invite link',
-                    hintText: 'quiet-otter-lantern',
-                    errorText: _error,
-                    errorMaxLines: 3,
-                    border: const OutlineInputBorder(),
-                    suffixIcon: IconButton(
-                      key: const Key('paste-invite-button'),
-                      tooltip: 'Paste from clipboard',
-                      onPressed: _pasting || _scanning ? null : _paste,
-                      icon: const Icon(Icons.content_paste_rounded),
+                SizedBox(
+                  key: _fieldVisibilityKey,
+                  child: TextField(
+                    key: const Key('join-code-field'),
+                    controller: _controller,
+                    focusNode: _focusNode,
+                    autofocus: !_isIncomingInvite,
+                    maxLength: 512,
+                    maxLines: 2,
+                    minLines: 1,
+                    textInputAction: TextInputAction.done,
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    decoration: InputDecoration(
+                      labelText: 'Room code or invite link',
+                      hintText: 'quiet-otter-lantern',
+                      errorText: _error,
+                      errorMaxLines: 3,
+                      border: const OutlineInputBorder(),
+                      suffixIcon: IconButton(
+                        key: const Key('paste-invite-button'),
+                        tooltip: 'Paste from clipboard',
+                        onPressed: _pasting || _scanning ? null : _paste,
+                        icon: const Icon(Icons.content_paste_rounded),
+                      ),
                     ),
+                    onChanged: (_) {
+                      if (_error != null || _isIncomingInvite) {
+                        setState(() => _error = null);
+                      }
+                    },
+                    onSubmitted: (_) => _submit(),
                   ),
-                  onChanged: (_) {
-                    if (_error != null || _isIncomingInvite) {
-                      setState(() => _error = null);
-                    }
-                  },
-                  onSubmitted: (_) => _submit(),
                 ),
                 Align(
                   alignment: Alignment.centerLeft,

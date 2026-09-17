@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
@@ -123,7 +124,53 @@ void main() {
       );
       const joinError =
           'That code looks off — ask your friend to copy and paste it again.';
-      await _waitFor(tester, find.text(joinError), 'inline join validation');
+      final joinErrorFinder = find.text(joinError);
+      await _waitFor(tester, joinErrorFinder, 'inline join validation');
+      final joinViewport = tester.getRect(
+        find
+            .descendant(
+              of: find.byKey(const Key('join-sheet-scroll-view')),
+              matching: find.byType(Scrollable),
+            )
+            .first,
+      );
+      final joinView = tester.view;
+      final joinRatio = joinView.devicePixelRatio;
+      final bottomOcclusion =
+          joinView.viewInsets.bottom > joinView.padding.bottom
+          ? joinView.viewInsets.bottom
+          : joinView.padding.bottom;
+      final joinUsableScreen = Rect.fromLTRB(
+        joinView.padding.left / joinRatio,
+        joinView.padding.top / joinRatio,
+        (joinView.physicalSize.width - joinView.padding.right) / joinRatio,
+        (joinView.physicalSize.height - bottomOcclusion) / joinRatio,
+      );
+      final joinVisibleArea = joinViewport.intersect(joinUsableScreen);
+      final joinErrorBounds = tester.getRect(joinErrorFinder);
+      final joinErrorVisible =
+          !joinVisibleArea.isEmpty &&
+          joinErrorBounds.top >= joinVisibleArea.top &&
+          joinErrorBounds.bottom <= joinVisibleArea.bottom &&
+          joinErrorBounds.left >= joinVisibleArea.left &&
+          joinErrorBounds.right <= joinVisibleArea.right &&
+          joinErrorFinder.hitTestable().evaluate().isNotEmpty;
+      final joinVisibility = <String, Object?>{
+        'errorBounds': _rectBounds(joinErrorBounds),
+        'scrollViewportBounds': _rectBounds(joinViewport),
+        'usableScreenBounds': _rectBounds(joinUsableScreen),
+        'visibleBounds': _rectBounds(joinVisibleArea),
+        'keyboardInsetBottom': joinView.viewInsets.bottom / joinRatio,
+        'errorFullyVisibleAndHitTestable': joinErrorVisible,
+      };
+      observations['invalidJoinVisibility'] = joinVisibility;
+      debugPrint('Invalid-join visibility: ${jsonEncode(joinVisibility)}');
+      expect(
+        joinErrorVisible,
+        isTrue,
+        reason:
+            'Inline validation must be visible: ${jsonEncode(joinVisibility)}',
+      );
       expect(
         joinField,
         findsOneWidget,
@@ -530,6 +577,13 @@ void main() {
 
 Slider _slider(WidgetTester tester) =>
     tester.widget<Slider>(find.byType(Slider));
+
+Map<String, double> _rectBounds(Rect rect) => {
+  'left': rect.left,
+  'top': rect.top,
+  'right': rect.right,
+  'bottom': rect.bottom,
+};
 
 Future<void> _capture(
   NativeScreenshots nativeScreenshots,

@@ -1,6 +1,6 @@
 # Delivery status
 
-Last updated: 2026-09-17. **In development; not submission-ready.**
+Last updated: 2026-09-18 (Asia/Shanghai). **In development; not submission-ready.**
 
 The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUCT_SPEC.md). P0/P1/P2 define order, not scope cuts.
 
@@ -9,22 +9,115 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Pass on emulators | 2fc38317 normal debug API 29/35 and release API 35 APKs pass clean install, launch, all seven incoming-media review cases and explicit HTTPS/content playback. Physical acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The later 152330ba snapshot passes Gitleaks 8.30.1 with zero findings in 473 tracked files and 56 all-ref commits; no suspicious tracked paths. Subsequent changes and final artifacts require fresh checks |
-| 3 | Clear first-launch create/join | Partial | 2fc38317 passes all five first-use/layout drivers and teardown. The compact landscape guide's primary instructions and fixed footer are visible; supplemental notes scroll. Earlier 300ca2e Together proves invite/QR confirmation and joining; the new Together run stops before app installation |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 2fc38317 runtime matrix fails a real 441 ms stale pause snapshot. Its focused local fix passes 33 tests but awaits native validation. The earlier 300ca2e full phone/tablet Together pass remains source-specific; its 0 ms named checkpoints do not establish frame synchronization |
-| 5 | Real-session chat/reactions/presence | Partial | 2fc38317 production purchase proves a premium reaction received by an independent TLS peer. Complete phone/tablet chat, presence and shared-link coverage remains at 300ca2e; the current Together run has zero app coverage. Final submission film remains open |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 2fc38317 SAF relaunch and normal release lifecycle pass: HOME pauses, foreground stays paused, explicit Play resumes, and process restart restores position in a new PID without autoplay. Earlier Together media-error recovery/history resume remains at 300ca2e |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The e5f0b716 working-tree snapshot passes Gitleaks 8.30.1 with zero findings in 477 tracked files and 60 all-ref commits; no suspicious tracked paths. Subsequent changes and final artifacts require fresh checks |
+| 3 | Clear first-launch create/join | Partial | 2fc38317 passes all five first-use/layout drivers and teardown. The compact landscape guide's primary instructions and fixed footer are visible; supplemental notes scroll. 5137e58 production Together passes actual Start, invitation review and Join on independent emulators |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6c44e415 runtime matrix passes on two API 35 emulators after fixing the stale pause snapshot. 5137e58 production Together also passes all named two-way playback checkpoints. Equal position checkpoints do not establish identical decoded frames or physical-device behavior |
+| 5 | Real-session chat/reactions/presence | Partial | 5137e58 production Together passes chat, reactions, presence and confirmed peer-link playback on independent phone/tablet emulators. 2fc38317 purchase also proves the premium reaction received by a TLS peer. Final submission film remains open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 2fc38317 SAF relaunch and normal release lifecycle pass: HOME pauses, foreground stays paused, explicit Play resumes, and process restart restores position without autoplay. 5137e58 Together passes media-error recovery and history resume. Actual radio/network outage and audio-focus interruption gates are being added; socket simulation and HOME do not cover these |
 | 7 | Local Mode and Continue Watching | Partial | 2fc38317 native playback, SAF relaunch, normal lifecycle/history resume and all five complete layout drivers pass. Each layout retains 20 verified app steps and 16 screenshots. Physical-device acceptance remains separate |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | 2fc38317 Android Nearby passes within its emulator boundary. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 2fc38317 production purchase passes all 12 stages, one free and two paid hosts, native cancel/failure/success and same-customer restore. Its separate expiry gate fails: a fresh inactive result is followed by active Restore, without enough retained post-restore data to establish the cause. Diagnostic rerun 35240675074 at 9e032ba has no accepted result yet |
-| 10 | Correct daily quota and session continuity | Partial | 2fc38317 production free/paid hosting and normal lifecycle/history continuity pass. The runtime matrix is failed and requires a new native result after the pause fix. Earlier 300ca2e Together proves endpoint/ledger preservation and new-host 1→0 versus free joining at 0; that evidence is not reassigned to the current head |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 2fc38317 production purchase passes 12 stages, one free and two paid hosts, native cancel/failure/success and same-customer restore. The 6c44 runtime billing/hosting jobs also pass. Diagnostic run 35240675074 at 9e032ba passes same-customer process relaunch, accelerated renewals, final expiry and inactive Restore; the earlier 2fc contradictory result did not recur and its cause remains unproven. Physical and Play-production evidence remain separate |
+| 10 | Correct daily quota and session continuity | Partial | 6c44e415 runtime hosting passes 14 checks, one free plus two distinct Plus sessions, reconnect and same-process service/disk reopen without recharging. 5137e58 production Together passes endpoint/ledger preservation and repeated-room/free-joining checks. Actual radio-outage continuity remains open |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Official unpatched Flutter 3.44 at 2fc38317 passes all five layouts and teardown with 80 native PNGs and five intact videos. Compact guide and Settings/Appearance/paywall transitions were visually reviewed. Purchase footage also proves corrected busy text in Cozy and Glass Aurora. Physical gates remain open; SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
-| 13 | No placeholders, dead ends or silent failures | Partial | 2fc38317 verifies compact-guide, busy-overlay, modal-transition, clean-install and lifecycle fixes in native footage. The stale pause snapshot and contradictory expiry/Restore result still require acceptance. Earlier 300ca2e Together proves readable 404 recovery; no current-head paired run has passed |
-| 14 | Clean-install full demo rehearsal | Partial | 2fc38317 has 8 passing and 3 failed workflows. Clean install and normal lifecycle now pass, but Together, runtime matrix and expiry do not. The earlier 216.667-second paired film remains source-specific. Final complete rehearsal and the under-two-minute submission cut remain open |
+| 13 | No placeholders, dead ends or silent failures | Partial | 2fc38317 verifies guide, loading text, modal transitions, clean install and lifecycle. Later targeted matrix, expiry and production Together runs pass; the prior Restore anomaly remains unexplained. 5137e58 native footage proves readable 404 recovery and normal loading text. Final interruption gates and review remain open |
+| 14 | Clean-install full demo rehearsal | Partial | The 2fc cohort remains 8 passing and 3 failed workflows. Later targeted 6c runtime matrix, 9e expiry and 5137e58 production Together checks pass. Final complete rehearsal, interruption coverage and the under-two-minute submission cut remain open; paired recording still has visibly sparse motion |
 | 15 | Shipaton submission confidence | Partial | Brand kit and original-size submission screenshot are prepared. Final under-two-minute film, full rehearsal, physical gates and remaining eligibility/legal checks remain open |
 
-## Current native verification: 2fc38317
+## Latest targeted native verification
+
+[Runtime matrix 35241701885](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35241701885)
+at `6c44e415386e3a39ee3371aed5b6066e9ec9996c` passes all three jobs; original
+artifacts and full teardown were independently audited. Two API 35 x86_64
+emulators report controller/peer paused positions of 6133/6133 ms and
+2538/2538 ms, stable for 1123/1467 ms after convergence in 1927/2305 ms.
+Both peer seeks reach 4000 ms paused. The test source is byte-identical to the
+failed baseline, including its original tolerances. These are native position
+checks, not identical-frame claims; the captured movie frames differ.
+
+The same run passes ten native RevenueCat Test Store checks and fourteen
+hosting checks, including one free and two distinct Plus sessions. Hosting uses
+two TLS clients and native decoders inside one app process, so service/disk
+reopen is not process-relaunch evidence. All nine videos fully decode. The
+paired originals have no rotation gap; the phone misses about 0.196 seconds
+at the shared timeline's ends. The 88.5-second composition uses a runtime
+fixture screen, not the production UI, and is not selected for the submission
+film. Original VFR intervals reach about 6.3 seconds; this is not smoothness proof.
+
+[RevenueCat diagnostic run 35240675074](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35240675074)
+at `9e032ba6f656a1170a4dbbb05540f03221abdf57` passes the unchanged strict
+relaunch/expiry assertions. The same persisted customer survives PID
+`2994 -> 4730` without uninstall or data clear. Across eight bounded expiry
+phases, 52 fresh observations retain the same customer and show five consecutive
+five-minute Test Store periods. The last purchase is 16:01:01 UTC and expiration
+is 16:06:01 UTC on September 17. Fresh customer data at 16:06:03.883 is inactive;
+cache-invalidated Restore at 16:06:04.040 remains inactive. All ten phases retain
+customer-update diagnostics with no within-phase request-date regression.
+The earlier 2fc inactive-to-active Restore anomaly did not recur; its cause is
+still unproven. No production billing behavior or assertion was weakened.
+
+[Production Together 35243162891](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35243162891)
+at `5137e5870f9ac611a339daf42bcd24abfcbb412d` passes 26 host and 25 guest
+production steps, retains 14/12 native screenshots, and completes both drivers
+and all cleanup. Named pause/seek, shared-link, recovery, history and new-room
+position checkpoints have zero reported delta. Both preparation checks require
+no recovery; the one-install SDK package preparation and read-only receipt check
+run successfully, followed by independent stable readiness admission. This run
+does not exercise the new Launcher recovery branch. Native footage shows the
+correctly themed loading text. These results do not turn the separate 2fc cohort
+green or establish physical-device acceptance.
+
+Paired recording quality remains a film limitation: actual playback windows
+retain about 1–3 native frames per second, with visible jumps. The original
+clock and gaps remain intact; encoding at 30 fps does not restore missing motion.
+A manual compact-capture comparison reduces recorder output size while keeping
+the app's display layouts, timing, 3 Mbps bitrate and product assertions unchanged.
+Its result must be inspected before replacing these sources in the final edit.
+
+The compact-capture comparison at `694b1ac5e42f431e28209246baf7c3441fcd75df`,
+[run 35246511825](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35246511825),
+passes both complete drivers, unchanged 26/25 step sets, 14/12 screenshots,
+18/18 observations and cleanup. Independent native log/position audits pass.
+All three recordings fully decode and match their recorded hashes. The tablet
+required one narrowly verified Google SDK Setup ANR recovery before app
+installation; both devices subsequently passed fresh readiness admission.
+The Launcher recovery branch was not exercised.
+
+The compact capture does not resolve film smoothness. Three actual playback
+windows retain about 2.00–4.29 original pictures per second, some reflecting UI
+updates while movie pixels remain held. The phone is 432×960 and the tablet
+960×600; text remains readable. There is no segment restart, but the phone has
+a 2.512323-second missing tail, preserved in the timing manifest. These sources
+remain review/evidence material rather than accepted final-film footage.
+The earlier 5137e58 readiness log contains a historical GMS SafetyCenter
+broadcast ANR before app installation. Later readiness admission and application
+checks pass; this is not a claim that the entire OS log is free of ANRs.
+
+A complete **118-second Review Preview** now combines the audited 5137e58
+Together footage with 2fc38317 Local and purchase footage. All 3,540 frames
+decode and all eleven pinned inputs match; 29 output samples and six full-size
+frames were inspected. It retains the low native motion cadence and is not an
+accepted submission film or a single-build rehearsal. See [the demo script](DEMO_SCRIPT.md).
+
+The remaining autonomous interruption gates cover actual Android radio/network
+loss and recovery, plus external audio-focus takeover while the normal app stays
+foreground. Existing socket-reconnect simulation, leave/rejoin and HOME evidence
+are not substituted for those cases. Full final-head checks and the clean-install
+submission rehearsal also remain open.
+
+The requested immersive player is implemented and awaiting native acceptance: explicit fullscreen,
+tap-to-reveal controls and Back-to-exit preserve the current player and room.
+The Android window bridge hides system bars and temporarily requests handset
+landscape; tablet orientation is retained. The bridge and room/chat widget
+regressions pass all 67 checks, including 13 fullscreen cases. The integration
+APK containing the native bridge and the normal debug APK both build
+successfully. The integrated local suite passes 719 tests with no skips,
+formatting checks 175 files without changes, and analysis reports no issues.
+The LAN test uses the host's real WSL virtual adapter, not a physical phone.
+Native phone/tablet window-state proof is still open; the earlier landscape
+layout evidence does not prove immersive mode.
+
+## Completed native cohort: 2fc38317
 
 The completed source head is `2fc38317f96efa2b15239b6be3dfedce9264987c`:
 **8 passing and 3 failed workflows**. These results use Android emulators;
@@ -42,8 +135,8 @@ presentation commits do not inherit this cohort's results.
 | [Five layouts 35236920763](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920763) | Pass | Five complete drivers and teardown, 100 app-step observations, 80 PNGs and five native videos |
 | [Normal install 35236920483](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920483) | Pass | Debug API 29/35 and release API 35, including real incoming-media playback |
 | [Together 35236920607](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920607) | Fail | Pixel Launcher ANR before app installation; zero app or paired-video coverage |
-| [Runtime matrix 35236920487](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920487) | Fail | Real stale paused-position snapshot; focused fix awaits native validation |
-| [RevenueCat relaunch/expiry 35236920647](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920647) | Fail | Fresh inactive observation followed by active Restore; expiry acceptance remains failed |
+| [Runtime matrix 35236920487](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920487) | Fail | Real stale paused-position snapshot; later 6c44 fix passes targeted native validation |
+| [RevenueCat relaunch/expiry 35236920647](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920647) | Fail | Fresh inactive observation followed by active Restore; later diagnostic run passes without reproducing or explaining this anomaly |
 
 ### Audited install, lifecycle and rendered UI
 
@@ -134,13 +227,15 @@ visible in the retained native footage.
   cases) and the normal debug APK build. It clamps confirmed positions to the
   valid media range and rejects pause reads superseded by another command.
   [Runtime matrix 35241701885](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35241701885)
-  is the pending native check; playback/convergence thresholds are unchanged.
+  passes all three jobs with audited originals; playback/convergence thresholds
+  are unchanged.
 - RevenueCat first returns a fresh inactive entitlement, then Restore returns
   active. The retained post-restore data is insufficient to explain that change;
   no renewal or SDK root cause is asserted. The strict expiry/restore assertion
   remains failed. Diagnostic-only commit `9e032ba` adds evidence for manual
   [RevenueCat run 35240675074](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35240675074),
-  which has no accepted result at this update. It does not weaken expiry checks.
+  which passes final expiry and inactive Restore as detailed above. It does not
+  weaken expiry checks or prove the earlier failure's cause.
 
 The separate presentation branch at `152330ba39e2c263dea5a5f81e032072869f7016`
 has a failed manual [Together run 35238737381](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35238737381):
@@ -154,8 +249,8 @@ the independent readiness policy and all app ANR guards remain unchanged.
 All 62 multi-device tooling tests and 32 production driver tooling tests pass;
 independent code review found no actionable issue. The new official-baseline
 [Together run 35243162891](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35243162891)
-must establish the native result. ZIP root cause and recovery effectiveness are
-not inferred from these local checks. Physical playback/lifecycle/billing,
+passes as detailed above. ZIP root cause and Launcher-recovery effectiveness
+are not inferred from that run: neither emulator needed recovery. Physical playback/lifecycle/billing,
 Android-to-Windows LAN, Cast, remaining eligibility/legal checks, final film and
 the complete submission rehearsal remain open.
 
@@ -394,7 +489,9 @@ SVG/PNG and desktop ICO. The original 1179x2556 submission screenshot has no
 frame. The current purchase review preview is 42 seconds, with Test Store and
 headless-peer boundaries disclosed, using original `2fc38317` recordings. Its
 1,260 frames decode and pass source-clock correspondence checks; 53 output
-samples were inspected. The browser displays the actual Restore confirmation.
+samples were inspected. A browser replay ran uninterrupted from 0:00 to 0:42,
+with screenshots checked at 0, 14, 28, 39 and 42 seconds. This is sampled visual
+inspection, not a claim that every frame was visually inspected.
 SHA256 is `b0cdadd718b5782e99af65ee1fb4ff18b43dcee6bfeff6140a0bc0198263a50d`.
 Earlier 43-second and 40.2-second `9b7e9ed` previews remain historical.
 The separately accepted `300ca2e` paired recording is 216.667 seconds, with its

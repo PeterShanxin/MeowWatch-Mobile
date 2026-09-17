@@ -1,0 +1,103 @@
+name: Android native fullscreen
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/android-fullscreen.yml'
+      - 'tools/android_fullscreen_runtime/**'
+      - 'tools/android_lifecycle_runtime/**'
+      - 'tools/android_native_ui/**'
+      - 'tools/android_install/**'
+      - 'tools/incoming_media_runtime/**'
+      - 'tools/billing_runtime/native_dialog.py'
+      - 'tools/android_multi_device/*fixture*'
+      - 'lib/**'
+      - 'android/**'
+      - 'assets/**'
+      - 'pubspec.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-fullscreen-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  fullscreen:
+    name: Native system bars, orientation and Back (${{ matrix.form_factor }}, API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - form_factor: phone
+            profile: pixel_6
+          - form_factor: tablet
+            profile: pixel_tablet
+    env:
+      FULLSCREEN_FORM_FACTOR: ${{ matrix.form_factor }}
+      FULLSCREEN_AVD_NAME: meowwatch_fullscreen_${{ matrix.form_factor }}_${{ github.run_id }}_${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify fullscreen native evidence contracts
+        run: |
+          python3 -m unittest tools.android_fullscreen_runtime.test_run -v
+          python3 -m tools.android_fullscreen_runtime.run --help
+          bash -n tools/android_fullscreen_runtime/ci.sh
+      - name: Prepare reviewed native video fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh --output build/android-fullscreen-fixture --seconds 90
+      - name: Build normal release lib/main.dart
+        run: >-
+          flutter build apk --release --target=lib/main.dart
+          --dart-define=REVENUECAT_API_KEY=
+      - name: Build independent native accessibility observer
+        run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Verify native fullscreen on the dedicated profile
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          avd-name: ${{ env.FULLSCREEN_AVD_NAME }}
+          profile: ${{ matrix.profile }}
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/android_fullscreen_runtime/ci.sh
+      - name: Retain original fullscreen and system-window evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: android-fullscreen-${{ matrix.form_factor }}-${{ github.run_attempt }}
+          path: |
+            build/android-fullscreen-artifacts/
+            build/android-fullscreen-server/
+            build/android-fullscreen-fixture/*.json
+            build/android-fullscreen-fixture/*.tsv
+            build/android-fullscreen-fixture/*.sha256
+            build/android-native-ui/build.json
+            build/android-native-ui/manifest.log
+            build/android-native-ui/verify.log
+          retention-days: 14

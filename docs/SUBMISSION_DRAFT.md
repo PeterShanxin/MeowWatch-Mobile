@@ -1,6 +1,6 @@
 # MeowWatch Mobile — Devpost submission draft
 
-> **Draft status (2026-09-17): not ready to publish.** Product acceptance,
+> **Draft status (2026-09-18): not ready to publish.** Product acceptance,
 > final recording, entrant eligibility, and submission-form details still have
 > open gates. Resolve the acceptance notes below before using this copy in
 > Devpost; no publication or submission is represented here.
@@ -55,15 +55,19 @@ state. The accepted emulator purchase journey is described below.
 
 **Acceptance notes:** Native results use Android emulators. At `2fc3831`,
 five-layout, normal install, lifecycle and production purchase workflows pass.
-The runtime matrix exposes a stale pause-position snapshot; its correction
-requires fresh native verification. The new Together attempt stops on Launcher
-ANR before app installation. The earlier `300ca2e`
+The later `6c44e415` runtime matrix passes all three native jobs after the stale
+pause-position fix. The 2fc Together attempt stops on Launcher ANR before app
+installation; the later `5137e58` production follow-up passes both complete
+drivers, all cleanup and its independent native artifact audit. The earlier `300ca2e`
 [paired Together run 35230867493, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867493)
 also passes, with independent audit of both complete drivers, native logs and
 the 216.667-second paired evidence film. The final under-two-minute submission
-film has not been assembled. RevenueCat's new expiry/restore result is under
-investigation; it is not accepted as final expiration. Fresh proof for the
-playback fix and the complete clean-install demo rehearsal remain open.
+film is still under review: a complete 118-second Review Preview is assembled,
+but the original paired footage has sparse motion. A compact-capture comparison
+at `694b1ac` passes CI and its originals are being audited. RevenueCat's `9e032ba` diagnostic run passes
+same-customer process relaunch, final expiration and inactive Restore; the
+earlier contradictory result did not recur and its cause is still unproven.
+The complete clean-install demo rehearsal remains open.
 The [current evidence ledger](STATUS.md) records
 exact run outcomes and their boundaries.
 
@@ -146,8 +150,13 @@ entitlement override supplies the result. Only native Test Store
 cancel/failure/success dialogs have video; there is no continuous recording of
 the relaunch or expiry wait. The retained SDK evidence establishes those phases
 for that head. The new `2fc3831` expiry run receives active Restore after a fresh
-inactive sample. Its cause is under investigation; the older pass does not
-resolve this new failure.
+inactive sample. Its cause remains unproven. The later
+[9e032ba diagnostic run 35240675074](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35240675074)
+passes the same strict gate: customer identity survives PID 2994 → 4730,
+52 fresh expiry observations show five consecutive five-minute periods, then
+fresh SDK data at 16:06:03.883 UTC is inactive after the final 16:06:01 expiry.
+Restore at 16:06:04.040 remains inactive. This successful run does not explain
+the earlier anomaly or prove it cannot recur.
 
 The purchase journey uses **one native Android player and an independent
 headless TLS peer**. Its restore checks retain the same customer; they do not
@@ -163,8 +172,9 @@ capture fits a 450 × 975 area; captions remain outside the app pixels.
 
 The 1,260-frame export fully decodes, retains pinned source hashes and passes
 source-clock correspondence checks. Fifty-three output samples were visually
-inspected; the browser also displays the actual restore confirmation. This is
-still a review preview, not the final whole-app film. Its success heading remains
+inspected; an uninterrupted browser replay from 0:00 to 0:42 was checked with
+screenshots at 0, 14, 28, 39 and 42 seconds. This is sampled visual inspection;
+the clip remains a review preview, not the final whole-app film. Its success heading remains
 brief (one second in the edit, initially with a spinner), followed by a clear cut
 to the real Settings confirmation. No successful state is frozen or extended.
 
@@ -220,17 +230,17 @@ keeps purchase, restore, cancellation, reconnect, and target changes consistent.
 
 Before submission:
 
-1. Select and frame shots from the audited `300ca2e` paired Together recordings,
-   or a freshly validated presentation take, preserving real chat, reactions,
-   source details and shared-video behavior. Review the complete final edit.
-2. Integrate the 42-second purchase review chapter after continuous playback
-   review, or select a fresh clean purchase take. Preserve Test Store,
+1. Finish motion-quality review of the new compact capture and replace the
+   sparse-motion 5137e58 paired chapter if its native originals are better.
+   Preserve real chat, reactions, source details and shared-video behavior.
+2. Review the complete 118-second edit, including its Local and 42-second
+   purchase chapters, or select fresh accepted footage. Preserve Test Store,
    same-customer restore and headless-peer labels, and the actual source gaps.
 3. Complete physical Android-to-Windows Nearby pairing and control acceptance,
    then include it only if the recording is stable.
-4. Verify the pause-position correction on native clients, resolve the new
-   expiry/restore discrepancy, and finish repeated-room acceptance on the
-   final head. Inspect the chosen guide/sample recordings and
+4. Finish repeated-room acceptance and all required checks on the final head.
+   Retain diagnostics for the earlier expiry/restore anomaly, which did not
+   recur in the passing diagnostic run. Inspect the chosen guide/sample recordings and
    complete the full clean-install demo rehearsal. Keep QR image-decoding and
    camera evidence clearly distinguished.
 5. Package the final icon, frame-free required screenshot, public source link,

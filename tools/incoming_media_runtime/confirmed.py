@@ -82,9 +82,22 @@ class Playback:
 
 
 def playback(xml: str, title: str) -> Playback:
-    if len(exact(xml, title)) != 1:
-        raise RuntimeFailure("the native player does not show the expected incoming video")
     current_nodes = nodes(xml)
+    target_labels = [node for node in current_nodes
+                     if 'Playing on this phone' in {node.get('text'), node.get('content-desc')}]
+    if len(target_labels) != 1:
+        raise RuntimeFailure("the unique local player source context is unavailable")
+    regions = [node for node in current_nodes if target_labels[0] in list(node)]
+    if len(regions) != 1:
+        raise RuntimeFailure("the local player source container is unavailable")
+    # The portrait player's title and target caption are siblings in its body.
+    # The app header also names the video, but cannot establish body identity.
+    labels = [node for node in regions[0] if node in current_nodes
+              and (node.get('text') or node.get('content-desc'))]
+    target_index = labels.index(target_labels[0])
+    titles = [node for node in labels if title in {node.get('text'), node.get('content-desc')}]
+    if len(titles) != 1 or target_index == 0 or labels[target_index - 1] is not titles[0]:
+        raise RuntimeFailure("the native player body does not show the expected incoming video")
     if len([node for node in current_nodes if node.get('class', '').endswith('SeekBar')]) != 1:
         raise RuntimeFailure("the actual player timeline is missing or ambiguous")
     times = set()
@@ -203,6 +216,7 @@ class ConfirmedIntake:
         attempts: list[dict[str, object]] = []
         try:
             while time.monotonic() < deadline:
+                xml = None
                 try:
                     xml = self.observe()
                     value = check(xml)
@@ -213,8 +227,14 @@ class ConfirmedIntake:
                     attempts.append({'complete': False, 'integrityFailure': str(error)})
                     raise
                 except (RuntimeFailure, subprocess.TimeoutExpired) as error:
-                    attempts.append({'complete': False, 'failure': str(error)
-                                     if isinstance(error, RuntimeFailure) else 'capture timeout'})
+                    attempt = {'complete': False, 'failure': str(error)
+                               if isinstance(error, RuntimeFailure) else 'capture timeout'}
+                    if xml is not None:
+                        # Only a fresh complete capture rejected by the check is
+                        # retained here; a capture failure never reuses old XML.
+                        self.output.joinpath(f'{phase}-last-rejected.xml').write_text(xml, encoding='utf-8')
+                        attempt['rejectedXmlSha256'] = hashlib.sha256(xml.encode()).hexdigest()
+                    attempts.append(attempt)
                     time.sleep(0.3)
             raise RuntimeFailure(f'{phase}: fresh native acceptance observation timed out')
         finally:

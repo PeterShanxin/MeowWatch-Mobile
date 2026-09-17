@@ -526,16 +526,146 @@ class LifecycleRuntimeTests(unittest.TestCase):
             process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
             process.poll.return_value = None
             with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process) as launch, patch(
-                "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[100, 101, 102, 103, 104],
+                "tools.android_lifecycle_runtime.run.time.monotonic",
+                side_effect=[100, 101, 102, 103, 104, 105],
             ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
                 recording.start()
             recording.reader.join(timeout=1)
             self.assertEqual(recording.metadata["pidObservedAtMonotonic"], 101)
-            self.assertEqual(recording.metadata["startedAtMonotonic"], 104)
+            self.assertEqual(recording.metadata["startedAtMonotonic"], 105)
             self.assertEqual(recording.metadata["mediaReadyAtDeviceElapsedSeconds"], 67)
             self.assertIn("--size 432x960 --bit-rate 2000000", launch.call_args.args[0][-1])
             self.assertEqual(recording.codec_log_since, "09-17 13:00:00.000")
             self.assertEqual(recording.metadata["codecEvidence"]["codec-state"]["status"], "collected")
+
+    def test_recording_start_retries_only_bounded_readiness_timeouts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(serial="emulator-5554", prefix=["adb", "-s", "emulator-5554"],
+                       remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (432, 960))
+            picture = b"\0\0\0\0mdat\0\0\0\x05\x65abcd"
+            prefix_results = iter([
+                subprocess.TimeoutExpired("private command must not be retained", 3),
+                subprocess.CompletedProcess([], 0, picture),
+                subprocess.CompletedProcess([], 0, picture),
+            ])
+            clock_results = iter([
+                subprocess.TimeoutExpired("private command must not be retained", 3),
+                subprocess.CompletedProcess([], 0, b"67.00 30.00\n"),
+            ])
+
+            def command(*arguments, **_kwargs):
+                if arguments == ("exec-out", "date", "+%m-%d %H:%M:%S.000"):
+                    return subprocess.CompletedProcess([], 0, b"09-17 13:00:00.000\n")
+                if arguments == ("shell", "dumpsys", "media.codec"):
+                    return subprocess.CompletedProcess([], 0, b"c2.android.avc.encoder")
+                if arguments == ("shell", "getprop", "ro.kernel.qemu"):
+                    return subprocess.CompletedProcess([], 0, b"1")
+                if arguments == ("shell", "pidof", "screenrecord"):
+                    return subprocess.CompletedProcess([], 0, b"")
+                if arguments[:2] == ("exec-out", "head"):
+                    result = next(prefix_results)
+                    if isinstance(result, Exception):
+                        raise result
+                    return result
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    result = next(clock_results)
+                    if isinstance(result, Exception):
+                        raise result
+                    return result
+                raise AssertionError(arguments)
+
+            adb.run.side_effect = command
+            process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
+            process.poll.return_value = None
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
+                "tools.android_lifecycle_runtime.run.time.monotonic",
+                side_effect=[100, 101, 102, 103, 104, 105, 106, 107, 108, 109],
+            ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                recording.start()
+            recording.reader.join(timeout=1)
+            self.assertEqual(recording.metadata["mediaReadyAtDeviceElapsedSeconds"], 67)
+            self.assertEqual(recording.metadata["readinessProbe"], {
+                "deadlineAtMonotonic": 120,
+                "probeAttempts": 3,
+                "timeoutCount": 2,
+                "timeouts": [
+                    {"operation": "media-prefix", "probeAttempt": 1,
+                     "timeoutSeconds": 3.0, "occurredAtMonotonic": 103},
+                    {"operation": "device-clock", "probeAttempt": 2,
+                     "timeoutSeconds": 3.0, "occurredAtMonotonic": 106},
+                ],
+            })
+            self.assertNotIn("private command", json.dumps(recording.metadata))
+
+    def test_recording_start_readiness_timeout_cannot_extend_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(serial="emulator-5554", prefix=["adb", "-s", "emulator-5554"],
+                       remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (432, 960))
+
+            def command(*arguments, **_kwargs):
+                if arguments == ("exec-out", "date", "+%m-%d %H:%M:%S.000"):
+                    return subprocess.CompletedProcess([], 0, b"09-17 13:00:00.000\n")
+                if arguments == ("shell", "getprop", "ro.kernel.qemu"):
+                    return subprocess.CompletedProcess([], 0, b"1")
+                if arguments == ("shell", "pidof", "screenrecord"):
+                    return subprocess.CompletedProcess([], 0, b"")
+                if arguments[:2] == ("exec-out", "head"):
+                    raise subprocess.TimeoutExpired("adb", 3)
+                raise AssertionError(arguments)
+
+            adb.run.side_effect = command
+            process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
+            process.poll.return_value = None
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
+                "tools.android_lifecycle_runtime.run.time.monotonic",
+                side_effect=[100, 101, 102, 121, 122],
+            ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                with self.assertRaisesRegex(RuntimeFailure, "picture and device clock"):
+                    recording.start()
+            recording.reader.join(timeout=1)
+            self.assertEqual(recording.metadata["readinessProbe"]["timeoutCount"], 1)
+            self.assertEqual(recording.metadata["readinessProbe"]["probeAttempts"], 1)
+            self.assertNotIn("startedAtMonotonic", recording.metadata)
+            self.assertEqual(recording.metadata["status"], "failed")
+
+    def test_recording_start_rejects_late_success_after_readiness_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(serial="emulator-5554", prefix=["adb", "-s", "emulator-5554"],
+                       remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (432, 960))
+            picture = b"\0\0\0\0mdat\0\0\0\x05\x65abcd"
+
+            def command(*arguments, **kwargs):
+                if arguments == ("exec-out", "date", "+%m-%d %H:%M:%S.000"):
+                    return subprocess.CompletedProcess([], 0, b"09-17 13:00:00.000\n")
+                if arguments == ("shell", "getprop", "ro.kernel.qemu"):
+                    return subprocess.CompletedProcess([], 0, b"1")
+                if arguments == ("shell", "pidof", "screenrecord"):
+                    return subprocess.CompletedProcess([], 0, b"")
+                if arguments[:2] == ("exec-out", "head"):
+                    self.assertEqual(kwargs["timeout"], 1)
+                    return subprocess.CompletedProcess([], 0, picture)
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    self.assertEqual(kwargs["timeout"], 0.5)
+                    return subprocess.CompletedProcess([], 0, b"67.00 30.00\n")
+                raise AssertionError(arguments)
+
+            adb.run.side_effect = command
+            process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
+            process.poll.return_value = None
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
+                "tools.android_lifecycle_runtime.run.time.monotonic",
+                side_effect=[100, 101, 119, 119.5, 120.1],
+            ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                with self.assertRaisesRegex(RuntimeFailure, "picture and device clock"):
+                    recording.start()
+            recording.reader.join(timeout=1)
+            self.assertEqual(recording.metadata["readinessProbe"]["probeAttempts"], 1)
+            self.assertEqual(recording.metadata["readinessProbe"]["timeoutCount"], 0)
+            self.assertNotIn("startedAtMonotonic", recording.metadata)
+            self.assertNotIn("mediaReadyAtDeviceElapsedSeconds", recording.metadata)
 
     def test_recording_start_fails_on_exit_or_missing_picture_without_restarting(self):
         for early in (True, False):
@@ -552,7 +682,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process) as launch, patch(
                     "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[100, 101, 102, 121],
                 ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
-                    with self.assertRaisesRegex(RuntimeFailure, "before media|no picture"):
+                    with self.assertRaisesRegex(RuntimeFailure, "before media|picture and device clock"):
                         recording.start()
                 recording.reader.join(timeout=1)
                 launch.assert_called_once()

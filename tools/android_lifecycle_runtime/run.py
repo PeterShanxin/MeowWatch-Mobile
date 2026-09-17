@@ -274,23 +274,58 @@ class LifecycleRecording:
             self.pid = observed.get(timeout=10)
             self.metadata.update({"pid": int(self.pid), "pidObservedAtMonotonic": time.monotonic()})
             deadline = float(self.metadata["launchRequestedAtMonotonic"]) + 20
-            while time.monotonic() < deadline:
+            readiness = {"deadlineAtMonotonic": deadline, "probeAttempts": 0,
+                         "timeoutCount": 0, "timeouts": []}
+            self.metadata["readinessProbe"] = readiness
+
+            def record_readiness_timeout(operation: str, error: subprocess.TimeoutExpired) -> None:
+                occurred = time.monotonic()
+                timeout = error.timeout
+                readiness["timeoutCount"] = int(readiness["timeoutCount"]) + 1
+                readiness["timeouts"].append({
+                    "operation": operation,
+                    "probeAttempt": readiness["probeAttempts"],
+                    "timeoutSeconds": float(timeout) if timeout is not None else None,
+                    "occurredAtMonotonic": occurred,
+                })
+
+            while True:
+                probe_started = time.monotonic()
+                remaining = deadline - probe_started
+                if remaining <= 0:
+                    break
                 if self.process.poll() is not None:
                     raise RuntimeFailure("native lifecycle recorder exited before media was ready")
-                prefix = self.adb.run("exec-out", "head", "-c", "1048576", self.remote,
-                                      timeout=3, check=False)
+                readiness["probeAttempts"] = int(readiness["probeAttempts"]) + 1
+                try:
+                    prefix = self.adb.run("exec-out", "head", "-c", "1048576", self.remote,
+                                          timeout=min(3, remaining), check=False)
+                except subprocess.TimeoutExpired as error:
+                    record_readiness_timeout("media-prefix", error)
+                    continue
                 if prefix.returncode == 0 and recording_media_ready(prefix.stdout):
-                    device_elapsed = recording_device_elapsed(
-                        self.adb.run("exec-out", "cat", "/proc/uptime", timeout=3).stdout)
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        break
+                    try:
+                        clock = self.adb.run("exec-out", "cat", "/proc/uptime", timeout=min(3, remaining))
+                    except subprocess.TimeoutExpired as error:
+                        record_readiness_timeout("device-clock", error)
+                        continue
+                    device_elapsed = recording_device_elapsed(clock.stdout)
+                    accepted_at = time.monotonic()
+                    if accepted_at > deadline:
+                        break
                     if self.process.poll() is not None:
                         raise RuntimeFailure("native lifecycle recorder exited before media was ready")
-                    self.metadata.update({"status": "recording", "startedAtMonotonic": time.monotonic(),
+                    self.metadata.update({"status": "recording", "startedAtMonotonic": accepted_at,
                                           "mediaReadyAtDeviceElapsedSeconds": device_elapsed,
                                           "readiness": "complete H.264 picture NAL in native MP4 mdat"})
                     self.codec_evidence("codec-state", ("shell", "dumpsys", "media.codec"))
                     return
                 time.sleep(0.2)
-            raise RuntimeFailure("native lifecycle recorder produced no picture before the readiness deadline")
+            raise RuntimeFailure(
+                "native lifecycle recorder did not establish picture and device clock before the readiness deadline")
         except queue.Empty:
             self.metadata["status"] = "failed"
             raise RuntimeFailure("could not identify the owned lifecycle recorder") from None

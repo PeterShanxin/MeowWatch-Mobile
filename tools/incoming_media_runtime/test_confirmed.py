@@ -5,6 +5,7 @@ import subprocess
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+import xml.etree.ElementTree as ET
 
 from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure
 from tools.android_native_ui.observer import ObserverIntegrityFailure
@@ -35,7 +36,9 @@ def review(title):
 
 
 def player(position=0, *, title='trailer.mp4', playing=True):
-    return '<hierarchy>' + ''.join((node(title), node(f'0:{position:02d}'), node('0:52'),
+    body = node('', kind='android.view.View').replace('/>', '>') + ''.join((
+        node(title), node('Playing on this phone'))) + '</node>'
+    return '<hierarchy>' + ''.join((node(title), body, node(f'0:{position:02d}'), node('0:52'),
                                    node('', kind='android.widget.SeekBar'),
                                    node('Pause' if playing else 'Play', clickable=True, y=300))) + '</hierarchy>'
 
@@ -70,6 +73,58 @@ class ConfirmedPlaybackTests(unittest.TestCase):
         for invalid in (before, Playback(4, 52, False), Playback(4, 90, True)):
             with self.subTest(invalid=invalid), self.assertRaises(RuntimeFailure):
                 require_advance(before, invalid)
+
+    def test_native_tree_accepts_repeated_header_but_requires_exact_body_source(self):
+        fixture = Path(__file__).with_name('fixtures') / 'native-api35-paused-player.xml'
+        original = fixture.read_text(encoding='utf-8')
+        # This is the captured earlier native tree with the current product's
+        # header text substituted explicitly, not a new runtime capture.
+        current = original.replace('Your own screening', 'trailer.mp4')
+        self.assertEqual(current.count('content-desc="trailer.mp4"'), 2)
+        self.assertEqual(playback(current, 'trailer.mp4'), Playback(0, 52, False))
+        for mutation in ('missing-body', 'wrong-body', 'hidden-body', 'foreign-body',
+                         'duplicated-body', 'different-target', 'missing-timeline', 'duplicate-control'):
+            with self.subTest(mutation=mutation):
+                tree = ET.fromstring(current)
+                titles = [n for n in tree.iter('node') if n.get('content-desc') == 'trailer.mp4']
+                body = titles[1]
+                parent = next(n for n in tree.iter('node') if body in list(n))
+                if mutation == 'missing-body':
+                    parent.remove(body)
+                elif mutation == 'wrong-body':
+                    body.set('content-desc', 'other.mp4')
+                elif mutation == 'hidden-body':
+                    body.set('visible-to-user', 'false')
+                elif mutation == 'foreign-body':
+                    body.set('package', 'other.app')
+                elif mutation == 'duplicated-body':
+                    parent.insert(list(parent).index(body), ET.fromstring(ET.tostring(body)))
+                elif mutation == 'different-target':
+                    next(n for n in tree.iter('node') if n.get('content-desc') ==
+                         'Playing on this phone').set('content-desc', 'Playing on nearby desktop')
+                elif mutation == 'missing-timeline':
+                    next(n for n in tree.iter('node') if n.get('class') ==
+                         'android.widget.SeekBar').set('class', 'android.view.View')
+                else:
+                    control = next(n for n in tree.iter('node') if n.get('content-desc') == 'Play')
+                    tree.append(ET.fromstring(ET.tostring(control)))
+                with self.assertRaises(RuntimeFailure):
+                    playback(ET.tostring(tree, encoding='unicode'), 'trailer.mp4')
+
+    def test_rejected_complete_capture_is_retained_without_reusing_it_on_capture_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            runner = ConfirmedIntake(Adb('emulator-5554', 'confirmed-test'), Path(temporary))
+            rejected = player(title='other.mp4')
+            runner.observe = Mock(side_effect=[rejected, RuntimeFailure('root unavailable')])
+            with patch('tools.incoming_media_runtime.confirmed.time.monotonic', side_effect=[0, 0, 1, 46]), patch(
+                'tools.incoming_media_runtime.confirmed.time.sleep'
+            ), self.assertRaisesRegex(RuntimeFailure, 'timed out'):
+                runner.wait('loaded', lambda value: playback(value, 'trailer.mp4'))
+            self.assertEqual((Path(temporary) / 'loaded-last-rejected.xml').read_text(), rejected)
+            attempts = json.loads((Path(temporary) / 'loaded-wait.json').read_text())['attempts']
+            self.assertEqual(attempts[0]['rejectedXmlSha256'], hashlib.sha256(rejected.encode()).hexdigest())
+            self.assertNotIn('rejectedXmlSha256', attempts[1])
+            self.assertFalse((Path(temporary) / 'loaded.xml').exists())
 
     def test_fixed_public_download_refuses_changed_bytes_and_redirects(self):
         for url in (FIXTURE_URL, 'https://other.example/video.mp4'):

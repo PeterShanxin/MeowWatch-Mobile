@@ -99,7 +99,15 @@ This changes only the recorder output; the device display, application layout
 and original PNG screenshots retain their normal dimensions. The Pixel 6
 1080 x 2400 display records at exactly 432 x 960, without stretching.
 The runner waits for a complete H.264 picture in the MP4 media payload before
-starting UI actions. It checks the exact recorder PID and output path before
+sampling the Android `/proc/uptime` clock and starting UI actions. A single
+up-to-three-second timeout while reading either the live media prefix or that clock is
+recorded and retried only inside the original 20-second readiness deadline.
+`readinessProbe` retains the safe operation name, probe attempt, timeout limit
+and host monotonic time for every such timeout; it never retains raw command
+arguments. The deadline is not extended, and both a complete picture NAL and a
+valid device clock must both complete by that deadline. Each command timeout is
+capped by the deadline's remaining time. Other ADB and validation errors are not
+retried. It checks the exact recorder PID and output path before
 sending SIGINT, refuses an existing recorder, and transfers only its own files.
 `ffprobe` must confirm exactly one video stream with the expected dimensions;
 Android's additional metadata data streams are allowed. The video duration must

@@ -20,7 +20,7 @@ viewport coverage, not live rotation transitions; lifecycle and rotation
 recovery require separate acceptance. They also do not establish five hardware
 devices, physical density behavior, OEM layouts, or ARM decoding.
 
-## Quick-guide coverage — native execution pending
+## Quick-guide coverage
 
 The [production journey](../../integration_test/app_journey_test.dart) now
 opens the first-use quick guide before completing onboarding. It checks and
@@ -37,10 +37,22 @@ These checks add four native screenshot artifacts under each clean profile's
 
 They also add `first_use_guide_completed_name_preserved` and
 `settings_guide_replayed_and_closed` to `appJourney.verifiedSteps`. A fresh
-onboarding run is expected to produce **13 screenshots and 18 verified steps**.
-The new guide checks are **awaiting native execution and visual inspection**;
-the earlier nine-screenshot, 16-step runs do not cover them. Settings replay is
-checked from Home in this journey, not during active room playback.
+onboarding run is expected to produce **14 screenshots and 20 verified steps**
+including the sample-film checks below.
+[Run 35199455174](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35199455174)
+at `70575be` passes the guide on all five correctly oriented viewports with
+13 screenshots and 18 steps each. Native phone and landscape phone/tablet guide
+images were inspected. Settings replay is checked from Home in this journey,
+not during active room playback. That run predates the sample-picker check below.
+
+After checking Continue Watching, the journey opens the normal media chooser
+and taps **Try a short film**. It verifies the actual player data source is the
+shipped official Sintel URL, initialization is paused, and duration is 51–53
+seconds. It explicitly plays, waits for at least four seconds of native progress,
+captures `sample-film-playing.png`, and pauses through the UI. The result records
+the source, title, duration and progress in `observations.sampleVideo`. This
+picker interaction is awaiting native execution; the passing standalone
+playback smoke does not substitute for it.
 
 ## Run and collect evidence
 

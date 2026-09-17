@@ -252,13 +252,12 @@ void main() {
         await _waitForCheckpoint(tester, 'guest', 'guest-saw-play');
 
         await _tapPlayControl(tester, play: false);
-        await _waitForCondition(
+        hostPausedPosition = await _waitForSettledPause(
           tester,
-          () => !app.target.snapshot.playing,
           app,
-          'host pause',
+          observations,
+          'host-paused',
         );
-        hostPausedPosition = app.target.snapshot.position.inMilliseconds;
         await _signalCheckpoint('host-paused', value: '$hostPausedPosition');
         await _waitForCheckpoint(tester, 'guest', 'guest-saw-pause');
         await _capture(
@@ -305,7 +304,8 @@ void main() {
                       .abs() <
                   800,
           app,
-          'guest pause convergence on host',
+          'guest pause convergence on host '
+          '(expectedPositionMs=$guestPausedPosition)',
         );
         hostObservedGuestPause = app.target.snapshot.position.inMilliseconds;
         await _signalCheckpoint('host-saw-guest-pause');
@@ -345,7 +345,8 @@ void main() {
                       .abs() <
                   800,
           app,
-          'host pause convergence on guest',
+          'host pause convergence on guest '
+          '(expectedPositionMs=$hostPausedPosition)',
         );
         peerPausePosition = app.target.snapshot.position.inMilliseconds;
         await _signalCheckpoint('guest-saw-pause');
@@ -396,13 +397,12 @@ void main() {
         await _signalCheckpoint('guest-playing');
         await _waitForCheckpoint(tester, 'host', 'host-saw-guest-play');
         await _tapPlayControl(tester, play: false);
-        await _waitForCondition(
+        guestPausedPosition = await _waitForSettledPause(
           tester,
-          () => !app.target.snapshot.playing,
           app,
-          'guest pause',
+          observations,
+          'guest-paused',
         );
-        guestPausedPosition = app.target.snapshot.position.inMilliseconds;
         await _signalCheckpoint('guest-paused', value: '$guestPausedPosition');
         await _waitForCheckpoint(tester, 'host', 'host-saw-guest-pause');
       }
@@ -802,6 +802,94 @@ Future<void> _tapPlayControl(WidgetTester tester, {required bool play}) async {
     find.byTooltip('$action together'),
   ], '$action control');
   await _tap(tester, finder, '$action through production controls');
+}
+
+Future<int> _waitForSettledPause(
+  WidgetTester tester,
+  AppController app,
+  List<Map<String, Object?>> observations,
+  String checkpoint,
+) async {
+  const positionToleranceMs = 350;
+  const stableInterval = Duration(milliseconds: 800);
+  const totalDeadline = Duration(seconds: 45);
+  final totalClock = Stopwatch()..start();
+  Stopwatch? stableClock;
+  int? minimumPositionMs;
+  int? maximumPositionMs;
+  var stableSamples = 0;
+  final recentSamples = <Map<String, Object?>>[];
+
+  while (totalClock.elapsed < totalDeadline) {
+    final snapshot = app.target.snapshot;
+    final positionMs = snapshot.position.inMilliseconds;
+    final playRequested = app.playRequested;
+    final minimum = minimumPositionMs == null || positionMs < minimumPositionMs
+        ? positionMs
+        : minimumPositionMs;
+    final maximum = maximumPositionMs == null || positionMs > maximumPositionMs
+        ? positionMs
+        : maximumPositionMs;
+    final paused =
+        snapshot.ready &&
+        !snapshot.buffering &&
+        !snapshot.playing &&
+        !playRequested;
+    recentSamples.add(<String, Object?>{
+      'elapsedMs': totalClock.elapsed.inMilliseconds,
+      'positionMs': positionMs,
+      'playing': snapshot.playing,
+      'playRequested': playRequested,
+      'buffering': snapshot.buffering,
+    });
+    if (recentSamples.length > 16) recentSamples.removeAt(0);
+
+    if (paused && maximum - minimum < positionToleranceMs) {
+      stableClock ??= Stopwatch()..start();
+      minimumPositionMs = minimum;
+      maximumPositionMs = maximum;
+      stableSamples++;
+      // video_player clears isPlaying before native pause completes, and an
+      // in-flight position query can arrive later. Publish the immutable test
+      // checkpoint only after accepted pause intent and nine live observations.
+      if (stableClock.elapsed >= stableInterval && stableSamples >= 9) {
+        final observation = <String, Object?>{
+          'stage': 'pause-checkpoint-settled',
+          'checkpoint': checkpoint,
+          'role': _role,
+          'atUtc': DateTime.now().toUtc().toIso8601String(),
+          'positionMs': positionMs,
+          'settleElapsedMs': totalClock.elapsed.inMilliseconds,
+          'stableElapsedMs': stableClock.elapsed.inMilliseconds,
+          'stableSamples': stableSamples,
+          'stablePositionRangeMs': maximum - minimum,
+          'samples': List<Map<String, Object?>>.of(recentSamples),
+        };
+        observations.add(observation);
+        debugPrint(
+          'PRODUCTION_TOGETHER_PAUSE_SETTLED ${jsonEncode(observation)}',
+        );
+        return positionMs;
+      }
+    } else {
+      stableClock?.stop();
+      stableClock = null;
+      minimumPositionMs = null;
+      maximumPositionMs = null;
+      stableSamples = 0;
+    }
+    await tester.pump(const Duration(milliseconds: 100));
+  }
+
+  final snapshot = app.target.snapshot;
+  throw TestFailure(
+    '$_role pause checkpoint $checkpoint did not settle within '
+    '${totalDeadline.inSeconds}s; playing=${snapshot.playing}, '
+    'playRequested=${app.playRequested}, ready=${snapshot.ready}, '
+    'buffering=${snapshot.buffering}, positionMs=${snapshot.position.inMilliseconds}, '
+    'stableElapsedMs=${stableClock?.elapsed.inMilliseconds ?? 0}, '
+    'stableSamples=$stableSamples, samples=${jsonEncode(recentSamples)}',
+  );
 }
 
 Future<int> _seekThroughUi(

@@ -41,7 +41,7 @@ The Flutter repository declares this 1.3 MB asset CC0. Keeping the sample small
 reduces CI network exposure while still exercising Android's real media stack,
 network data source, decoder, texture, and player controls.
 
-### Shipped sample check — native execution pending
+### Shipped sample check
 
 After the bee playback/reopen checks, the
 [`integration test`](../integration_test/playback_smoke_test.dart) now loads
@@ -57,9 +57,12 @@ and seeks to 10 seconds with the existing 800 ms tolerance. The `shippedSample`
 entry in `result.json` records the URL, title, duration, decoded dimensions,
 advanced/seek positions and screenshot name separately from the bee result.
 
-This addition is **awaiting native execution and visual inspection**. Earlier
-passing bee recordings do not establish Sintel playback or the production
-picker interaction; this smoke loads the same media item directly.
+[Run 35199455129](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35199455129)
+passes on an API 35 x86_64 emulator at `70575be`: the trailer decodes at
+854 × 480, reports 52,209 ms, advances to 1,175 ms and seeks to 10,000 ms.
+The native screenshot was inspected and shows the trailer's opening mountain
+scene. This smoke loads the media item directly; the separate production
+journey's new picker-tap check still needs fresh native execution.
 
 ## Run it on an Android device or emulator
 

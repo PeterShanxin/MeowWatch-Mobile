@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
+import 'package:meowwatch_mobile/core/media/sample_video.dart';
 import 'package:meowwatch_mobile/main.dart';
 import 'package:video_player/video_player.dart';
 
@@ -293,6 +294,66 @@ void main() {
         'continue-resumed',
       );
       verified.add('continue_watching_resumed');
+
+      await _tap(
+        tester,
+        find.widgetWithText(TextButton, 'Video'),
+        'open sample film chooser',
+      );
+      await _tap(
+        tester,
+        find.byKey(const Key('open-sample-video')),
+        'choose the shipped sample film',
+      );
+      await _waitForCondition(
+        tester,
+        () {
+          final players = tester.widgetList<VideoPlayer>(
+            find.byType(VideoPlayer),
+          );
+          return players.length == 1 &&
+              players.single.controller.dataSource == sampleVideoUrl &&
+              players.single.controller.value.isInitialized;
+        },
+        'sample URL initialized through the normal media chooser',
+        timeout: const Duration(seconds: 70),
+      );
+      final samplePlayer = tester
+          .widget<VideoPlayer>(find.byType(VideoPlayer))
+          .controller;
+      expect(samplePlayer.value.isPlaying, isFalse);
+      expect(
+        samplePlayer.value.duration.inMilliseconds,
+        inInclusiveRange(51000, 53000),
+      );
+      verified.add('sample_picker_loaded_official_trailer_paused');
+      await _tap(tester, find.byTooltip('Play'), 'play the sample film');
+      await _waitForCondition(
+        tester,
+        () => samplePlayer.value.position.inMilliseconds >= 4000,
+        'sample film advances after explicit play',
+        timeout: const Duration(seconds: 20),
+      );
+      observations['sampleVideo'] = <String, Object>{
+        'url': samplePlayer.dataSource,
+        'title': sampleVideoTitle,
+        'durationMs': samplePlayer.value.duration.inMilliseconds,
+        'advancedPositionMs': samplePlayer.value.position.inMilliseconds,
+        'startedPaused': true,
+      };
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'sample-film-playing',
+      );
+      await _tap(tester, find.byTooltip('Pause'), 'pause the sample film');
+      await _waitForCondition(
+        tester,
+        () => !samplePlayer.value.isPlaying,
+        'sample film pauses after the UI action',
+      );
+      verified.add('sample_film_played_and_paused_via_ui');
 
       await _tap(
         tester,

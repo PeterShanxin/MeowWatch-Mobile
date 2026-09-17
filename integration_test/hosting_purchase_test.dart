@@ -395,6 +395,7 @@ Future<void> _until(
       throw TestFailure(
         '$stage timed out: connected=${host.app.isConnected}, '
         'peers=${host.app.peers.length}, playing=${host.target.snapshot.playing}, '
+        'playRequested=${host.app.playRequested}, '
         'buffering=${host.target.snapshot.buffering}, '
         'position=${host.target.snapshot.position}, error=${host.app.message}, '
         'peerPlaying=${peer?.target.snapshot.playing}, '
@@ -410,7 +411,7 @@ Future<void> _until(
 }
 
 Future<void> _playTogether(WidgetTester tester, _Host host, _Peer peer) async {
-  if (host.target.snapshot.playing) await host.app.togglePlay();
+  if (host.app.playRequested) await host.app.togglePlay();
   await host.app.seek(Duration.zero);
   await _until(
     tester,
@@ -456,7 +457,11 @@ Future<void> _playTogether(WidgetTester tester, _Host host, _Peer peer) async {
 }
 
 Future<void> _pauseTogether(WidgetTester tester, _Host host, _Peer peer) async {
-  if (host.target.snapshot.playing) await host.app.togglePlay();
+  // Native isPlaying can be false during buffering while the room still plays.
+  debugPrint(
+    'HOSTING_PAUSE ${jsonEncode({'playRequested': host.app.playRequested, 'nativePlaying': host.target.snapshot.playing, 'buffering': host.target.snapshot.buffering, 'peerPlaying': peer.target.snapshot.playing, 'peerBuffering': peer.target.snapshot.buffering})}',
+  );
+  if (host.app.playRequested) await host.app.togglePlay();
   await _until(
     tester,
     () => !host.target.snapshot.playing && !peer.target.snapshot.playing,

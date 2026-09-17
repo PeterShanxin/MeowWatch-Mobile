@@ -38,6 +38,8 @@ const _pollInterval = Duration(milliseconds: 150);
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  // Keep the real app drawing while the two drivers await peer checkpoints.
+  binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
 
   testWidgets(
     'production UI keeps two real Android players together',
@@ -810,6 +812,7 @@ void main() {
       final logicalSize = view.physicalSize / view.devicePixelRatio;
       binding.reportData ??= <String, dynamic>{};
       binding.reportData!['productionTogether'] = <String, Object?>{
+        'framePolicy': binding.framePolicy.name,
         'result': 'passed',
         'role': _role,
         'entryRoute': isHost ? 'start-room-button' : 'join-room-sheet',

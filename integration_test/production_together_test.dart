@@ -15,6 +15,8 @@ import 'package:meowwatch_mobile/main.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
+import '../tools/production_together/json_request.dart';
+
 const _role = String.fromEnvironment('TOGETHER_ROLE', defaultValue: 'host');
 const _runId = String.fromEnvironment('TOGETHER_ROOM');
 const _server = String.fromEnvironment(
@@ -480,15 +482,11 @@ Future<void> _publishInvite(String invite) async {
     while (stopwatch.elapsed < const Duration(seconds: 30)) {
       try {
         final request = await client.putUrl(endpoint);
-        request.headers.contentType = ContentType.json;
-        request.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
-        request.write(
-          jsonEncode(<String, String>{
-            'runId': _runId,
-            'invite': invite,
-            'publishedAtUtc': DateTime.now().toUtc().toIso8601String(),
-          }),
-        );
+        writeFixtureJson(request, <String, Object?>{
+          'runId': _runId,
+          'invite': invite,
+          'publishedAtUtc': DateTime.now().toUtc().toIso8601String(),
+        });
         final response = await request.close().timeout(
           const Duration(seconds: 5),
         );
@@ -573,16 +571,12 @@ Future<void> _signalCheckpoint(String checkpoint, {String? value}) async {
     while (stopwatch.elapsed < const Duration(seconds: 30)) {
       try {
         final request = await client.putUrl(endpoint);
-        request.headers.contentType = ContentType.json;
-        request.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
-        request.write(
-          jsonEncode(<String, Object?>{
-            'runId': _runId,
-            'role': _role,
-            'checkpoint': checkpoint,
-            'value': value,
-          }),
-        );
+        writeFixtureJson(request, <String, Object?>{
+          'runId': _runId,
+          'role': _role,
+          'checkpoint': checkpoint,
+          'value': value,
+        });
         final response = await request.close().timeout(
           const Duration(seconds: 5),
         );

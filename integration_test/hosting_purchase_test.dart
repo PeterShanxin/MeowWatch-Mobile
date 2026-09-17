@@ -21,8 +21,6 @@ import 'package:path_provider/path_provider.dart';
 import 'package:purchases_flutter/purchases_flutter.dart'
     show Purchases, PurchasesErrorCode;
 import 'package:video_player/video_player.dart';
-import 'package:video_player_platform_interface/video_player_platform_interface.dart'
-    show VideoPlayerPlatform;
 
 const _apiKey = String.fromEnvironment('REVENUECAT_API_KEY');
 const _server = String.fromEnvironment(
@@ -58,23 +56,18 @@ void main() {
       final hosts = <_Host>[];
       final peers = <_Peer>[];
       addTearDown(() async {
-        try {
-          for (final peer in peers.reversed) {
-            await peer.close();
-          }
-          for (final host in hosts.reversed) {
-            await host.app.close();
-          }
-        } finally {
-          await VideoPlayerPlatform.instance.setMixWithOthers(false);
+        for (final peer in peers.reversed) {
+          await peer.close();
+        }
+        for (final host in hosts.reversed) {
+          await host.app.close();
         }
       });
 
       // This harness puts two Android players on one audio-focus manager.
-      // Otherwise the guest steals the host's focus and pauses it; two phones
-      // do not share that manager. Set this before native player creation and
-      // leave the production target's exclusive-audio policy unchanged.
-      await VideoPlayerPlatform.instance.setMixWithOthers(true);
+      // Each target below explicitly mixes audio: controller initialization
+      // reapplies its options, overwriting an earlier platform-wide setting.
+      // Separate phones retain the production target's exclusive-audio policy.
 
       final verified = <String>[];
       final observations = <Map<String, Object?>>[];
@@ -83,7 +76,8 @@ void main() {
         'mode': 'hosting_purchase',
         'runtime':
             'Android; two native video targets and two TLS clients in one process',
-        'audioFocus': 'mixWithOthers=true for same-process decoder coexistence',
+        'audioFocus':
+            'mixWithOthers=true on each target for same-process decoder coexistence',
         'server': '$_server:$_port',
         'video': _video,
         'startedAtUtc': started.toUtc().toIso8601String(),
@@ -476,8 +470,8 @@ Future<void> _verifyDecoderCoexistence(
   WidgetTester tester,
   Map<String, Object?> evidence,
 ) async {
-  final first = LocalMobileTarget();
-  final second = LocalMobileTarget();
+  final first = LocalMobileTarget(mixWithOthers: true);
+  final second = LocalMobileTarget(mixWithOthers: true);
   final elapsed = Stopwatch()..start();
   final transitions = <Map<String, Object?>>[];
   evidence['transitions'] = transitions;
@@ -657,7 +651,7 @@ class _Host {
     final repository = AppRepository(File('${root.path}/history.json'));
     await repository.read();
     final billing = RevenueCatBillingService(apiKey: _apiKey);
-    final target = LocalMobileTarget();
+    final target = LocalMobileTarget(mixWithOthers: true);
     final file = File('${root.path}/quota.json');
     final quota = LocalHostingAccessPolicy(
       store: FileHostingQuotaStore(file),
@@ -703,7 +697,7 @@ class _Peer {
 
   static Future<_Peer> open(RoomConfig config, MediaItem media) async {
     final sync = SyncplayClient();
-    final target = LocalMobileTarget();
+    final target = LocalMobileTarget(mixWithOthers: true);
     final errors = <String>[];
     final bridge = PlaybackSyncBridge(
       target: target,

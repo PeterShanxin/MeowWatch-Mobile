@@ -219,7 +219,13 @@ class Runner:
                 time.sleep(0.3)
         raise RuntimeFailure(f"{phase}: {last_error}")
 
-    def sample(self, phase: str, *, playing: bool) -> tuple[str, Playback]:
+    def sample(
+        self,
+        phase: str,
+        *,
+        playing: bool,
+        screenshot: bool = True,
+    ) -> tuple[str, Playback]:
         def check(xml: str) -> Playback:
             state = playback(xml)
             if state.playing != playing:
@@ -227,7 +233,8 @@ class Runner:
             return state
         xml, state = self.wait(phase, check)
         self.samples.append({"phase": phase, "observedAtMonotonic": time.monotonic(), **asdict(state)})
-        self.output.joinpath(f"{phase}.png").write_bytes(self.adb.screenshot())
+        if screenshot:
+            self.output.joinpath(f"{phase}.png").write_bytes(self.adb.screenshot())
         return xml, state
 
     def launch_main(self) -> None:
@@ -269,7 +276,24 @@ class Runner:
         self.output.joinpath("01-fixture-review.png").write_bytes(self.adb.screenshot())
         self.tap(button(xml, "Open video"))
 
-    def go_home(self) -> float:
+    def go_home(
+        self,
+        *,
+        pre_home_phase: str | None = None,
+        playing: bool | None = None,
+    ) -> tuple[float, Playback | None]:
+        if (pre_home_phase is None) != (playing is None):
+            raise ValueError("pre-HOME phase and expected playback state must be provided together")
+        pre_home = None
+        if pre_home_phase is not None:
+            # A screenshot can take several seconds to transfer on a hosted AVD.
+            # Refresh the accessible timeline after prior evidence capture, then
+            # send HOME without another screenshot between the two operations.
+            _, pre_home = self.sample(
+                pre_home_phase,
+                playing=playing,
+                screenshot=False,
+            )
         self.adb.run("shell", "input", "keyevent", "KEYCODE_HOME")
         started = time.monotonic()
         time.sleep(8)
@@ -278,7 +302,7 @@ class Runner:
         if len(focus) != 1 or PACKAGE in focus[0] or "launcher" not in focus[0].lower():
             raise RuntimeFailure("HOME did not put an Android launcher in the foreground")
         self.output.joinpath(f"{self.phase}-home.png").write_bytes(self.adb.screenshot())
-        return time.monotonic() - started
+        return time.monotonic() - started, pre_home
 
     def run(self) -> dict[str, object]:
         report = self.prepare()
@@ -292,12 +316,16 @@ class Runner:
         before_home_pid = self.pid()
         if not before_home_pid:
             raise RuntimeFailure("playing process is absent")
-        background_seconds = self.go_home()
+        background_seconds, pre_home = self.go_home(
+            pre_home_phase="04-pre-home-playing",
+            playing=True,
+        )
+        assert pre_home is not None
         if self.pid() != before_home_pid:
             raise RuntimeFailure("HOME destroyed the process before foreground-resume testing")
         self.launch_main()
         _, foreground = self.sample("05-foreground-paused", playing=False)
-        require_background_pause(advanced, foreground, background_seconds)
+        require_background_pause(pre_home, foreground, background_seconds)
         time.sleep(4)
         xml, stable = self.sample("06-no-autoplay", playing=False)
         require_paused_stability(foreground, stable)
@@ -335,7 +363,8 @@ class Runner:
             "completed": True,
             "initialPlayAdvanceSeconds": first_advance,
             "homeHoldSeconds": background_seconds,
-            "homePositionAdvanceSeconds": foreground.position_seconds - advanced.position_seconds,
+            "preHomePositionSeconds": pre_home.position_seconds,
+            "homePositionAdvanceSeconds": foreground.position_seconds - pre_home.position_seconds,
             "explicitReplayAdvanceSeconds": replay_advance,
             "pausedAfterForeground": True,
             "noAutoplayAfterForeground": True,

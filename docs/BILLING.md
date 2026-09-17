@@ -38,6 +38,15 @@ subscription period come from each `Package.storeProduct`. It uses
 The SDK manages the anonymous app user identity until account integration is
 added. Do not invent a user ID or call logout on every launch.
 
+The bundled Android SDK 10.20.0 implements Test Store `restorePurchases()` as
+a current-customer information query, without consulting Google Play purchase
+history. The production purchase rehearsal invalidates CustomerInfo cache
+immediately before Settings Restore and verifies the same active customer.
+This proves a real SDK restore query, not recovery after uninstall or loss of
+anonymous identity. Those are separate platform-store acceptance checks. See
+the [SDK restore implementation](https://github.com/RevenueCat/purchases-android/blob/10.20.0/purchases/src/main/kotlin/com/revenuecat/purchases/PurchasesOrchestrator.kt#L755)
+and [RevenueCat identity guidance](https://www.revenuecat.com/docs/customers/identifying-customers).
+
 ## Application integration
 
 Create one billing service and one allowance policy for the app lifetime:
@@ -69,7 +78,9 @@ persist a second, potentially divergent Plus flag.
 `BillingResult`. Handle `success`, `cancelled`, `failure`, and `unavailable`
 explicitly. A successful operation is **not** proof of Plus: recheck `isPlus`,
 which requires active `meowwatch_plus` in SDK customer information. A restore may
-succeed with no entitlement. Cancellation/failure never changes room identity
+succeed with no entitlement. Settings reports the result of the requested restore
+operation even if a cached entitlement remains active; cached Plus must not mask
+a network or store failure. Cancellation/failure never changes room identity
 or quota and never grants access. Simultaneous purchase operations are rejected.
 
 Keep guest joining independent of allowance checks. For a new hosted room, call

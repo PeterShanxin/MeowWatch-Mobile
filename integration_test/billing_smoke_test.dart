@@ -212,6 +212,11 @@ void main() {
           evidence['expirationDate'] = expired.expirationDate;
         }
 
+        // Test Store restore resolves customer info rather than replaying a
+        // platform transaction. Invalidate immediately before the SDK call so
+        // this assertion cannot pass from the process's persisted memory cache.
+        await Purchases.invalidateCustomerInfoCache().timeout(_networkTimeout);
+        verified.add('restore_cache_invalidated');
         _expectSuccess(
           await billing.restore().timeout(_networkTimeout),
           'restore in $_mode state',

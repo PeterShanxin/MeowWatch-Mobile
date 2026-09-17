@@ -102,6 +102,39 @@ carry the original `REVENUECAT_EXPECT_CUSTOMER_HASH`, described in
 separate process-stop evidence. The runner does not prove Google Play billing,
 the production paywall UI, or cross-device identity recovery.
 
+## Process relaunch journey
+
+`run_relaunch_journey.py` closes the missing process boundary in one bounded
+Test Store run. It drives the real matrix APK with the guarded native dialogs,
+captures only the SHA-256 customer identity, records the exact running Android
+PID, force-stops the package and waits for that PID to disappear. It then builds
+the relaunch mode incrementally with the same customer hash, starts a distinct
+process without clearing or uninstalling app data, and requires the real SDK to
+load active Plus. Immediately before restore, the integration test invalidates
+RevenueCat customer-info cache; Test Store restore then performs its documented
+customer-info query and must keep Plus active for the same hashed customer.
+
+The runner records both APK hashes and both PIDs. This proves same-customer SDK
+entitlement and restore behavior across an Android process relaunch and a
+replacement debug APK install. It does not prove uninstall/reinstall recovery,
+lost anonymous identity recovery, Google Play restore, or a physical device.
+No Test Store expiry wait is part of this gate.
+
+The standalone `billing-relaunch.yml` workflow builds the matrix APK before
+starting its API 35 emulator, then runs:
+
+```sh
+REVENUECAT_TEST_STORE_KEY=test_... \
+python3 tools/billing_runtime/run_relaunch_journey.py \
+  --serial emulator-5554 \
+  --matrix-apk build/app/outputs/flutter-apk/app-debug.apk
+```
+
+Artifacts are written under `build/billing-relaunch-artifacts/<run-id>/`.
+The nested matrix/relaunch driver results remain under
+`build/billing-runtime-artifacts/`; neither surface contains the raw RevenueCat
+customer identifier.
+
 ## Test the guard without a device
 
 ```powershell

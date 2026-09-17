@@ -9,10 +9,20 @@ recording_pid_file="$recording_control_dir/remote-pid"
 recording_failure_file="$recording_control_dir/failed"
 remote_recording_dir="/sdcard/meowwatch-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
 mkdir -p "$recording_dir" "$recording_control_dir"
-adb shell mkdir -p "$remote_recording_dir" \
-  >> "$artifact_dir/screenrecord.log" 2>&1
-if [ "$?" -ne 0 ]; then
-  echo "Could not create the owned Android recording directory." \
+storage_ready=0
+# sys.boot_completed can precede the emulated user's /sdcard mount.
+storage_deadline=$((SECONDS + 20))
+while (( SECONDS < storage_deadline )); do
+  if timeout --signal=TERM --kill-after=2s 3s \
+      adb shell mkdir -p "$remote_recording_dir" \
+      >> "$artifact_dir/screenrecord.log" 2>&1; then
+    storage_ready=1
+    break
+  fi
+  sleep 0.5
+done
+if [ "$storage_ready" -ne 1 ]; then
+  echo "Android shared storage did not become writable during the readiness window." \
     >> "$artifact_dir/screenrecord.log"
   touch "$recording_failure_file"
 fi
@@ -69,7 +79,9 @@ record_screen_segments() {
 
 adb logcat -c
 existing_recorder=$(adb shell pidof screenrecord 2>/dev/null | tr -d '\r\n')
-if [ -n "$existing_recorder" ]; then
+if [ "$storage_ready" -ne 1 ]; then
+  recorder_loop_pid=''
+elif [ -n "$existing_recorder" ]; then
   echo "Refusing to interfere with existing screenrecord PID(s): $existing_recorder" \
     >> "$artifact_dir/screenrecord.log"
   touch "$recording_failure_file"

@@ -72,6 +72,7 @@ class TestBilling extends ChangeNotifier implements BillingService {
   BillingStatus purchaseStatus;
   bool grantOnPurchase = true;
   bool grantOnRestore = false;
+  BillingResult restoreResult = const BillingResult(BillingStatus.success);
   int configureCalls = 0;
   int refreshCalls = 0;
   int purchaseCalls = 0;
@@ -144,8 +145,8 @@ class TestBilling extends ChangeNotifier implements BillingService {
   @override
   Future<BillingResult> restore() async {
     restoreCalls++;
-    if (grantOnRestore) plus = true;
-    _lastResult = const BillingResult(BillingStatus.success);
+    if (grantOnRestore && restoreResult.succeeded) plus = true;
+    _lastResult = restoreResult;
     notifyListeners();
     return _lastResult!;
   }

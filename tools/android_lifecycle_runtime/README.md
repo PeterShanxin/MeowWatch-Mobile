@@ -20,11 +20,13 @@ whose ownership the existing server helper verifies.
 2. Observe the fixture name, native-accessible player timeline, 90-second duration,
    and paused controls. Explicitly press **Play**. Two UI observations must show
    increasing elapsed time, by at least two displayed seconds.
-3. Send the actual Android HOME key. Require an Android launcher to have focus for
-   an eight-second hold, retaining the same application PID. Foreground the app.
-   It must be paused and its position may advance by at most four displayed
-   seconds from the last playing observation. This permits ADB/UI capture latency
-   while rejecting playback that continued for the full background hold.
+3. After saving the playing screenshot, refresh the actual accessible timeline
+   and send the Android HOME key without another screenshot transfer in between.
+   Require an Android launcher to have focus for an eight-second hold, retaining
+   the same application PID. Foreground the app. It must be paused and its
+   position may advance by at most four displayed seconds from that immediate
+   pre-HOME observation. This permits ADB/UI capture and lifecycle dispatch
+   latency while rejecting playback that continued for the full background hold.
 4. Observe again after four seconds: still paused, position stable within one
    displayed second. Explicitly press **Play**, then prove progress again.
 5. Pause at a nonzero position of at least eight seconds. Send HOME to trigger

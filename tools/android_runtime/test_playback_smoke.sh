@@ -26,6 +26,16 @@ if [[ "${1:-}" == shell ]]; then
   case "${1:-}" in
     mkdir)
       remote="${*: -1}"
+      attempts=0
+      if [[ -f "$FAKE_ANDROID_STORAGE/mkdir-attempts" ]]; then
+        attempts=$(cat "$FAKE_ANDROID_STORAGE/mkdir-attempts")
+      fi
+      attempts=$((attempts + 1))
+      printf '%s' "$attempts" > "$FAKE_ANDROID_STORAGE/mkdir-attempts"
+      if (( attempts < 3 )); then
+        echo "mkdir: '$remote': No such file or directory" >&2
+        exit 1
+      fi
       mkdir -p "$(device_path "$remote")"
       ;;
     pidof)
@@ -105,6 +115,7 @@ grep -Fq \
   'shell screenrecord --bit-rate 4000000 --time-limit 170 /sdcard/meowwatch-runtime-123456-2/playback-smoke-000.mp4' \
   "$test_root/adb.log"
 test ! -e "$test_root/device/sdcard/meowwatch-runtime-123456-2"
+test "$(cat "$test_root/device/mkdir-attempts")" -eq 3
 grep -Fq $'flutter_drive_exit\t0' \
   "$test_root/build/android-runtime-artifacts/exit-codes.tsv"
 grep -Fq $'screenrecord_files\t1' \

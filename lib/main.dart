@@ -139,6 +139,11 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
       }
       _app = app;
       app.addListener(_changed);
+      final lifecycle = WidgetsBinding.instance.lifecycleState;
+      if (lifecycle == AppLifecycleState.paused ||
+          lifecycle == AppLifecycleState.hidden) {
+        unawaited(_run(app.background));
+      }
       setState(() => _loadError = null);
       _scheduleIncomingDrain();
       if (widget.controller == null) unawaited(app.billing.configure());
@@ -530,10 +535,11 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     if (state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
       unawaited(_run(app.background));
-    } else if (state == AppLifecycleState.resumed &&
-        app.billing.isConfigured &&
-        !app.billing.isBusy) {
-      unawaited(app.billing.refresh());
+    } else if (state == AppLifecycleState.resumed) {
+      app.foreground();
+      if (app.billing.isConfigured && !app.billing.isBusy) {
+        unawaited(app.billing.refresh());
+      }
     }
   }
 

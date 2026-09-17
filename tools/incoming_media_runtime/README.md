@@ -2,7 +2,7 @@
 
 This runner exercises the **normal installed Android app**, not a Flutter integration-test entrypoint. It reproduces the cold-start boundary where `FlutterFragmentActivity` may configure the engine after `MainActivity.onCreate` returns.
 
-Use a dedicated Android emulator with the normal MeowWatch APK installed. The runner explicitly force-stops this package before each cold case, verifies that no app process exists, then delivers an Android intent directly to the exported production activity. It can finish first-run onboarding using the default local profile; it never presses **Open video**.
+Use a dedicated Android emulator with the normal MeowWatch APK installed. The runner explicitly force-stops this package before each cold case, verifies that no app process exists, then delivers an Android intent directly to the exported production activity. It can finish first-run onboarding using the default local profile; it never presses **Open video** or **Join this room**.
 
 ```sh
 python3 -m tools.incoming_media_runtime.run \
@@ -12,13 +12,14 @@ python3 -m tools.incoming_media_runtime.run \
 
 `--apk` records the supplied file's hash only; it neither installs nor proves that this file matches the installed package. The host workflow should install that exact APK first and retain installation evidence. Output goes to an initially empty `build/incoming-media-runtime-artifacts` directory by default.
 
-The four cases are cold `ACTION_SEND`, warm `ACTION_SEND`, warm `ACTION_VIEW`, and cold `ACTION_VIEW`. Each uses a distinct fixed `https://example.invalid/...mp4` fixture. The runner requires:
+Four media cases cover cold `ACTION_SEND`, warm `ACTION_SEND`, warm `ACTION_VIEW`, and cold `ACTION_VIEW`. Each uses a distinct fixed `https://example.invalid/...mp4` fixture. Three invitation cases cover cold/warm `meowwatch://join` VIEW delivery through `app_links` and a warm SEND text invitation through the media bridge. Each invitation has its own room and an explicitly reviewed server/port; no join command is issued. The runner requires:
 
 - an actually absent process immediately before cold launch;
 - the same application process before and after each warm intent;
 - the production **Open shared video?** dialog with the exact expected filename and both Cancel/Open actions;
 - the dialog remaining present until an explicit choice;
 - Cancel dismissing the dialog without another copy appearing;
+- invitation review showing the exact room, server and explicit Join action, with Android Back dismissing it without a duplicate;
 - valid native screenshots, native accessibility XML, actual emulator model/API/ABI and installed package metadata.
 
 The runner refuses physical-device serials and does not clear application data or install/uninstall packages. It stops the tested application and removes only its own remote evidence files when finished. Do not use an emulator that another task is actively operating.

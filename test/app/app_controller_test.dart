@@ -59,6 +59,15 @@ class ControlledClient extends SyncplayClient {
   bool dialed = false;
   int changes = 0;
   String? receivedPassword;
+  String? receivedServer;
+  int? receivedPort;
+  String? joinError;
+
+  void peer(PeerPlayState state) {
+    lastObservedRoomState = state;
+    emitPeerState(state);
+  }
+
   @override
   Future<String?> connectUntilJoin({
     required String server,
@@ -70,6 +79,9 @@ class ControlledClient extends SyncplayClient {
   }) async {
     dialed = true;
     receivedPassword = password;
+    receivedServer = server;
+    receivedPort = port;
+    if (joinError != null) return joinError;
     if (joinGate != null) await joinGate!.future;
     joined?.call();
     emitConnectionState(
@@ -125,12 +137,14 @@ void main() {
   late ControlledQuota quota;
   late SyncTestTarget target;
   late ControlledClient client;
+  ControlledClient Function()? clientFactory;
   var clientsCreated = 0;
   setUp(() {
     repository = ControlledRepository();
     quota = ControlledQuota();
     target = SyncTestTarget();
     client = ControlledClient();
+    clientFactory = null;
     clientsCreated = 0;
     app = AppController(
       repository: repository,
@@ -140,7 +154,7 @@ void main() {
       endpointSettings: MemoryEndpointSettings(),
       createSyncClient: () {
         clientsCreated++;
-        return client;
+        return clientFactory?.call() ?? client;
       },
     );
   });
@@ -181,6 +195,139 @@ void main() {
     expect(target.commands.skip(before), ['pause']);
     expect(app.playRequested, isFalse);
   });
+
+  test(
+    'background phone ignores remote play until visible Play action',
+    () async {
+      await app.load(media);
+      expect(await app.connect(ticket), isTrue);
+      await app.togglePlay();
+      await app.background();
+      final starts = quota.starts;
+      target.commands.clear();
+      const peerPlay = PeerPlayState(
+        position: Duration(seconds: 12),
+        paused: false,
+        setBy: 'Peer',
+      );
+      client.peer(peerPlay);
+      await until(() => target.commands.isNotEmpty);
+      expect(target.commands, isNot(contains('play')));
+      expect(target.snapshot.playing, isFalse);
+      expect(quota.starts, starts);
+      await app.togglePlay();
+      expect(target.snapshot.playing, isFalse);
+      app.foreground();
+      target.commands.clear();
+      client.peer(peerPlay);
+      await until(() => target.commands.isNotEmpty);
+      expect(target.commands, isNot(contains('play')));
+      expect(quota.starts, starts);
+      await app.togglePlay();
+      expect(target.snapshot.playing, isTrue);
+      expect(app.isConnected, isTrue);
+    },
+  );
+
+  test('background cancels peer play waiting on a native seek', () async {
+    await app.load(media);
+    expect(await app.connect(ticket), isTrue);
+    final gate = target.seekGate = Completer<void>();
+    target.commands.clear();
+    client.peer(
+      const PeerPlayState(
+        position: Duration(seconds: 18),
+        paused: false,
+        setBy: 'Peer',
+      ),
+    );
+    await until(() => target.commands.contains('seek:18000'));
+    final backgrounding = app.background();
+    gate.complete();
+    await backgrounding;
+    expect(target.commands, isNot(contains('play')));
+    expect(target.snapshot.playing, isFalse);
+  });
+
+  test('late quota authorization cannot restart a background phone', () async {
+    await app.load(media);
+    expect(await app.connect(ticket), isTrue);
+    quota.startGate = Completer<SessionStartResult>();
+    target.commands.clear();
+    client.peer(
+      const PeerPlayState(
+        position: Duration(seconds: 18),
+        paused: false,
+        setBy: 'Peer',
+      ),
+    );
+    await until(() => quota.starts == 1);
+    await app.background();
+    app.foreground();
+    quota.startGate!.complete(SessionStartResult.freeStarted);
+    await Future<void>.delayed(Duration.zero);
+    expect(target.commands, isNot(contains('play')));
+    expect(target.snapshot.playing, isFalse);
+    expect(app.isConnected, isTrue);
+  });
+
+  test(
+    'resumed load completing after HOME stays paused after foreground',
+    () async {
+      client.lastObservedRoomState = const PeerPlayState(
+        position: Duration(seconds: 40),
+        paused: false,
+        setBy: 'Peer',
+      );
+      final gate = target.loadGate = Completer<void>();
+      final resuming = app.resume(pastNight());
+      await until(
+        () => target.snapshot.media != null && !target.snapshot.ready,
+      );
+      await app.background();
+      app.foreground();
+      gate.complete();
+      await resuming;
+      expect(target.snapshot.ready, isTrue);
+      expect(target.commands, isNot(contains('play')));
+      expect(target.snapshot.playing, isFalse);
+      expect(quota.starts, 0);
+      await app.togglePlay();
+      expect(target.snapshot.playing, isTrue);
+    },
+  );
+
+  test(
+    'history pins room A after a later new room falls back to server B',
+    () async {
+      final attempts = <ControlledClient>[];
+      clientFactory = () {
+        final next = ControlledClient();
+        if (attempts.length == 1) next.joinError = 'Endpoint unavailable';
+        attempts.add(next);
+        return next;
+      };
+      expect(await app.createRoom(), isTrue);
+      await app.load(media);
+      final first = repository.history.first;
+      expect(first.room!.config.port, 8995);
+      expect(first.room!.config.endpointPolicy, SyncplayEndpointPolicy.pinned);
+      expect(await app.createRoom(), isTrue);
+      expect(app.room!.config.port, 8996);
+      expect(app.room!.id, isNot(first.room!.id));
+      await app.resume(first);
+      expect(attempts.map((attempt) => attempt.receivedPort), [
+        8995,
+        8995,
+        8996,
+        8995,
+      ]);
+      expect(attempts.last.receivedServer, first.room!.config.server);
+      expect(app.room!.id, first.room!.id);
+      expect(app.room!.config.port, first.room!.config.port);
+      expect(target.snapshot.media!.uri, media.uri);
+    },
+  );
 
   test('watch again creates a fresh host room with the saved video', () async {
     expect(await app.watchAgain(pastNight()), isTrue);

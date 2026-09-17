@@ -16,6 +16,11 @@ closes that connection; depending on the host TCP stack, the client may observe
 either HTTP `413` or an immediate connection reset. In both cases no state is
 stored, and a fresh connection remains usable.
 
+PUT clients must declare the exact UTF-8 byte length before writing the JSON
+body. Chunked requests are rejected. The Android journey uses
+`json_request.dart` for both invite and checkpoint publication; its socket test
+checks the on-wire headers and a non-ASCII payload.
+
 Start one server for one run:
 
 ```powershell
@@ -69,4 +74,5 @@ Run the focused tests with:
 
 ```powershell
 python -m unittest tools/production_together/test_coordination_server.py
+flutter test tools/production_together/json_request_test.dart
 ```

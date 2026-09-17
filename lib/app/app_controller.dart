@@ -108,6 +108,12 @@ class AppController extends ChangeNotifier {
   bool _castNeedsConfirmation = false;
   bool _confirmingCast = false;
   bool _savingTheme = false;
+  bool _foreground = true;
+  bool _phoneNeedsPlay = false;
+
+  bool get _phoneMayPlay => _foreground && !_phoneNeedsPlay;
+  bool _mayPlay(PlaybackTarget playback) =>
+      !_closed && (!identical(playback, phone) || _phoneMayPlay);
 
   String get theme =>
       billing.isPlus ? normalizeMeowWatchTheme(repository.theme) : 'cozy';
@@ -674,7 +680,9 @@ class AppController extends ChangeNotifier {
             _bridge = _bridgeForTarget(phone);
             await _bridge?.markSourceOpen(media.uri.toString());
             _requireTarget(generation, connectionGeneration);
-            if (saved.playing && _sync?.lastObservedRoomState?.setBy == null) {
+            if (saved.playing &&
+                _phoneMayPlay &&
+                _sync?.lastObservedRoomState?.setBy == null) {
               if (_bridge != null) {
                 await _bridge!.play();
               } else {
@@ -962,7 +970,11 @@ class AppController extends ChangeNotifier {
       final joined = outcome.join!;
       room = RoomTicket(
         id: ticket.id,
-        config: joined.config,
+        // Discovery chooses a new room's address once. History and re-entry
+        // must retain that address even when a later room uses another server.
+        config: joined.config.copyWith(
+          endpointPolicy: SyncplayEndpointPolicy.pinned,
+        ),
         isHost: ticket.isHost,
       );
       repository.activeRoom = room;
@@ -1099,6 +1111,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<bool> _authorizePlay() async {
+    final playback = target;
+    if (!_mayPlay(playback)) return false;
     final current = room;
     final generation = _connectGeneration;
     if (current == null) return true;
@@ -1109,7 +1123,11 @@ class AppController extends ChangeNotifier {
       peerCount: peers.length,
       synchronizedPlaybackActive: true,
     );
-    if (!_current(generation) || !identical(room, current) || !isConnected) {
+    if (!_current(generation) ||
+        !identical(room, current) ||
+        !identical(target, playback) ||
+        !_mayPlay(playback) ||
+        !isConnected) {
       return false;
     }
     if (!result.allowed) {
@@ -1156,6 +1174,7 @@ class AppController extends ChangeNotifier {
           target.snapshot.media?.uri == media.uri) {
         await _bridge!.markSourceOpen(media.uri.toString());
       }
+      if (identical(target, phone) && !_phoneMayPlay) await phone.pause();
       _mediaRoom = room;
       await saveProgress();
     } catch (_) {
@@ -1176,6 +1195,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     if (busy || _closed) return;
+    if (identical(target, phone) && !_foreground) return;
     if (isCasting && (!cast!.connected || !target.snapshot.ready)) {
       report(
         'The TV is unavailable. Choose Return to phone or open the video again.',
@@ -1191,11 +1211,15 @@ class AppController extends ChangeNotifier {
         await target.pause();
       }
     } else {
+      // Returning to the foreground alone must not let a queued room command
+      // restart local audio. A visible Play action releases this pause latch.
+      if (identical(target, phone)) _phoneNeedsPlay = false;
       if (_bridge != null) {
         await _bridge!.play();
       } else {
         await target.play();
       }
+      if (identical(target, phone) && !_phoneMayPlay) await phone.pause();
     }
     await saveProgress();
   }
@@ -1296,6 +1320,8 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> background() async {
+    _foreground = false;
+    _phoneNeedsPlay = true;
     if (busy && (_pendingCast != null || isCasting)) {
       ++_targetGeneration;
       final pending = _pendingCast;
@@ -1321,6 +1347,10 @@ class AppController extends ChangeNotifier {
       await target.pause();
     }
     await saveProgress();
+  }
+
+  void foreground() {
+    _foreground = true;
   }
 
   Future<void> saveProgress() async {

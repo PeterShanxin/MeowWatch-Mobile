@@ -45,20 +45,27 @@ Replace the provided smoke runner with another test or automation command only
 when the repository uses another integration target. The provided runner drives
 prebuilt host and guest APKs concurrently, uses host VM service ports 39101 and
 39102, and collects the driver's fixed role-specific artifact directories. Its
-six-minute bound is enclosed by continuous 170-second native segments, so pass,
-failure, and timeout are captured from command start through exit. Every `adb`
+six-minute bound uses consecutive 170-second native segments; process rotation
+and transfers can leave recording gaps. Every `adb`
 call that targets a device includes the serial; do the same in custom commands.
 The server-start and device-inventory calls are intentionally global. If no
 command is supplied, recording lasts for `--seconds`.
 
 The phone is portrait and the tablet is landscape. Every native segment retains
-the real rendered pixels from its AVD. The recorder saves host timestamps for
-both first segments. Composition uses those timestamps to add black pre-roll to
-the later source, converts to constant 30 fps by dropping or duplicating
-existing frames, scales without changing aspect ratio, adds neutral framing and
-serial labels, and uses the shorter duration. It does not pretend unequal
-recorder starts were simultaneous, interpolate motion, add fake UI, or claim a
-frame came from a physical device.
+the real rendered pixels from its AVD. The recorder saves a host timestamp
+immediately before each ADB `screenrecord` command. Composition reads every
+segment's timestamp and original MP4, places it at its estimated offset, and
+shows black `RECORDING GAP` panels between available intervals and after the
+shorter device ends. The output lasts through the longer available timeline.
+It converts to 30 fps by dropping or duplicating existing frames, preserves
+aspect ratio, and adds neutral framing and serial labels.
+
+ADB command time is not first-frame time: launch latency is unknown, and media
+durations can overlap the next command timestamp. The later segment takes over
+at its timestamp; the manifest records any overlapping tail, and the original
+files retain all frames. These approximate timestamps cannot establish precise
+playback synchronization. The compositor does not interpolate motion, add fake
+UI, or claim an AVD frame came from physical hardware.
 
 The Bash composition entry point delegates to the portable Python helper. The
 helper also runs directly on Windows and writes a source/alignment manifest,
@@ -66,7 +73,8 @@ SHA-256 file, and ffprobe report beside the MP4:
 
 ```sh
 python tools/android_multi_device/compose_side_by_side.py \
-  phone.mp4 tablet.mp4 recording-session.tsv review.mp4 \
+  phone-emulator-5554/native.mp4 tablet-emulator-5556/native.mp4 \
+  recording-session.tsv review.mp4 \
   --result-label "RUN RESULT: FAILED - PAUSE CONVERGENCE"
 ```
 
@@ -76,11 +84,19 @@ labels come from the timing evidence and say that the sources are native
 recordings. Composition never turns a failed or incomplete verification into a
 success claim.
 
+The input layout must include each device's `segments/` directory and
+`recorder-control/phone-segments.tsv` and `tablet-segments.tsv` beside the
+session timing file. The positional `native.mp4` paths identify the device
+directories; their concatenated contents are not used. Missing native files
+remain explicit gaps. Missing timing rows or an unbounded missing final segment
+fail composition instead of guessing a timeline.
+
 Starting the next native segment requires a new `screenrecord` process, so a
 small rotation gap can occur at each 170-second boundary. The per-segment TSV
-timestamps expose those boundaries. The concatenated video and side-by-side
-composition close those gaps for convenient review; use the original segments,
-timings, and hashes when exact elapsed-time evidence matters.
+timestamps expose those boundaries. The legacy concatenated `native.mp4`
+closes those gaps and is not an elapsed-time representation. The side-by-side
+composition preserves estimated gaps; retain the original segments, timing
+metadata, and hashes as primary evidence.
 
 Evidence is stored below serial-labeled directories and includes before/after
 screenshots, logcat, device properties, display/window state, MediaCodec state,

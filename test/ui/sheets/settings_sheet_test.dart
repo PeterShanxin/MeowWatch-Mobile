@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meowwatch_mobile/core/billing/billing_service.dart';
 import 'package:meowwatch_mobile/core/connect/room_config.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
 import 'package:meowwatch_mobile/data/app_repository.dart';
@@ -153,6 +154,46 @@ void main() {
     expect(find.text('Restored. MeowWatch Plus is active.'), findsOneWidget);
     await app.close();
   });
+
+  for (final alreadyConfigured in [false, true]) {
+    testWidgets(
+      'restore failure is shown with cached Plus (configured: $alreadyConfigured)',
+      (tester) async {
+        final billing = TestBilling(plus: true)
+          ..restoreResult = const BillingResult(
+            BillingStatus.failure,
+            message:
+                'The store could not complete this request. Please try again.',
+          );
+        if (alreadyConfigured) await billing.configure();
+        final app = createTestApp(billing: billing);
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Builder(
+              builder: (context) => Scaffold(
+                body: TextButton(
+                  onPressed: () =>
+                      showSettingsSheet(context, app: app, onUpgrade: () {}),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+        await tester.ensureVisible(find.text('Restore purchases'));
+        await tester.tap(find.text('Restore purchases'));
+        await tester.pumpAndSettle();
+
+        expect(billing.restoreCalls, 1);
+        expect(billing.isPlus, isTrue);
+        expect(find.text('Restored. MeowWatch Plus is active.'), findsNothing);
+        expect(find.text(billing.restoreResult.message!), findsOneWidget);
+        await app.close();
+      },
+    );
+  }
 
   testWidgets('does not silently rename an active room participant', (
     tester,

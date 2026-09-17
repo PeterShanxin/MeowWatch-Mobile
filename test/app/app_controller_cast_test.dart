@@ -340,6 +340,19 @@ void main() {
     },
   );
 
+  test('background phone guard preserves TV remote playback', () async {
+    expect(await app.connect(support.ticket), isTrue);
+    await app.load(movie);
+    await app.castTo(cast);
+    await app.background();
+    receiver.player = 'playing';
+    receiver.emit();
+    await until(() => !server.roomPaused);
+    expect(store.writes, 1);
+    expect(cast.snapshot.playing, isTrue);
+    expect(phone.snapshot.playing, isFalse);
+  });
+
   test(
     'denied receiver initiated play pauses before any room play announcement',
     () async {

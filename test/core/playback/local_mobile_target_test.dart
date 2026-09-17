@@ -36,11 +36,28 @@ void main() {
     VideoPlayerPlatform.instance = originalPlatform;
   });
 
-  LocalMobileTarget createTarget() {
-    final target = LocalMobileTarget();
+  LocalMobileTarget createTarget({bool mixWithOthers = false}) {
+    final target = LocalMobileTarget(mixWithOthers: mixWithOthers);
     targets.add(target);
     return target;
   }
+
+  test('native creation uses each target audio policy after reload', () async {
+    final mixedTarget = createTarget(mixWithOthers: true);
+    final productionTarget = LocalMobileTarget();
+    targets.add(productionTarget);
+
+    await mixedTarget.load(_media('mixed-first'));
+    await productionTarget.load(_media('exclusive'));
+    await mixedTarget.load(_media('mixed-reloaded'));
+
+    expect(platform.mixModesAtCreation, [true, false, true]);
+    expect(
+      platform.options.every((options) => options!.allowBackgroundPlayback),
+      isTrue,
+      reason: 'Audio policy must not change app-owned lifecycle handling.',
+    );
+  });
 
   test(
     'buffering preserves the accepted play intent until an explicit pause',
@@ -151,6 +168,8 @@ MediaItem _media(String name) => MediaItem(
 final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   final Map<int, StreamController<VideoEvent>> _events = {};
   final List<VideoPlayerOptions?> options = [];
+  final List<bool> mixModesAtCreation = [];
+  bool _mixWithOthers = false;
   int _nextPlayerId = 1;
   int? _activePlayerId;
   int playCalls = 0;
@@ -164,6 +183,7 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
     final playerId = _nextPlayerId++;
     _activePlayerId = playerId;
     options.add(creation.videoPlayerOptions);
+    mixModesAtCreation.add(_mixWithOthers);
     final events = StreamController<VideoEvent>();
     events.add(
       VideoEvent(
@@ -219,5 +239,7 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   Future<void> setPlaybackSpeed(int playerId, double speed) async {}
 
   @override
-  Future<void> setMixWithOthers(bool mixWithOthers) async {}
+  Future<void> setMixWithOthers(bool mixWithOthers) async {
+    _mixWithOthers = mixWithOthers;
+  }
 }

@@ -77,7 +77,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     BillingResult result;
     if (!_billing.isConfigured) {
       result = await _billing.configure();
-      if (result.succeeded && !_billing.isPlus) {
+      if (result.succeeded) {
         result = await _billing.restore();
       }
     } else {
@@ -86,11 +86,11 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     if (!mounted) return;
     setState(() {
       _working = false;
-      _message = _billing.isPlus
+      _message = !result.succeeded
+          ? (result.message ?? 'Could not restore purchases right now.')
+          : _billing.isPlus
           ? 'Restored. MeowWatch Plus is active.'
-          : result.succeeded
-          ? 'No active Plus purchase was found for this store account.'
-          : (result.message ?? 'Could not restore purchases right now.');
+          : 'No active Plus purchase was found for this store account.';
     });
   }
 

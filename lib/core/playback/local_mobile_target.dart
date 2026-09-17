@@ -7,6 +7,12 @@ import '../media/media_item.dart';
 import 'playback_target.dart';
 
 class LocalMobileTarget extends PlaybackTarget {
+  LocalMobileTarget({bool mixWithOthers = false})
+    : _options = VideoPlayerOptions(
+        mixWithOthers: mixWithOthers,
+        allowBackgroundPlayback: true,
+      );
+
   VideoPlayerController? _controller;
   PlaybackSnapshot _snapshot = const PlaybackSnapshot();
   final _states = StreamController<PlaybackSnapshot>.broadcast();
@@ -16,7 +22,7 @@ class LocalMobileTarget extends PlaybackTarget {
 
   // MainApp owns lifecycle pause. The plugin's lifecycle observer otherwise
   // restores its remembered play state on resume and can undo that pause.
-  static final _options = VideoPlayerOptions(allowBackgroundPlayback: true);
+  final VideoPlayerOptions _options;
 
   @override
   String get id => 'phone';

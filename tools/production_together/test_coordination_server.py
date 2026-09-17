@@ -112,6 +112,25 @@ class CoordinationServerTests(unittest.TestCase):
         self.assertEqual(payload, {"runId": RUN_ID, "invite": INVITE})
         self.assertEqual(self.put(), 200, "identical retry must be idempotent")
 
+    def test_rejects_chunked_requests_without_mutating_state(self) -> None:
+        connection = http.client.HTTPConnection(
+            LOOPBACK_HOST, self.server.server_port, timeout=2,
+        )
+        try:
+            connection.putrequest("PUT", f"/invite?run={RUN_ID}")
+            connection.putheader("Content-Type", "application/json")
+            connection.putheader("Transfer-Encoding", "chunked")
+            connection.endheaders()
+            response = connection.getresponse()
+            self.assertEqual(response.status, 400)
+            self.assertEqual(
+                json.loads(response.read()),
+                {"error": "chunked requests are not supported"},
+            )
+        finally:
+            connection.close()
+        self.assertEqual(self.state.get(), ("missing", None))
+
     def test_rejects_cross_run_routes_and_payloads(self) -> None:
         status, _ = self.request("GET", "/invite?run=another-run")
         self.assertEqual(status, 404)

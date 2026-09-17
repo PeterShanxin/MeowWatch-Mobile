@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compose timestamp-aligned native Android recordings for human review."""
+"""Compose raw Android segments on an estimated host-command timeline."""
 
 from __future__ import annotations
 
@@ -7,18 +7,137 @@ import argparse
 import hashlib
 import json
 import os
-from dataclasses import dataclass
-from decimal import Decimal
-from pathlib import Path
 import shutil
 import subprocess
 import sys
-from typing import Mapping, Sequence
-
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from decimal import Decimal
+from pathlib import Path
 
 FRAME_RATE = 30
 CANVAS = (1920, 1080)
 DEVELOPMENT_LABEL = "Development test / synchronization verification in progress"
+TIMING_LABEL = (
+    "Host ADB command timing / approximate alignment, not frame synchronization"
+)
+
+
+@dataclass(frozen=True)
+class Segment:
+    index: int
+    start_ns: int
+    path: Path
+    probe: dict[str, object] | None
+
+    @property
+    def duration(self) -> Decimal:
+        return video_duration(self.probe) if self.probe is not None else Decimal(0)
+
+
+def read_segments(
+    role: str, video: Path, timing_file: Path, ffprobe: str
+) -> list[Segment]:
+    metadata = timing_file.parent / "recorder-control" / f"{role}-segments.tsv"
+    segments = []
+    for row in metadata.read_text(encoding="utf-8").splitlines():
+        fields = row.split("\t")
+        if len(fields) != 3:
+            raise ValueError(f"Malformed {role} segment timing row: {row!r}")
+        index, start = int(fields[0]), int(fields[1])
+        name = fields[2]
+        if (
+            index != len(segments)
+            or start < 0
+            or name != f"{role}-{index:03d}.mp4"
+            or (segments and start <= segments[-1].start_ns)
+        ):
+            raise ValueError(f"Invalid or missing {role} segment timing row: {row!r}")
+        path = video.parent / "segments" / name
+        probe = probe_video(ffprobe, path) if path.is_file() else None
+        segments.append(Segment(index, start, path, probe))
+    if not segments:
+        raise ValueError(f"No {role} segment timing evidence")
+    listed = {segment.path.name for segment in segments}
+    actual = {path.name for path in (video.parent / "segments").glob("*.mp4")}
+    if actual - listed:
+        raise ValueError(
+            f"Native {role} segments lack timing rows: {sorted(actual - listed)}"
+        )
+    return segments
+
+
+def segment_intervals(
+    segments: Sequence[Segment], origin_ns: int
+) -> list[tuple[Decimal, Decimal]]:
+    intervals = []
+    for index, segment in enumerate(segments):
+        start = Decimal(segment.start_ns - origin_ns) / Decimal(1_000_000_000)
+        end = start + segment.duration
+        if index + 1 < len(segments):
+            following = Decimal(segments[index + 1].start_ns - origin_ns) / Decimal(
+                1_000_000_000
+            )
+            end = min(end, following)
+        intervals.append((start, end))
+    return intervals
+
+
+def recording_gaps(
+    intervals: Sequence[tuple[Decimal, Decimal]], duration: Decimal
+) -> list[tuple[Decimal, Decimal]]:
+    gaps = []
+    cursor = Decimal(0)
+    for start, end in intervals:
+        if end <= start:
+            continue
+        if start > cursor:
+            gaps.append((cursor, start))
+        cursor = max(cursor, end)
+    if cursor < duration:
+        gaps.append((cursor, duration))
+    return gaps
+
+
+def build_timeline_graph(
+    role: str,
+    segments: Sequence[Segment],
+    origin_ns: int,
+    duration: Decimal,
+    font_file: Path,
+    input_index: int,
+    width: int,
+    height: int,
+) -> tuple[list[str], list[Path]]:
+    font = _escape_filter_path(font_file)
+    filters = [
+        f"color=c=0x05070B:s={width}x{height}:r={FRAME_RATE}:d={_seconds(duration)},"
+        f"drawtext=fontfile='{font}':fontcolor=0xEFB38C:text='RECORDING GAP':"
+        "fontsize=22:x=(w-text_w)/2:y=h/2-26,"
+        f"drawtext=fontfile='{font}':fontcolor=0xB5BDCC:text='No captured frames':"
+        f"fontsize=17:x=(w-text_w)/2:y=h/2+8[{role}_base]"
+    ]
+    previous = f"{role}_base"
+    sources = []
+    for segment, (start, end) in zip(segments, segment_intervals(segments, origin_ns)):
+        if segment.probe is None:
+            continue
+        label = f"{role}_segment_{segment.index}"
+        output = f"{role}_overlay_{segment.index}"
+        filters.append(
+            f"[{input_index + len(sources)}:v:0]setpts=PTS-STARTPTS,"
+            f"scale={width}:{height}:force_original_aspect_ratio=decrease,"
+            f"pad={width}:{height}:(ow-iw)/2:(oh-ih)/2:color=0x05070B,"
+            f"setsar=1,fps={FRAME_RATE},setpts=PTS+{_seconds(start)}/TB[{label}]"
+        )
+        filters.append(
+            f"[{previous}][{label}]overlay=eof_action=pass:repeatlast=0:"
+            f"enable='gte(t,{_seconds(start)})*lt(t,{_seconds(end)})'[{output}]"
+        )
+        sources.append(segment.path)
+        previous = output
+    filters.append(f"[{previous}]null[{role}_timeline]")
+    return filters, sources
 
 
 @dataclass(frozen=True)
@@ -169,6 +288,8 @@ def build_filter_graph(
     tablet_label: str,
     result_label: str | None,
     tablet_is_landscape: bool = False,
+    phone_input: str = "0:v:0",
+    tablet_input: str = "1:v:0",
 ) -> str:
     font = _escape_filter_path(font_file)
     phone_text = _escape_filter_text(phone_label)
@@ -200,7 +321,7 @@ def build_filter_graph(
     graph = [
         f"color=c=0x0D111A:s={CANVAS[0]}x{CANVAS[1]}:r={FRAME_RATE}:d={duration_text}[background]",
         (
-            "[0:v:0]fps=30,setpts=PTS-STARTPTS,"
+            f"[{phone_input}]fps=30,setpts=PTS-STARTPTS,"
             f"tpad=start_mode=add:color=0x05070B:start_duration={phone_delay},"
             "scale=350:776:force_original_aspect_ratio=decrease,"
             "pad=350:776:(ow-iw)/2:(oh-ih)/2:color=0x05070B,setsar=1,"
@@ -209,7 +330,7 @@ def build_filter_graph(
             "drawbox=x=(w-72)/2:y=10:w=72:h=4:color=0x8992A3:t=fill[phone]"
         ),
         (
-            "[1:v:0]fps=30,setpts=PTS-STARTPTS,"
+            f"[{tablet_input}]fps=30,setpts=PTS-STARTPTS,"
             f"tpad=start_mode=add:color=0x05070B:start_duration={tablet_delay},"
             f"{tablet_scale},{tablet_inner_pad},setsar=1,{tablet_outer_pad},"
             "drawbox=x=0:y=0:w=iw:h=ih:color=0x687184:t=2,"
@@ -225,7 +346,9 @@ def build_filter_graph(
             f"drawtext={text_options}:fontcolor=0xB5BDCC:text='{tablet_text}':"
             f"fontsize=24:x={tablet_x}+({tablet_outer_width}-text_w)/2:y={tablet_label_y},"
             f"drawtext={text_options}:fontcolor=0xEFB38C:text='{development_text}':"
-            "fontsize=25:x=(w-text_w)/2:y=1017"
+            "fontsize=25:x=(w-text_w)/2:y=997,"
+            f"drawtext={text_options}:fontcolor=0xB5BDCC:text='{_escape_filter_text(TIMING_LABEL)}':"
+            "fontsize=20:x=(w-text_w)/2:y=1038"
             + (
                 f",drawtext={text_options}:fontcolor=0xEFB38C:text='{result_text}':"
                 "fontsize=24:x=w-text_w-72:y=42"
@@ -272,7 +395,7 @@ def _binary(value: str) -> str:
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parser().parse_args(argv)
-    for source in (args.phone_video, args.tablet_video, args.timing_file):
+    for source in (args.timing_file,):
         if not source.is_file():
             raise FileNotFoundError(f"Input evidence is missing: {source}")
     ffmpeg = _binary(args.ffmpeg)
@@ -280,38 +403,97 @@ def main(argv: Sequence[str] | None = None) -> int:
     font = find_font(args.font_file)
     timing = read_tsv(args.timing_file)
     alignment = compute_alignment(timing)
-    phone_probe = probe_video(ffprobe, args.phone_video)
-    tablet_probe = probe_video(ffprobe, args.tablet_video)
-    phone_duration = video_duration(phone_probe)
-    tablet_duration = video_duration(tablet_probe)
-    tablet_width, tablet_height = video_dimensions(tablet_probe)
-    common_duration = min(
-        alignment.phone_delay_seconds + phone_duration,
-        alignment.tablet_delay_seconds + tablet_duration,
+    phone_segments = read_segments("phone", args.phone_video, args.timing_file, ffprobe)
+    tablet_segments = read_segments(
+        "tablet", args.tablet_video, args.timing_file, ffprobe
     )
-    phone_label = f"PHONE / {timing.get('phone_serial', 'unknown source')} / native recording"
+    if (
+        phone_segments[0].start_ns != alignment.phone_start_ns
+        or tablet_segments[0].start_ns != alignment.tablet_start_ns
+    ):
+        raise ValueError("Session and segment first-command timestamps disagree")
+    origin_ns = min(alignment.phone_start_ns, alignment.tablet_start_ns)
+    all_segments = phone_segments + tablet_segments
+    if not any(segment.probe is not None for segment in all_segments):
+        raise ValueError("No native frames are available on either device")
+    common_duration = max(
+        end
+        for segments in (phone_segments, tablet_segments)
+        for segment, (_, end) in zip(segments, segment_intervals(segments, origin_ns))
+        if segment.probe is not None
+    )
+    if any(
+        segment.probe is None
+        and Decimal(segment.start_ns - origin_ns) / Decimal(1_000_000_000)
+        >= common_duration
+        for segment in all_segments
+    ):
+        raise ValueError(
+            "Missing trailing segment has no known end; cannot bound its recording gap"
+        )
+    protected_sources = {segment.path.resolve() for segment in all_segments}
+    protected_sources.update((args.phone_video.resolve(), args.tablet_video.resolve()))
+    if args.output_video.resolve() in protected_sources:
+        raise ValueError("Output must not overwrite a native source recording")
+    tablet_probe = next(
+        (segment.probe for segment in tablet_segments if segment.probe), None
+    )
+    tablet_width, tablet_height = (
+        video_dimensions(tablet_probe) if tablet_probe else (500, 776)
+    )
+    phone_filters, phone_sources = build_timeline_graph(
+        "phone",
+        phone_segments,
+        origin_ns,
+        common_duration,
+        font,
+        0,
+        350,
+        776,
+    )
+    tablet_filters, tablet_sources = build_timeline_graph(
+        "tablet",
+        tablet_segments,
+        origin_ns,
+        common_duration,
+        font,
+        len(phone_sources),
+        920 if tablet_width > tablet_height else 500,
+        600 if tablet_width > tablet_height else 776,
+    )
+    phone_label = (
+        f"PHONE / {timing.get('phone_serial', 'unknown source')} / native recording"
+    )
     tablet_label = (
         f"TABLET / {timing.get('tablet_serial', 'unknown source')} / native recording"
     )
     filter_graph = build_filter_graph(
-        alignment=alignment,
+        alignment=Alignment(
+            alignment.phone_start_ns, alignment.tablet_start_ns, Decimal(0), Decimal(0)
+        ),
         duration=common_duration,
         font_file=font,
         phone_label=phone_label,
         tablet_label=tablet_label,
         result_label=args.result_label,
         tablet_is_landscape=tablet_width > tablet_height,
+        phone_input="phone_timeline",
+        tablet_input="tablet_timeline",
     )
+    filter_graph = ";".join(phone_filters + tablet_filters + [filter_graph])
 
     args.output_video.parent.mkdir(parents=True, exist_ok=True)
     command = [
         ffmpeg,
         "-hide_banner",
         "-y",
-        "-i",
-        str(args.phone_video),
-        "-i",
-        str(args.tablet_video),
+        "-filter_complex_threads",
+        "2",
+        *[
+            argument
+            for path in phone_sources + tablet_sources
+            for argument in ("-threads", "2", "-i", str(path))
+        ],
         "-filter_complex",
         filter_graph,
         "-map",
@@ -323,6 +505,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         _seconds(common_duration),
         "-c:v",
         "libx264",
+        "-threads",
+        "2",
         "-preset",
         args.preset,
         "-crf",
@@ -338,7 +522,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_probe = probe_video(ffprobe, args.output_video)
     output_hash = sha256(args.output_video)
     manifest = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "presentation": {
             "width": CANVAS[0],
             "height": CANVAS[1],
@@ -346,6 +530,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "developmentLabel": DEVELOPMENT_LABEL,
             "resultLabel": args.result_label,
             "tabletLayout": "landscape" if tablet_width > tablet_height else "portrait",
+            "timingLabel": TIMING_LABEL,
         },
         "alignment": {
             "phoneFirstSegmentNs": alignment.phone_start_ns,
@@ -353,17 +538,56 @@ def main(argv: Sequence[str] | None = None) -> int:
             "phoneDelaySeconds": _seconds(alignment.phone_delay_seconds),
             "tabletDelaySeconds": _seconds(alignment.tablet_delay_seconds),
             "commonDurationSeconds": _seconds(common_duration),
+            "basis": "Host timestamp immediately before launching each ADB screenrecord command; first-frame latency is unknown.",
+            "overlapPolicy": "A later segment takes over at its recorded command timestamp; original source files retain all frames.",
+            "durationPolicy": "Longest estimated device timeline; shorter tails and missing segments remain visible as recording gaps.",
         },
         "sources": {
-            "phone": {
-                "path": str(args.phone_video.resolve()),
-                "sha256": sha256(args.phone_video),
-                "probe": phone_probe,
-            },
-            "tablet": {
-                "path": str(args.tablet_video.resolve()),
-                "sha256": sha256(args.tablet_video),
-                "probe": tablet_probe,
+            **{
+                role: {
+                    "legacyConcatenationNotUsed": str(video.resolve()),
+                    "segmentTiming": {
+                        "path": str(
+                            (
+                                args.timing_file.parent
+                                / "recorder-control"
+                                / f"{role}-segments.tsv"
+                            ).resolve()
+                        ),
+                        "sha256": sha256(
+                            args.timing_file.parent
+                            / "recorder-control"
+                            / f"{role}-segments.tsv"
+                        ),
+                    },
+                    "segments": [
+                        {
+                            "path": str(segment.path.resolve()),
+                            "sha256": sha256(segment.path) if segment.probe else None,
+                            "status": "available" if segment.probe else "missing",
+                            "commandStartNs": segment.start_ns,
+                            "estimatedStartSeconds": _seconds(start),
+                            "estimatedEndSeconds": _seconds(end),
+                            "overlappingTailSeconds": _seconds(
+                                max(Decimal(0), start + segment.duration - end)
+                            ),
+                            "probe": segment.probe,
+                        }
+                        for segment, (start, end) in zip(
+                            segments, segment_intervals(segments, origin_ns)
+                        )
+                    ],
+                    "recordingGaps": [
+                        {"startSeconds": _seconds(start), "endSeconds": _seconds(end)}
+                        for start, end in recording_gaps(
+                            segment_intervals(segments, origin_ns), common_duration
+                        )
+                    ],
+                }
+                for role, segments, video in (
+                    ("phone", phone_segments, args.phone_video),
+                    ("tablet", tablet_segments, args.tablet_video),
+                )
             },
             "timing": {
                 "path": str(args.timing_file.resolve()),
@@ -376,15 +600,15 @@ def main(argv: Sequence[str] | None = None) -> int:
             "probe": output_probe,
         },
     }
-    args.output_video.with_suffix(args.output_video.suffix + ".manifest.json").write_text(
-        json.dumps(manifest, indent=2) + "\n", encoding="utf-8"
-    )
+    args.output_video.with_suffix(
+        args.output_video.suffix + ".manifest.json"
+    ).write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     args.output_video.with_suffix(args.output_video.suffix + ".sha256").write_text(
         f"{output_hash}  {args.output_video.name}\n", encoding="utf-8"
     )
-    args.output_video.with_suffix(args.output_video.suffix + ".ffprobe.json").write_text(
-        json.dumps(output_probe, indent=2) + "\n", encoding="utf-8"
-    )
+    args.output_video.with_suffix(
+        args.output_video.suffix + ".ffprobe.json"
+    ).write_text(json.dumps(output_probe, indent=2) + "\n", encoding="utf-8")
     print(f"Framed multi-device recording: {args.output_video}")
     return 0
 

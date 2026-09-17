@@ -4,6 +4,7 @@ import 'package:qr_flutter/qr_flutter.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../../app/app_controller.dart';
+import '../../core/connect/room_share.dart';
 
 Future<void> showInviteSheet(BuildContext context, AppController app) async {
   final invite = app.invite;
@@ -46,7 +47,11 @@ Future<void> showInviteSheet(BuildContext context, AppController app) async {
           ),
           const SizedBox(height: 20),
           SelectableText(
-            room.config.room,
+            encodeShareCode(
+              room: room.config.room,
+              server: room.config.server,
+              port: room.config.port,
+            ),
             textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleLarge,
           ),
@@ -57,8 +62,9 @@ Future<void> showInviteSheet(BuildContext context, AppController app) async {
                 final box = context.findRenderObject() as RenderBox?;
                 await SharePlus.instance.share(
                   ShareParams(
-                    text: 'Movie night? Join me on MeowWatch.\n$invite',
+                    text: invite.toString(),
                     title: 'MeowWatch room invite',
+                    subject: 'Movie night? Join me on MeowWatch.',
                     sharePositionOrigin: box == null
                         ? null
                         : box.localToGlobal(Offset.zero) & box.size,

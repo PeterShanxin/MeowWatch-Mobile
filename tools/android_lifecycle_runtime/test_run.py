@@ -3,6 +3,7 @@ from contextlib import redirect_stdout
 import io
 import tempfile
 import unittest
+from unittest.mock import patch
 from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
@@ -86,6 +87,72 @@ class LifecycleRuntimeTests(unittest.TestCase):
                                (Playback(0, 90, False), 8)]:
             with self.subTest(after=after, elapsed=elapsed), self.assertRaises(RuntimeFailure):
                 require_background_pause(before, after, elapsed)
+
+    def test_fresh_pre_home_sample_excludes_foreground_capture_delay(self):
+        stale_screenshot_sample = Playback(17, 90, True)
+        immediate_pre_home_sample = Playback(26, 90, True)
+        foreground = Playback(26, 90, False)
+        with self.assertRaises(RuntimeFailure):
+            require_background_pause(stale_screenshot_sample, foreground, 8)
+        require_background_pause(immediate_pre_home_sample, foreground, 8)
+
+    def test_home_refreshes_playback_after_screenshot_before_keyevent(self):
+        events = []
+
+        class FakeAdb:
+            def run(self, *arguments, **_kwargs):
+                events.append(("adb", arguments))
+                if arguments[:3] == ("shell", "dumpsys", "window"):
+                    return type(
+                        "Result",
+                        (),
+                        {
+                            "stdout": (
+                                b"mCurrentFocus=Window{abc "
+                                b"com.google.android.apps.nexuslauncher/"
+                                b".NexusLauncherActivity}\n"
+                            ),
+                        },
+                    )()
+                return type("Result", (), {"stdout": b""})()
+
+            def screenshot(self):
+                events.append(("screenshot", ()))
+                return b"png"
+
+        class HomeRunner(Runner):
+            def sample(self, phase, *, playing, screenshot=True):
+                events.append(("sample", (phase, playing, screenshot)))
+                self.phase = phase
+                return player("0:26", "Pause"), Playback(26, 90, True)
+
+        with tempfile.TemporaryDirectory() as directory, patch(
+            "tools.android_lifecycle_runtime.run.time.sleep",
+        ):
+            runner = HomeRunner.__new__(HomeRunner)
+            runner.adb = FakeAdb()
+            runner.output = Path(directory)
+            runner.phase = "04-advanced"
+            elapsed, state = runner.go_home(
+                pre_home_phase="04-pre-home-playing",
+                playing=True,
+            )
+
+        self.assertEqual(state, Playback(26, 90, True))
+        self.assertGreaterEqual(elapsed, 0)
+        self.assertEqual(events[0], ("sample", ("04-pre-home-playing", True, False)))
+        self.assertEqual(
+            events[1],
+            ("adb", ("shell", "input", "keyevent", "KEYCODE_HOME")),
+        )
+        self.assertEqual(events[-1], ("screenshot", ()))
+
+    def test_home_baseline_arguments_must_be_paired(self):
+        runner = Runner.__new__(Runner)
+        with self.assertRaises(ValueError):
+            runner.go_home(pre_home_phase="04-pre-home-playing")
+        with self.assertRaises(ValueError):
+            runner.go_home(playing=True)
 
     def test_paused_controls_with_advancing_position_still_fail(self):
         before = Playback(20, 90, False)

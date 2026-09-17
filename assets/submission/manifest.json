@@ -47,18 +47,18 @@
     },
     {
       "file": "assets/fonts/DMSans-OFL.txt",
-      "sha256": "be5f632588774077cbb19a8d3fd788fbc7861af041f4e7165eae5822b11392b3"
+      "sha256": "7ec15e79c59bc14b86436a17e5eb7926b46cbcaeb08e1a7e6c110b415e6eb2a2"
     },
     {
       "file": "assets/fonts/DMSerifDisplay-OFL.txt",
-      "sha256": "a3e5cdd67d4571dd0a24fcc968de0efde7ae97ef752daf0906e4767619dd7231"
+      "sha256": "aa49c876a28d8c0b0a3027d6c25b9c607eee8c0fb96165011d42a6ace1408fe1"
     }
   ],
   "outputs": [
     {
       "file": "assets/submission/meowwatch-devpost-1200x800.svg",
-      "bytes": 433750,
-      "sha256": "d325488b2ee304b0535743cdb4bff13fe9d3ccc7d4969cae69163608e7dc3e1a"
+      "bytes": 433564,
+      "sha256": "14808aa4e5aa12470db76365f134fed5d37acb3d2a5eadd58041c4eb785f042b"
     },
     {
       "file": "assets/submission/meowwatch-devpost-1200x800-outlined.svg",

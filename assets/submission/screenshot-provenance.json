@@ -5,8 +5,8 @@
   "width": 1179,
   "height": 2556,
   "format": "PNG",
-  "bytes": 158377,
-  "sha256": "df6c2c6105b394798c92d12aaf5e407d2ed8f0cef02ba5ae89d467b3eb324f01",
+  "bytes": 201435,
+  "sha256": "ee8f0731e5b0ec7ffbaa1bba9d66d5efd9b8a23553f6b692ca7a23264dc3e50a",
   "pixelHandling": {
     "copiedByteForByte": true,
     "resized": false,
@@ -16,20 +16,32 @@
   },
   "source": {
     "repository": "PeterShanxin/MeowWatch-Mobile",
-    "commit": "f8fdd626c07bcb666675cf68f3e872776b4516eb",
-    "githubRunId": 35191578153,
-    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35191578153",
+    "commit": "feaeb77a02c6f3274e78caf861ddf62a2253e219",
+    "githubRunId": 35194003110,
+    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35194003110",
+    "githubJobId": 105112827335,
     "artifactName": "production-purchase-1",
-    "artifactRelativePath": "production-purchase-artifacts/20260917T065811Z-58827d40/free-home.png",
-    "artifactRunId": "20260917T065811Z-58827d40",
+    "artifactId": 10485676616,
+    "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/free-home.png",
+    "artifactRunId": "20260917T072818Z-3ca4cf66",
     "sourceDocuments": [
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T065811Z-58827d40/run.json",
-        "sha256": "a1adb8e931be9f616398c6183d371c4c086317a074989f0102f8574e50b776dc"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/run.json",
+        "sha256": "df868d18daafc3ba896b3f943c68ea8d1d52f942005edfc98963160b65340a48"
       },
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T065811Z-58827d40/result.json",
-        "sha256": "e2945a53020284cddbc31bdbde4ba5fc0c032182c460fde8328c6c5baa747a3e"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/result.json",
+        "sha256": "20f010a36ded53397fe894e1fd383472840b1664de2acfdb672d006ab5969a1d"
+      }
+    ],
+    "recordings": [
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/journey-001.mp4",
+        "sha256": "232e10360adbc2b3829876e3796b7ebea4c756d09c9fcf551efa5ea043755333"
+      },
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/journey-002.mp4",
+        "sha256": "7023b6b3d3faafc4a5ff8d9f46529282a068e765e967c19c0007522317ad6a4d"
       }
     ]
   },
@@ -47,21 +59,55 @@
     ],
     "displayConfiguration": "The emulator display was configured to 1179x2556 before native capture; the exported PNG was not resized.",
     "appEntrypoint": "Production MainApp",
-    "apkSha256": "a96146a26696c51cc2beae0a83852e4cc48609f7e17bd9c7f45e4bdf03ef28e1",
+    "apkSha256": "0251abe9f9df09fdc60c8c4ea80c2c6d4826bb28116a62d89fa86f961bf25513",
     "cleanInstall": true,
     "peerBoundary": "Android MainApp; one native player and independent headless TLS peer in one process"
   },
   "acceptanceBoundary": {
-    "workflowPassed": false,
-    "lastRecordedJourneyResult": "running",
-    "partialVerifiedStages": [
+    "workflowPassed": true,
+    "journeyResult": "passed",
+    "verifiedStages": [
       "clean_production_services_and_free_customer",
       "one_free_host_consumed_via_ui_and_real_tls_peer",
       "next_host_opens_production_paywall",
-      "native_cancel_through_production_paywall"
+      "native_cancel_through_production_paywall",
+      "native_failure_through_production_paywall",
+      "native_success_through_production_paywall",
+      "sdk_restore_via_settings_retains_entitlement_for_same_customer",
+      "sdk_restore_after_customer_info_cache_invalidation",
+      "premium_theme_selected_via_ui_and_persisted",
+      "two_distinct_paid_hosts_via_ui_with_real_tls_peer"
     ],
-    "recordedRunnerError": "UnsafeDialog: Timed out observing safe failure dialog: The focused window is not the MeowWatch application",
-    "laterPurchaseRestoreAndPaidHostingProvenByThisRun": false,
-    "interpretation": "This image establishes the rendered native home screen. The workflow later failed after free hosting, quota paywall and native cancellation; it does not establish completion of the later purchase, restore or paid-hosting steps."
+    "nativePurchaseOutcomes": {
+      "cancel": {
+        "nativeAction": "CANCEL",
+        "errorCode": "1"
+      },
+      "simulatedFailure": {
+        "nativeAction": "TEST FAILED PURCHASE",
+        "errorCode": "42"
+      },
+      "success": {
+        "nativeAction": "TEST VALID PURCHASE",
+        "plusActivated": true
+      }
+    },
+    "hostingEvidence": {
+      "freeHostsVerified": 1,
+      "paidHostsVerified": 2,
+      "distinctSessionIds": 3,
+      "allPeersObservedPlaying": true,
+      "allPeersCompletedTlsHello": true
+    },
+    "restoreEvidence": {
+      "scope": "Same persisted RevenueCat customer after customer-info cache invalidation",
+      "sameCustomerRetained": true,
+      "reinstallOrLostIdentityRecoveryProven": false
+    },
+    "themeEvidence": {
+      "selectedViaUiAndPersisted": true,
+      "theme": "cinemaNoir"
+    },
+    "interpretation": "The screenshot establishes the rendered native free-customer home screen. Its source workflow completed the ten recorded emulator acceptance stages, including one free host, two paid hosts, native Test Store cancel/failure/success, same-customer restore after cache invalidation, and premium theme persistence. This run does not establish physical-device rendering or reinstall/lost-identity recovery."
   }
 }

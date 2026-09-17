@@ -1,0 +1,13 @@
+# Manifest hashes describe the same text bytes on Windows and in Git blobs.
+tools/generate_brand.cjs text eol=lf
+tools/generate_submission_artwork.cjs text eol=lf
+assets/fonts/*-OFL.txt text eol=lf
+assets/brand/**/*.svg text eol=lf
+assets/brand/exports.json text eol=lf
+assets/submission/*.svg text eol=lf
+assets/submission/manifest.json text eol=lf
+android/app/src/main/res/drawable/ic_launcher_foreground.xml text eol=lf
+android/app/src/main/res/drawable/ic_launcher_monochrome.xml text eol=lf
+android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml text eol=lf
+android/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml text eol=lf
+android/app/src/main/res/values/icon_colors.xml text eol=lf

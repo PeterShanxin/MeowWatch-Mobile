@@ -43,7 +43,7 @@
     },
     {
       "file": "tools/generate_brand.cjs",
-      "sha256": "66041a768deb9e9c73dfefc5d87fc3cd3207e3c1523ac2acd13fbcce86a3fa97"
+      "sha256": "ba38c5610f208d6a612b02a4e9efc3e2e990cf1b93e64a404c756260151362d1"
     }
   ],
   "exports": [

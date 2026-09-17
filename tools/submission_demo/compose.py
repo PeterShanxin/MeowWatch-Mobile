@@ -237,7 +237,7 @@ def render_shot(plan: dict, shot: dict, folder: Path, ffmpeg: str, preset: str) 
                "-filter_complex_threads", "1", "-loop", "1", "-i", "logo.png"]
     for clip in shot["clips"]:
         command.extend(["-noautorotate", "-i", str(plan["sources"][clip["source"]]["path"])])
-    graph = [f"color=c={NAVY}:s=1920x1080:r=30:d={shot['duration']:.9f}[bg]"]
+    graph = [f"color=c={NAVY}:s=1920x1080:r=30:d={shot['duration']:.9f},format=rgb24[bg]"]
     current, counter = "bg", 0
 
     def effect(expression: str) -> None:
@@ -283,12 +283,19 @@ def render_shot(plan: dict, shot: dict, folder: Path, ffmpeg: str, preset: str) 
             x, y, width, height = fit(source, boxes[clip["role"]])
             effect(f"drawbox=x={x-12}:y={y-12}:w={width+24}:h={height+24}:color={BLUE}:t=fill")
             effect(f"drawbox=x={x-11}:y={y-11}:w={width+22}:h={height+22}:color={FRAME}:t=fill")
-            graph.append(f"[{index}:v:0]setpts=PTS-STARTPTS,trim=start={clip['in']:.9f}:"
-                         f"end={clip['out']:.9f},setpts=PTS-STARTPTS,fps=30,"
-                         f"scale={width}:{height}:flags=lanczos,setsar=1[device{index}]")
+            # Keep pre-cut frames: a VFR frame can still be on screen at the
+            # requested cut. Rebase the source CLOCK, never the first retained
+            # frame. The 30fps canvas samples the latest source PTS <= its clock;
+            # validated coverage and the canvas frame limit bound the end.
+            # Quantize changes upward to the canvas tick so framesync cannot
+            # round a future VFR frame back onto an earlier output frame.
+            graph.append(f"[{index}:v:0]settb=AVTB,"
+                         f"setpts='ceil((PTS-STARTPTS-{clip['in']:.9f}/TB)*TB*30-0.000001)/(30*TB)',"
+                         "settb=1/30,"
+                         f"scale={width}:{height}:flags=lanczos,setsar=1,format=rgb24[device{index}]")
             counter += 1
             graph.append(f"[{current}][device{index}]overlay=x={x}:y={y}:"
-                         f"eof_action=pass:repeatlast=0[layer{counter}]")
+                         f"eof_action=pass:repeatlast=0:ts_sync_mode=default:format=rgb[layer{counter}]")
             current = f"layer{counter}"
             words(clip["label"], x, y - 53, 25)
         if shot["kind"] == "pair" or shot.get("device") == "tablet":
@@ -300,12 +307,15 @@ def render_shot(plan: dict, shot: dict, folder: Path, ffmpeg: str, preset: str) 
             runtimes += " · approximate recording alignment · 1×"
         words(runtimes, 64, 1014, 18, BLUE)
     graph.append(f"[0:v:0]scale={logo_size}:{logo_size}[mark]")
-    graph.append(f"[{current}][mark]overlay={logo_x}:{logo_y}:shortest=1[branded]")
+    graph.append(f"[{current}][mark]overlay={logo_x}:{logo_y}:shortest=1:format=rgb[branded]")
     current = "branded"
     if plan["synthetic"]:
         effect(f"drawbox=x=0:y=0:w=1920:h=34:color={CREAM}:t=fill")
         words(SMOKE, "(w-text_w)/2", 4, 22, NAVY)
-    graph.append(f"[{current}]format=yuv420p[out]")
+    # Cards and Android captures can carry different color metadata. Composite
+    # in RGB, then perform one explicit delivery conversion for every shot.
+    graph.append(f"[{current}]scale=out_color_matrix=bt709:out_range=tv,format=yuv420p,"
+                 "setparams=range=limited:colorspace=bt709:color_primaries=bt709:color_trc=bt709[out]")
     (folder / "filter.txt").write_text(";\n".join(graph), encoding="utf-8")
     output = folder / "shot.mp4"
     command += ["-filter_complex_script", "filter.txt", "-map", "[out]", "-an",
@@ -349,6 +359,8 @@ def render(edl_path: Path, output: Path, ffmpeg: str = "ffmpeg", ffprobe: str = 
             "schema_version": 1, "purpose": plan["edl"]["purpose"],
             "acceptance": "Synthetic fixture only" if plan["synthetic"] else "Editorial output; native acceptance and visual review remain external",
             "presentation": "1x, direct cuts, proportional fit, no source crop or overlays inside device content; silent",
+            "sampling": "30fps canvas samples the latest source frame at or before each requested source clock; VFR holds retained, no cut-point rebase",
+            "color": "RGB composition; consistent limited-range BT.709 yuv420p delivery conversion",
             "alignment": "Pinned host-command timeline; not frame-accurate synchronization proof",
             "edl_sha256": plan["protected"][plan["edl_path"]],
             "inputs": [{"path": str(path), "sha256": value} for path, value in plan["protected"].items()],

@@ -173,6 +173,64 @@ class EdlValidationTests(unittest.TestCase):
 
 @unittest.skipUnless(shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg and ffprobe required")
 class RenderTests(unittest.TestCase):
+    def test_vfr_cuts_keep_held_frame_and_fractional_pair_offsets(self):
+        with tempfile.TemporaryDirectory(prefix="meowwatch-vfr-synthetic-only-") as folder:
+            root = Path(folder)
+            edl_path = fixture(root)
+            edl = compose.read_json(edl_path)
+            for role, size in (("phone", "90x180"), ("tablet", "320x180")):
+                path = root / f"vfr-{role}.mp4"
+                graph = ";".join(f"color={color}:s={size}:r=10:d=0.1[v{i}]"
+                                  for i, color in enumerate(("red", "lime", "blue", "yellow", "magenta")))
+                graph += ";[v0][v1][v2][v3][v4]concat=n=5:v=1:a=0,settb=1/1000,"
+                graph += "setpts='if(eq(N,0),0,if(eq(N,1),700,if(eq(N,2),1800,if(eq(N,3),2050,2900))))'[out]"
+                subprocess.run(["ffmpeg", "-hide_banner", "-loglevel", "error", "-filter_complex_threads", "1",
+                                "-filter_complex", graph, "-map", "[out]", "-fps_mode", "vfr", "-enc_time_base", "1:1000",
+                                "-video_track_timescale", "1000", "-c:v", "libx264", "-bf", "0", "-threads", "1",
+                                "-pix_fmt", "yuv420p", str(path)], check=True)
+                frame_data = json.loads(subprocess.check_output([
+                    "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames", "-show_entries",
+                    "frame=best_effort_timestamp_time", "-of", "json", str(path)], text=True))
+                self.assertEqual([float(f["best_effort_timestamp_time"]) for f in frame_data["frames"]],
+                                 [0, 0.7, 1.8, 2.05, 2.9])
+                edl["sources"][role].update({"path": path.name, "sha256": compose.sha256(path)})
+            timing_path = root / "vfr-timing.json"
+            timing = {"schemaVersion": 2, "sources": {}}
+            for role, offset in (("phone", 0), ("tablet", 0.37)):
+                timing["sources"][role] = {"segments": [{
+                    "path": edl["sources"][role]["path"], "sha256": edl["sources"][role]["sha256"],
+                    "status": "available", "estimatedStartSeconds": str(offset),
+                    "estimatedEndSeconds": str(offset + 3)}], "recordingGaps": []}
+            timing_path.write_text(json.dumps(timing), encoding="utf-8")
+            edl["timelines"]["together"] = {"path": timing_path.name, "sha256": compose.sha256(timing_path)}
+            edl["shots"] = [edl["shots"][1], edl["shots"][2]]
+            edl["shots"][0].update({"in": 0.85, "out": 2.85})
+            edl["shots"][1].update({"in": 2.15, "out": 2.95})
+            edl_path.write_text(json.dumps(edl), encoding="utf-8")
+            target = root / "synthetic-vfr.mp4"
+            manifest = compose.render(edl_path, target, preset="ultrafast")
+            self.assertAlmostEqual(manifest["output"]["probe"]["duration"], 2.8, places=5)
+            # Sample every output frame. A normal player holds the source frame
+            # whose PTS is the greatest timestamp <= the requested source clock.
+            colors = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (255, 0, 255)]
+            transitions = [0, 0.7, 1.8, 2.05, 2.9]
+            for role, x, y, start, count, source_in in (
+                ("phone", 320, 450, 0, 60, 0.85),
+                ("tablet", 1200, 500, 0, 60, 0.48),
+                ("single tail", 1300, 500, 60, 24, 2.15),
+            ):
+                pixels = subprocess.check_output([
+                    "ffmpeg", "-hide_banner", "-loglevel", "error", "-i", str(target),
+                    "-vf", f"trim=start_frame={start}:end_frame={start+count},crop=2:2:{x}:{y}",
+                    "-fps_mode", "passthrough", "-f", "rawvideo", "-pix_fmt", "rgb24", "pipe:1"])
+                self.assertEqual(len(pixels), count * 12)
+                for frame in range(count):
+                    clock = source_in + frame / 30
+                    expected = colors[max(i for i, t in enumerate(transitions) if t <= clock + 0.000001)]
+                    actual = pixels[frame * 12:frame * 12 + 3]
+                    self.assertTrue(all(abs(actual[c] - expected[c]) < 30 for c in range(3)),
+                                    (role, frame, clock, expected, tuple(actual)))
+
     def test_synthetic_render_keeps_offsets_and_real_pixels_and_records_hashes(self):
         with tempfile.TemporaryDirectory(prefix="meowwatch-synthetic-only-") as folder:
             root = Path(folder)
@@ -184,6 +242,13 @@ class RenderTests(unittest.TestCase):
             self.assertEqual(manifest["output"]["probe"]["duration"], 3)
             self.assertEqual(manifest["output"]["sha256"], compose.sha256(target))
             self.assertEqual(before, {path: compose.sha256(path) for path in before})
+            frames = json.loads(subprocess.check_output([
+                "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_frames",
+                "-show_entries", "frame=color_space,color_range,color_primaries,color_transfer",
+                "-of", "json", str(target)], text=True))["frames"]
+            self.assertEqual(len(frames), 90)
+            self.assertEqual({(f["color_space"], f["color_range"], f["color_primaries"], f["color_transfer"])
+                              for f in frames}, {("bt709", "tv", "bt709", "bt709")})
             for when, x, y, color in ((0.65, 320, 450, 1), (0.65, 1200, 500, 0),
                                       (1.3, 1200, 500, 1), (1.8, 1300, 500, 2)):
                 pixels = subprocess.check_output([

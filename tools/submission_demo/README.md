@@ -6,6 +6,8 @@ stays at 1× speed. The tool adds the selected A / Balanced cat/play logo, bundl
 DM Sans / DM Serif Display fonts, navy/cream/blue framing, and text **outside**
 device content. It proportionally scales the complete capture; no cropping,
 app-pixel replacement, generated motion, zooms, transitions or frozen padding.
+Compositing uses RGB and one consistent limited-range BT.709 delivery conversion,
+so graphics and native shots do not switch color metadata at editorial cuts.
 
 This tool performs an edit, not product acceptance. It cannot determine whether
 an input is authentic, whether the recorded build passed, or whether a claim is
@@ -107,6 +109,16 @@ alignment · 1×**. Visual alignment
 does not replace native convergence measurements. The compositor does not
 independently shift devices to make them appear synchronized.
 
+Android screenrecord can use a variable frame rate. Cuts retain the frame
+already on screen at the requested source time, including when its timestamp
+precedes the cut. The renderer shifts the source clock by the requested in point,
+then samples it on the 30 fps canvas. A change first appears on the first output
+tick at or after its original time; no future frame is selected early. It does
+not trim away held frames and rebase the next retained frame to zero. This uses
+FFmpeg's [timestamp-based frame synchronization](https://ffmpeg.org/ffmpeg-filters.html#Options-for-filters-with-several-inputs-framesync).
+Output ranges must still fit actual video coverage, and source EOF is never
+extended to fill a missing tail.
+
 The timing manifest may contain the runner's original Linux paths; matching by
 hash and basename lets downloaded artifacts resolve locally without rewriting
 that evidence. EDL source paths always point to the downloaded originals.
@@ -121,6 +133,10 @@ python -m py_compile tools/submission_demo/compose.py tools/submission_demo/test
 The test suite creates explicit red/green/blue synthetic fixtures in a temporary
 folder, renders title/pair/single/end shots, probes the MP4, and samples output
 pixels to check that the measured half-second tablet offset is retained. It
+also encodes a true VFR fixture at irregular timestamps 0, 0.7, 1.8, 2.05 and
+2.9 seconds. Every rendered frame is checked against the original held-frame
+clock for cuts between source frames, a fractional 0.37-second tablet offset
+and a clip ending inside the last frame's real coverage. It
 checks original source hashes remain unchanged and verifies failure behavior
 for falsified dimensions/hashes, gaps, independent retiming, source overrun,
 overlong films, mixing synthetic/native purposes and output overwrite.

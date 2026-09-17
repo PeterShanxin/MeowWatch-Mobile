@@ -291,7 +291,7 @@ class Runner(LifecycleRunner):
         return report
 
     def cleanup(self):
-        if self.owns_helper or self.cleanup_authorized or self.observer.owns_package or self.recording is not None:
+        if self.owns_helper or self.cleanup_authorized or self.adb.remote_root_created or self.observer.owns_package or self.recording is not None:
             # A reused serial must not authorize stopping/removing packages or
             # remote evidence on a replacement emulator during failure cleanup.
             require_owned_avd(self.adb, self.avd_name)

@@ -267,7 +267,7 @@ class Adb:
         validate_png(value)
         return value
 
-    def prepare_storage(self) -> None:
+    def prepare_storage(self, *, output: Path | None = None) -> None:
         """Wait for this emulator's external storage, retaining failed probes."""
         if self.run("shell", "test", "-e", self.remote_root, check=False).returncode == 0:
             raise RuntimeFailure("task-owned Android evidence directory already exists")
@@ -298,7 +298,7 @@ class Adb:
                 time.sleep(0.5)
             raise RuntimeFailure("Android evidence storage was not writable within 20 seconds")
         finally:
-            (ARTIFACT_ROOT / "storage-readiness.log").write_text(
+            ((ARTIFACT_ROOT if output is None else output) / "storage-readiness.log").write_text(
                 "".join(diagnostics), encoding="utf-8"
             )
 

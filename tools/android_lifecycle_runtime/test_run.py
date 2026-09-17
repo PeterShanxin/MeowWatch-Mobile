@@ -113,6 +113,40 @@ def preparation_runner(root, adb):
 
 
 class LifecycleRuntimeTests(unittest.TestCase):
+    def test_unwritable_storage_retains_diagnostics_and_cleans_only_owned_files(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            (root / 'app.apk').write_bytes(b'never installed')
+            (root / FIXTURE_NAME).write_bytes(b'never opened')
+            runner = Runner('emulator-5554', root / 'app.apk', root / FIXTURE_NAME, root / 'evidence')
+            commands = []
+
+            def run(*arguments, **kwargs):
+                commands.append(arguments)
+                if arguments == ('get-state',):
+                    return subprocess.CompletedProcess([], 0, b'device\n', b'')
+                if arguments == ('shell', 'getprop', 'ro.kernel.qemu'):
+                    return subprocess.CompletedProcess([], 0, b'1\n', b'')
+                if arguments[:3] == ('shell', 'test', '-e'):
+                    return subprocess.CompletedProcess([], 1, b'', b'')
+                if arguments[:2] in (('shell', 'mkdir'), ('shell', 'rmdir')) or arguments[:3] == ('shell', 'rm', '-f'):
+                    return subprocess.CompletedProcess([], 0, b'', b'')
+                if arguments[:2] == ('shell', 'touch'):
+                    return subprocess.CompletedProcess([], 1, b'', b'external_primary not ready')
+                raise AssertionError(f'Unexpected command: {arguments}')
+
+            with patch.object(runner.adb, 'run', side_effect=run), patch(
+                'tools.android_install.runner.time.monotonic', side_effect=[0, 0, 0, 21]
+            ), patch('tools.android_install.runner.time.sleep'):
+                with self.assertRaisesRegex(RuntimeFailure, 'not writable within 20 seconds'):
+                    runner.prepare()
+                self.assertTrue(runner.adb.remote_root_created)
+                self.assertFalse(runner.cleanup_authorized)
+                self.assertIn('external_primary not ready', (runner.output / 'storage-readiness.log').read_text())
+                runner.cleanup()
+            self.assertIn(('shell', 'rmdir', runner.adb.remote_root), commands)
+            self.assertFalse(any(row[:2] in (('install', '-t'), ('shell', 'am'), ('shell', 'pm')) for row in commands))
+
     def test_winscope_clock_matches_actual_frames_with_muxer_rounding(self):
         times = [62.507731899, 64.321667899, 123.391883899]
         self.assertEqual(recording_frame_clock(clock_media(times), [0, 1.813933, 60.884156]), times)

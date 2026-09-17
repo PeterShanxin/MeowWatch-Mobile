@@ -13,6 +13,12 @@ and its data. The runner requires an explicit `emulator-*` serial and checks
 stopped, removes its separately installed observer helper, and stops only the fixture server
 whose ownership the existing server helper verifies.
 
+Before any application removal or installation, the runner waits up to 20 seconds
+for its unique external-storage directory to become writable. It reuses the normal
+install gate's bounded mkdir/touch probes and retains their errors in this run's
+`storage-readiness.log`. A partial directory is cleaned without stopping or
+modifying the application if storage readiness fails.
+
 ## What must pass
 
 1. Share the actual 90-second fixture URL into the exported normal Activity.

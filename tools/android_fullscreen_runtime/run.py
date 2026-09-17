@@ -450,7 +450,7 @@ class Runner(LifecycleRunner):
                 if self.log_file is not None:
                     self.log_file.close()
         finally:
-            if self.cleanup_authorized or self.observer.owns_package:
+            if self.cleanup_authorized or self.adb.remote_root_created or self.observer.owns_package:
                 self.require_owned_avd()
             super().cleanup()
 

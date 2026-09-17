@@ -339,6 +339,27 @@ class FirstRunSetupRecoveryTests(unittest.TestCase):
 
 
 class StorageReadinessTests(unittest.TestCase):
+    def test_caller_receives_probe_errors_without_writing_default_output(self):
+        adb = Adb("emulator-5554", "storage-test")
+        results = [
+            subprocess.CompletedProcess([], 1, b'', b''),
+            subprocess.CompletedProcess([], 1, b'', b'not mounted'),
+        ]
+        with tempfile.TemporaryDirectory() as temporary:
+            caller = Path(temporary) / 'caller'
+            caller.mkdir()
+            default = Path(temporary) / 'default-must-not-be-created'
+            with patch('tools.android_install.runner.ARTIFACT_ROOT', default), patch.object(
+                adb, 'run', side_effect=results
+            ), patch('tools.android_install.runner.time.monotonic', side_effect=[0, 0, 21]), patch(
+                'tools.android_install.runner.time.sleep'
+            ):
+                with self.assertRaisesRegex(RuntimeFailure, 'not writable within 20 seconds'):
+                    adb.prepare_storage(output=caller)
+            self.assertIn('not mounted', (caller / 'storage-readiness.log').read_text())
+            self.assertFalse(default.exists())
+            self.assertFalse(adb.remote_root_created)
+
     def test_delayed_mount_and_write_readiness_keep_original_errors(self):
         adb = Adb("emulator-5554", "storage-test")
         results = [

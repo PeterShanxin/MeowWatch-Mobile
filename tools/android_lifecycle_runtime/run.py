@@ -839,10 +839,7 @@ class Runner:
             raise RuntimeFailure("selected Android emulator is not ready")
         if self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.decode().strip() != "1":
             raise RuntimeFailure("lifecycle acceptance requires a dedicated emulator")
-        if self.adb.run("shell", "test", "-e", self.adb.remote_root, check=False).returncode == 0:
-            raise RuntimeFailure("remote evidence directory already exists")
-        self.adb.run("shell", "mkdir", self.adb.remote_root)
-        self.adb.remote_root_created = True
+        self.adb.prepare_storage(output=self.output)
         self.cleanup_authorized = True
         installed = self.adb.run("shell", "pm", "path", PACKAGE, check=False).stdout.decode().strip()
         if installed:
@@ -1193,6 +1190,7 @@ class Runner:
             finally:
                 if self.cleanup_authorized:
                     self.adb.run("shell", "am", "force-stop", PACKAGE, check=False)
+                if self.cleanup_authorized or self.adb.remote_root_created:
                     self.adb.cleanup()
                     self.cleanup_authorized = False
 

@@ -388,29 +388,40 @@ class _ChatPanelState extends State<ChatPanel> {
   );
 }
 
-Future<void> showChatSheet(BuildContext context, AppController app) =>
-    showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      useSafeArea: true,
-      showDragHandle: false,
-      builder: (context) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(context).bottom,
-        ),
-        child: SizedBox(
-          height: math.min(
-            MediaQuery.sizeOf(context).height *
-                (MediaQuery.orientationOf(context) == Orientation.landscape
-                    ? .9
-                    : .65),
-            math.max(
-              0,
-              MediaQuery.sizeOf(context).height -
-                  MediaQuery.viewInsetsOf(context).bottom,
-            ),
+Future<void> showChatSheet(
+  BuildContext context,
+  AppController app,
+) => showModalBottomSheet<void>(
+  context: context,
+  isScrollControlled: true,
+  useSafeArea: true,
+  showDragHandle: false,
+  builder: (context) {
+    final sheetRoute = ModalRoute.of(context)!;
+    final navigator = Navigator.of(context);
+    return Padding(
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: SizedBox(
+        height: math.min(
+          MediaQuery.sizeOf(context).height *
+              (MediaQuery.orientationOf(context) == Orientation.landscape
+                  ? .9
+                  : .65),
+          math.max(
+            0,
+            MediaQuery.sizeOf(context).height -
+                MediaQuery.viewInsetsOf(context).bottom,
           ),
-          child: ChatPanel(app: app, onClose: () => Navigator.pop(context)),
+        ),
+        child: ChatPanel(
+          app: app,
+          onClose: () {
+            // The sheet stays mounted during its reverse animation. A
+            // late load completion or close event must not pop a new route.
+            if (sheetRoute.isActive && sheetRoute.isCurrent) navigator.pop();
+          },
         ),
       ),
     );
+  },
+);

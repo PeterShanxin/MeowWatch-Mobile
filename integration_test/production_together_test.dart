@@ -515,6 +515,10 @@ void main() {
         );
         expect(app.target.snapshot.media!.uri, Uri.parse(_videoUrl));
         expect(identical(phone.controller, previousController), isTrue);
+        final closesChatAfterLoad = find
+            .byTooltip('Close chat')
+            .evaluate()
+            .isNotEmpty;
         await _capture(
           nativeScreenshots,
           tester,
@@ -528,7 +532,16 @@ void main() {
         );
         await _waitForNativeVideo(tester, app, sharedUri);
         expect(identical(phone.controller, previousController), isFalse);
-        await _closeChatIfNeeded(tester);
+        if (closesChatAfterLoad) {
+          // The successful shared load dismisses its own phone sheet. Its
+          // widgets remain mounted during the reverse animation; clicking
+          // Close again can pop the underlying route instead.
+          await _waitForConditionWithoutApp(
+            tester,
+            () => find.byType(ChatPanel).evaluate().isEmpty,
+            'shared video to dismiss its chat sheet after successful loading',
+          );
+        }
         await _signalCheckpoint('shared-link-loaded');
         verified.addAll([
           'peer_link_waited_for_explicit_confirmation',

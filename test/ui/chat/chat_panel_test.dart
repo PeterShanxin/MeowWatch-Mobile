@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/app/app_controller.dart';
@@ -66,11 +68,21 @@ void main() {
     WidgetTester tester,
     String message, {
     String from = 'Guest',
+    bool asSheet = false,
   }) async {
     await tester.runAsync(() => app.connect(support.ticket));
     await tester.pumpWidget(
       MaterialApp(
-        home: Scaffold(body: ChatPanel(app: app)),
+        home: asSheet
+            ? Builder(
+                builder: (context) => Scaffold(
+                  body: TextButton(
+                    onPressed: () => showChatSheet(context, app),
+                    child: const Text('Open room chat'),
+                  ),
+                ),
+              )
+            : Scaffold(body: ChatPanel(app: app)),
       ),
     );
     await tester.runAsync(() async {
@@ -84,6 +96,10 @@ void main() {
     });
     expect(app.messages.last.text, message);
     await tester.pumpAndSettle();
+    if (asSheet) {
+      await tester.tap(find.text('Open room chat'));
+      await tester.pumpAndSettle();
+    }
   }
 
   for (final layout in [
@@ -195,6 +211,88 @@ void main() {
       expect(app.isConnected, isTrue);
       expect(client.closed, isFalse);
       expect(client.sent, isEmpty); // Loading does not broadcast the URL/token.
+    },
+  );
+
+  testWidgets(
+    'closing a loading sheet cannot dismiss a newer route on completion',
+    (tester) async {
+      const link = 'https://video.example/movie.mp4';
+      final loadGate = Completer<void>();
+      (app.target as SyncTestTarget).loadGate = loadGate;
+      await show(tester, link, asSheet: true);
+      final sheetRoute = ModalRoute.of(tester.element(find.byType(ChatPanel)))!;
+      final navigator = sheetRoute.navigator!;
+      await tester.tap(find.text('Watch this too'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Load video'));
+      await tester.pumpAndSettle();
+      expect(app.loads, 1);
+      expect(app.target.snapshot.ready, isFalse);
+
+      await tester.tap(find.byTooltip('Close chat'));
+      expect(sheetRoute.isActive, isFalse);
+      // Complete while the dismissed sheet is still mounted, with another
+      // route now on top. Its asynchronous onClose must only own that sheet.
+      expect(find.byType(ChatPanel), findsOneWidget);
+      unawaited(
+        navigator.push<void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('New room screen')),
+          ),
+        ),
+      );
+      loadGate.complete();
+      await tester.pumpAndSettle();
+
+      expect(app.target.snapshot.media?.uri.toString(), link);
+      expect(app.target.snapshot.ready, isTrue);
+      expect(find.byType(ChatPanel), findsNothing);
+      expect(find.text('New room screen'), findsOneWidget);
+      expect(navigator.canPop(), isTrue);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'late Close callback during automatic sheet reversal preserves root route',
+    (tester) async {
+      const link = 'https://video.example/movie.mp4';
+      final loadGate = Completer<void>();
+      (app.target as SyncTestTarget).loadGate = loadGate;
+      await show(tester, link, asSheet: true);
+      final sheetRoute = ModalRoute.of(tester.element(find.byType(ChatPanel)))!;
+      final navigator = sheetRoute.navigator!;
+      final close = tester
+          .widget<IconButton>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is IconButton && widget.tooltip == 'Close chat',
+            ),
+          )
+          .onPressed!;
+      await tester.tap(find.text('Watch this too'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Load video'));
+      await tester.pumpAndSettle();
+      expect(app.loads, 1);
+      expect(sheetRoute.isCurrent, isTrue);
+
+      loadGate.complete();
+      await tester.pump();
+      expect(app.target.snapshot.ready, isTrue);
+      expect(sheetRoute.animation!.status, AnimationStatus.reverse);
+      expect(sheetRoute.isActive, isFalse);
+      expect(find.byType(ChatPanel), findsOneWidget);
+      // Deliver the real button's already-captured callback. Flutter ignores
+      // fresh pointer hits while reversing, but queued callbacks can be late.
+      close();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(ChatPanel), findsNothing);
+      expect(find.text('Open room chat'), findsOneWidget);
+      expect(navigator.canPop(), isFalse);
+      expect(tester.takeException(), isNull);
     },
   );
 

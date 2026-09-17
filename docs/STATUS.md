@@ -35,6 +35,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Human/external dependencies
 
+- The entrant confirmed on 2026-09-17 that they are an active student, have reached the local age of majority and have a student/academic email available for Devpost. Domain recognition, other eligibility conditions and final legal acceptance are separate checks; no email address was collected.
 - RevenueCat login and Test Store/catalog setup completed; email confirmation banner remains.
 - Android SDK license accepted by the user; official SDK/ADB/build tools installed and actual APK builds pass on Windows ARM.
 - Physical Android/Cast hardware availability is unconfirmed. Do not label emulator tests as real-device proof.

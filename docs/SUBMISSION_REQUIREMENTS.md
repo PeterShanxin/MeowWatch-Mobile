@@ -160,6 +160,8 @@ should obtain written organizer clarification on these two precise questions:
    thread confirms Test Store sufficiency but leaves this checkbox follow-up
    unanswered.
 
-Do not represent the entrant's student status, academic-email eligibility,
-residency, age/guardian status, ownership of prior work, or absence of conflicts
-as confirmed until the entrant verifies those facts.
+On 2026-09-17, the entrant confirmed active student status, reaching the local
+age of majority, and availability of a student/academic email for Devpost. No
+email address was collected. Domain recognition in the actual Devpost path is
+still unverified. Residency, ownership of prior work, absence of conflicts and
+final legal acceptance remain separate entrant confirmations.

@@ -159,6 +159,7 @@ void main() {
         'open media sheet',
       );
       await _waitFor(tester, find.text('Choose what to watch'), 'media sheet');
+      await _capture(nativeScreenshots, tester, screenshots, 'media-sources');
       final mediaField = find.byType(TextField);
       expect(mediaField, findsOneWidget);
       await tester.enterText(mediaField, _videoUrl);
@@ -423,6 +424,12 @@ void main() {
         'open settings',
       );
       final appearance = find.byKey(const Key('choose-appearance-button'));
+      await _waitFor(
+        tester,
+        find.byKey(const Key('settings-quick-guide-button')),
+        'Settings guide entry',
+      );
+      await _capture(nativeScreenshots, tester, screenshots, 'settings');
       await _tap(
         tester,
         find.byKey(const Key('settings-quick-guide-button')),

@@ -60,6 +60,18 @@ class MainApp extends StatefulWidget {
   State<MainApp> createState() => _MainAppState();
 }
 
+class _AppMessageSnackBar {
+  _AppMessageSnackBar(this.version);
+
+  final int version;
+  late final ScaffoldFeatureController<SnackBar, SnackBarClosedReason>
+  controller;
+  bool visible = false;
+  bool closed = false;
+  bool retired = false;
+  bool closeScheduled = false;
+}
+
 class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   final _messenger = GlobalKey<ScaffoldMessengerState>();
   final _navigator = GlobalKey<NavigatorState>();
@@ -68,6 +80,8 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   bool _paywallOpen = false;
   bool _modalOpen = false;
   String? _lastMessage;
+  int _messageVersion = 0;
+  _AppMessageSnackBar? _appMessageSnackBar;
   IncomingLinks? _incomingLinks;
   IncomingMediaInbox? _incomingMedia;
   final List<IncomingMedia> _pendingIncomingMedia = [];
@@ -154,27 +168,74 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
 
   void _changed() {
     if (!mounted) return;
+    if (_app?.message != _lastMessage) {
+      _lastMessage = _app?.message;
+      _messageVersion++;
+    }
     setState(() {});
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _app == null) return;
       final app = _app!;
-      if (app.message != null && app.message != _lastMessage) {
-        _lastMessage = app.message;
-        _messenger.currentState?.showSnackBar(
-          SnackBar(
-            content: Text(app.message!),
-            action: SnackBarAction(
-              label: 'Dismiss',
-              onPressed: app.dismissMessage,
-            ),
-          ),
-        );
-      }
-      if (app.message == null) _lastMessage = null;
+      _syncMessageSnackBar(app);
       if (app.needsPlus && !_paywallOpen) {
         unawaited(_upgrade(retryIntent: true));
       }
       _scheduleIncomingDrain();
+    });
+  }
+
+  void _syncMessageSnackBar(AppController app) {
+    if (_appMessageSnackBar?.version == _messageVersion) return;
+    final previous = _appMessageSnackBar;
+    _appMessageSnackBar = null;
+    if (previous != null) {
+      previous.retired = true;
+      _closeRetiredMessage(previous);
+    }
+    final message = app.message;
+    final messenger = _messenger.currentState;
+    if (message == null || messenger == null) return;
+    final notice = _AppMessageSnackBar(_messageVersion);
+    _appMessageSnackBar = notice;
+    notice.controller = messenger.showSnackBar(
+      SnackBar(
+        content: Text(message),
+        onVisible: () {
+          notice.visible = true;
+          _closeRetiredMessage(notice);
+        },
+        action: SnackBarAction(
+          label: 'Dismiss',
+          onPressed: () {
+            if (mounted &&
+                identical(_appMessageSnackBar, notice) &&
+                notice.version == _messageVersion &&
+                app.message == message) {
+              app.dismissMessage();
+            }
+          },
+        ),
+      ),
+    );
+    unawaited(
+      notice.controller.closed.then((_) {
+        notice.closed = true;
+      }),
+    );
+  }
+
+  void _closeRetiredMessage(_AppMessageSnackBar notice) {
+    if (!notice.retired ||
+        !notice.visible ||
+        notice.closed ||
+        notice.closeScheduled) {
+      return;
+    }
+    notice.closeScheduled = true;
+    // A queued controller cannot close itself. Once visible, let already-closed
+    // futures settle before closing only our own front-of-queue notification.
+    Timer.run(() {
+      if (mounted && !notice.closed) notice.controller.close();
     });
   }
 

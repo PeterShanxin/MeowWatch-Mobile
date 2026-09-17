@@ -7,40 +7,97 @@ import 'package:meowwatch_mobile/ui/media/media_sheet.dart';
 import 'sheet_test_support.dart';
 
 void main() {
-  testWidgets('returns a validated direct URL without loading it', (
-    tester,
-  ) async {
-    final app = createTestApp(billing: TestBilling());
-    MediaItem? result;
-    await tester.pumpWidget(
-      MaterialApp(
-        home: Builder(
-          builder: (context) => Scaffold(
-            body: TextButton(
-              onPressed: () async {
-                result = await showMediaSheet(context, app: app);
-              },
-              child: const Text('Open'),
+  testWidgets(
+    'returns a validated direct URL only after the picker exits',
+    (tester) async {
+      final app = createTestApp(billing: TestBilling());
+      MediaItem? result;
+      var returned = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () async {
+                  result = await showMediaSheet(context, app: app);
+                  returned = true;
+                  expect(
+                    find.byType(TextField, skipOffstage: false),
+                    findsNothing,
+                  );
+                },
+                child: const Text('Open'),
+              ),
             ),
           ),
         ),
-      ),
-    );
+      );
 
-    await tester.tap(find.text('Open'));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byType(TextField),
-      'https://cdn.example.com/movie.mp4',
-    );
-    await tester.ensureVisible(find.text('Use this link'));
-    await tester.tap(find.text('Use this link'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byType(TextField),
+        'https://cdn.example.com/movie.mp4',
+      );
+      final sheetRoute = ModalRoute.of(tester.element(find.byType(TextField)))!;
+      await tester.ensureVisible(find.text('Use this link'));
+      await tester.tap(find.text('Use this link'));
+      await tester.pump();
+      expect(sheetRoute.animation!.status, AnimationStatus.reverse);
+      expect(find.byType(TextField), findsOneWidget);
+      expect(returned, isFalse);
+      expect(result, isNull);
+      await tester.pumpAndSettle();
 
-    expect(result?.uri, Uri.parse('https://cdn.example.com/movie.mp4'));
-    expect(app.target.snapshot.media, isNull);
-    await app.close();
-  });
+      expect(returned, isTrue);
+      expect(result?.uri, Uri.parse('https://cdn.example.com/movie.mp4'));
+      expect(app.target.snapshot.media, isNull);
+      expect(tester.takeException(), isNull);
+      await app.close();
+    },
+    semanticsEnabled: true,
+  );
+
+  testWidgets(
+    'cancelling the picker returns no selection after its sheet exits',
+    (tester) async {
+      final app = createTestApp(billing: TestBilling());
+      MediaItem? result = sampleVideo();
+      var returned = false;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (context) => Scaffold(
+              body: TextButton(
+                onPressed: () async {
+                  result = await showMediaSheet(context, app: app);
+                  returned = true;
+                },
+                child: const Text('Open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('Open'));
+      await tester.pumpAndSettle();
+      final sheetRoute = ModalRoute.of(tester.element(find.byType(TextField)))!;
+      final navigator = sheetRoute.navigator!;
+      navigator.pop();
+      await tester.pump();
+      expect(sheetRoute.animation!.status, AnimationStatus.reverse);
+      expect(returned, isFalse);
+      await tester.pumpAndSettle();
+      expect(returned, isTrue);
+      expect(result, isNull);
+      expect(app.target.snapshot.media, isNull);
+      expect(find.text('Open'), findsOneWidget);
+      expect(navigator.canPop(), isFalse);
+      expect(tester.takeException(), isNull);
+      await app.close();
+    },
+    semanticsEnabled: true,
+  );
 
   testWidgets('rejects webpage URLs and clears the error while editing', (
     tester,

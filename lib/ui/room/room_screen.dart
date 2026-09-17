@@ -83,7 +83,8 @@ class RoomScreen extends StatelessWidget {
                               : app.isCasting
                               ? app.cast!.receiverName
                               : app.isLocal
-                              ? 'Your own screening'
+                              ? app.target.snapshot.media?.title ??
+                                    'Your own screening'
                               : app.room!.config.room,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,

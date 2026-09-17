@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/app/app_controller.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
+import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/sync/endpoint_settings.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/ui/chat/chat_panel.dart';
@@ -20,13 +21,40 @@ class _Client extends support.ControlledClient {
   void sendChat(String text) => sent.add(text);
 }
 
+class _ChatTarget extends SyncTestTarget {
+  @override
+  void emit(PlaybackSnapshot value) {
+    super.emit(value);
+    notifyListeners();
+  }
+
+  @override
+  Future<void> load(
+    MediaItem media, {
+    Duration position = Duration.zero,
+  }) async {
+    try {
+      await super.load(media, position: position);
+    } catch (_) {
+      emit(
+        PlaybackSnapshot(
+          media: media,
+          connection: PlaybackConnection.failed,
+          error: 'This video could not be opened.',
+        ),
+      );
+      rethrow;
+    }
+  }
+}
+
 class _ChatApp extends AppController {
   _ChatApp(this.client)
     : super(
         repository: UiTestRepository(),
         billing: UiTestBilling(),
         hosting: UiTestHosting(),
-        phone: SyncTestTarget(),
+        phone: _ChatTarget(),
         endpointSettings: MemoryEndpointSettings(),
         createSyncClient: () => client,
       );
@@ -35,6 +63,10 @@ class _ChatApp extends AppController {
   bool nearbyMode = false;
   bool castingMode = false;
   int loads = 0;
+  VoidCallback? beforeLoad;
+  PlaybackTarget? selectedTarget;
+  @override
+  PlaybackTarget get target => selectedTarget ?? super.target;
   @override
   bool get isNearby => nearbyMode;
   @override
@@ -47,6 +79,7 @@ class _ChatApp extends AppController {
     Duration position = Duration.zero,
   }) async {
     loads++;
+    beforeLoad?.call();
     await super.load(media, position: position);
   }
 }
@@ -61,6 +94,8 @@ void main() {
   tearDown(() async {
     app.nearbyMode = false;
     app.castingMode = false;
+    app.selectedTarget = null;
+    app.busy = false;
     await app.close();
   });
 
@@ -69,11 +104,27 @@ void main() {
     String message, {
     String from = 'Guest',
     bool asSheet = false,
+    bool inRoom = false,
+    VoidCallback? onLoad,
   }) async {
     await tester.runAsync(() => app.connect(support.ticket));
     await tester.pumpWidget(
       MaterialApp(
-        home: asSheet
+        home: inRoom
+            ? ListenableBuilder(
+                listenable: app,
+                builder: (context, _) => RoomScreen(
+                  app: app,
+                  onLoad: onLoad ?? () {},
+                  onInvite: () {},
+                  onDevices: () {},
+                  onLeave: () {},
+                  onStartRoom: () {},
+                  onTogglePlay: () => unawaited(app.togglePlay()),
+                  onSeek: (_) {},
+                ),
+              )
+            : asSheet
             ? Builder(
                 builder: (context) => Scaffold(
                   body: TextButton(
@@ -97,7 +148,11 @@ void main() {
     expect(app.messages.last.text, message);
     await tester.pumpAndSettle();
     if (asSheet) {
-      await tester.tap(find.text('Open room chat'));
+      await tester.tap(
+        inRoom
+            ? find.widgetWithText(TextButton, 'Chat')
+            : find.text('Open room chat'),
+      );
       await tester.pumpAndSettle();
     }
   }
@@ -215,7 +270,7 @@ void main() {
   );
 
   testWidgets(
-    'closing a loading sheet cannot dismiss a newer route on completion',
+    'loading after sheet dismissal cannot dismiss a newer route on completion',
     (tester) async {
       const link = 'https://video.example/movie.mp4';
       final loadGate = Completer<void>();
@@ -229,12 +284,10 @@ void main() {
       await tester.pumpAndSettle();
       expect(app.loads, 1);
       expect(app.target.snapshot.ready, isFalse);
-
-      await tester.tap(find.byTooltip('Close chat'));
       expect(sheetRoute.isActive, isFalse);
-      // Complete while the dismissed sheet is still mounted, with another
-      // route now on top. Its asynchronous onClose must only own that sheet.
-      expect(find.byType(ChatPanel), findsOneWidget);
+      expect(find.byType(ChatPanel), findsNothing);
+      // Loading now begins after the owned sheet has fully left the tree.
+      // Its later completion must still preserve a newly opened route.
       unawaited(
         navigator.push<void>(
           MaterialPageRoute<void>(
@@ -252,6 +305,7 @@ void main() {
       expect(navigator.canPop(), isTrue);
       expect(tester.takeException(), isNull);
     },
+    semanticsEnabled: true,
   );
 
   testWidgets(
@@ -274,13 +328,11 @@ void main() {
       await tester.tap(find.text('Watch this too'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Load video'));
-      await tester.pumpAndSettle();
-      expect(app.loads, 1);
-      expect(sheetRoute.isCurrent, isTrue);
-
-      loadGate.complete();
       await tester.pump();
-      expect(app.target.snapshot.ready, isTrue);
+      expect(app.loads, 0);
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump();
+      expect(app.loads, 0);
       expect(sheetRoute.animation!.status, AnimationStatus.reverse);
       expect(sheetRoute.isActive, isFalse);
       expect(find.byType(ChatPanel), findsOneWidget);
@@ -289,12 +341,255 @@ void main() {
       close();
       await tester.pumpAndSettle();
 
+      expect(app.loads, 1);
+      expect(app.target.snapshot.ready, isFalse);
       expect(find.byType(ChatPanel), findsNothing);
       expect(find.text('Open room chat'), findsOneWidget);
       expect(navigator.canPop(), isFalse);
+      loadGate.complete();
+      await tester.pumpAndSettle();
+      expect(app.target.snapshot.ready, isTrue);
+      expect(navigator.canPop(), isFalse);
       expect(tester.takeException(), isNull);
     },
+    semanticsEnabled: true,
   );
+
+  for (final asSheet in [false, true]) {
+    testWidgets(
+      '${asSheet ? 'phone' : 'inline'} load starts after its modals leave the tree',
+      (tester) async {
+        await show(tester, 'https://video.example/movie.mp4', asSheet: asSheet);
+        final panelRoute = ModalRoute.of(
+          tester.element(find.byType(ChatPanel)),
+        )!;
+        app.beforeLoad = () {
+          expect(find.byType(AlertDialog, skipOffstage: false), findsNothing);
+          expect(
+            find.byType(ChatPanel, skipOffstage: false),
+            asSheet ? findsNothing : findsOneWidget,
+          );
+          expect(panelRoute.isActive, !asSheet);
+        };
+        await tester.tap(find.text('Watch this too'));
+        await tester.pumpAndSettle();
+        final dialogRoute = ModalRoute.of(
+          tester.element(find.byType(AlertDialog)),
+        )!;
+        await tester.tap(find.text('Load video'));
+        await tester.pump();
+        expect(app.loads, 0);
+        expect(dialogRoute.animation!.status, AnimationStatus.reverse);
+        expect(find.byType(AlertDialog), findsOneWidget);
+        await tester.pumpAndSettle();
+        expect(app.loads, 1);
+        expect(app.target.snapshot.ready, isTrue);
+        expect(tester.takeException(), isNull);
+      },
+      semanticsEnabled: true,
+    );
+  }
+
+  testWidgets(
+    'cancelling review leaves phone chat open without loading',
+    (tester) async {
+      await show(tester, 'https://video.example/movie.mp4', asSheet: true);
+      await tester.tap(find.text('Watch this too'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(app.loads, 0);
+      expect(find.byType(ChatPanel), findsOneWidget);
+      expect(find.text('Watch this too').hitTestable(), findsOneWidget);
+      await tester.tap(find.byTooltip('Close chat'));
+      await tester.pumpAndSettle();
+      expect(find.text('Open room chat'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    semanticsEnabled: true,
+  );
+
+  for (final duringSheet in [false, true]) {
+    for (final change in [
+      'room',
+      'target',
+      'connection',
+      'busy',
+      'Nearby',
+      'unsupported Cast',
+    ]) {
+      testWidgets(
+        '$change change during ${duringSheet ? 'sheet' : 'dialog'} exit cancels loading',
+        (tester) async {
+          await show(tester, 'http://video.example/movie.mp4', asSheet: true);
+          await tester.tap(find.text('Watch this too'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Load video'));
+          await tester.pump();
+          if (duringSheet) {
+            await tester.pump(const Duration(milliseconds: 200));
+            await tester.pump();
+          }
+          expect(app.loads, 0);
+          switch (change) {
+            case 'room':
+              app.room = null;
+            case 'target':
+              final replacement = SyncTestTarget();
+              app.selectedTarget = replacement;
+              addTearDown(replacement.close);
+            case 'connection':
+              app.connection = const SyncConnectionState(
+                status: SyncConnectionStatus.disconnected,
+              );
+            case 'busy':
+              app.busy = true;
+            case 'Nearby':
+              app.nearbyMode = true;
+            case 'unsupported Cast':
+              app.castingMode = true;
+          }
+          await tester.pumpAndSettle();
+          expect(app.loads, 0);
+          expect(app.phone.snapshot.media, isNull);
+          expect(tester.takeException(), isNull);
+        },
+        semanticsEnabled: true,
+      );
+    }
+
+    testWidgets(
+      'a new route during ${duringSheet ? 'sheet' : 'dialog'} exit cancels loading',
+      (tester) async {
+        await show(tester, 'https://video.example/movie.mp4', asSheet: true);
+        final sheetRoute = ModalRoute.of(
+          tester.element(find.byType(ChatPanel)),
+        )!;
+        final navigator = sheetRoute.navigator!;
+        await tester.tap(find.text('Watch this too'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Load video'));
+        await tester.pump();
+        if (duringSheet) {
+          await tester.pump(const Duration(milliseconds: 200));
+          await tester.pump();
+        }
+        expect(app.loads, 0);
+        unawaited(
+          navigator.push<void>(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('New room screen')),
+            ),
+          ),
+        );
+        await tester.pumpAndSettle();
+        expect(app.loads, 0);
+        expect(find.text('New room screen'), findsOneWidget);
+        expect(navigator.canPop(), isTrue);
+        navigator.pop();
+        await tester.pumpAndSettle();
+        if (!duringSheet) {
+          expect(sheetRoute.isCurrent, isTrue);
+          await tester.tap(find.byTooltip('Close chat'));
+          await tester.pumpAndSettle();
+        }
+        expect(find.text('Open room chat'), findsOneWidget);
+        expect(navigator.canPop(), isFalse);
+        expect(tester.takeException(), isNull);
+      },
+      semanticsEnabled: true,
+    );
+  }
+
+  testWidgets(
+    'replacing the player during owned sheet dismissal cancels loading',
+    (tester) async {
+      await show(tester, 'https://video.example/movie.mp4', asSheet: true);
+      final navigator = Navigator.of(tester.element(find.byType(ChatPanel)));
+      await tester.tap(find.text('Watch this too'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Load video'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 200));
+      await tester.pump();
+      expect(app.loads, 0);
+      unawaited(
+        navigator.pushReplacement<void, void>(
+          MaterialPageRoute<void>(
+            builder: (_) => const Scaffold(body: Text('Replacement screen')),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(app.loads, 0);
+      expect(find.text('Replacement screen'), findsOneWidget);
+      expect(find.text('Open room chat', skipOffstage: false), findsNothing);
+      expect(navigator.canPop(), isFalse);
+      expect(tester.takeException(), isNull);
+    },
+    semanticsEnabled: true,
+  );
+
+  for (final fails in [false, true]) {
+    testWidgets(
+      'phone player exposes shared-link ${fails ? 'failure and recovery' : 'loading and success'}',
+      (tester) async {
+        tester.view.physicalSize = const Size(412, 892);
+        tester.view.devicePixelRatio = 1;
+        addTearDown(tester.view.resetPhysicalSize);
+        addTearDown(tester.view.resetDevicePixelRatio);
+        final loadGate = Completer<void>();
+        (app.phone as SyncTestTarget).loadGate = loadGate;
+        const recoveryLink = 'https://video.example/recovery.mp4';
+        await show(
+          tester,
+          'https://video.example/movie.mp4',
+          asSheet: true,
+          inRoom: true,
+          onLoad: () => unawaited(app.load(MediaItem.fromUrl(recoveryLink))),
+        );
+        await tester.tap(find.text('Watch this too'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Load video'));
+        await tester.pump();
+        expect(app.loads, 0);
+        await tester.pump(const Duration(milliseconds: 200));
+        await tester.pump();
+        expect(app.loads, 0);
+        await tester.pump(const Duration(milliseconds: 300));
+        await tester.pump();
+        expect(app.loads, 1);
+        expect(find.byType(AlertDialog), findsNothing);
+        expect(find.byType(ChatPanel), findsNothing);
+        expect(find.text('Opening your video…').hitTestable(), findsOneWidget);
+        if (fails) {
+          loadGate.completeError(StateError('video unavailable'));
+        } else {
+          loadGate.complete();
+        }
+        await tester.pumpAndSettle();
+        if (fails) {
+          expect(
+            find.text('This video could not be opened.').hitTestable(),
+            findsOneWidget,
+          );
+          final recovery = find.text('Choose another video').hitTestable();
+          expect(recovery, findsOneWidget);
+          await tester.tap(recovery);
+          await tester.pumpAndSettle();
+          expect(app.loads, 2);
+          expect(app.target.snapshot.media?.uri.toString(), recoveryLink);
+          expect(find.text('This video could not be opened.'), findsNothing);
+        }
+        expect(app.target.snapshot.ready, isTrue);
+        expect(find.byTooltip('Play').hitTestable(), findsOneWidget);
+        expect(find.byType(ChatPanel), findsNothing);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+      semanticsEnabled: true,
+    );
+  }
 
   testWidgets(
     'own messages, normal text and multi-URL messages have no action',

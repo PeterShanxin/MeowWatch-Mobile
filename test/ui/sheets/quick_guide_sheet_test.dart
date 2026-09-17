@@ -97,6 +97,40 @@ void main() {
       for (var step = 1; step <= 3; step++) {
         expect(find.text('Step $step of 3'), findsOneWidget);
         expect(tester.takeException(), isNull);
+        final next = find.byKey(const Key('quick-guide-next'));
+        expect(next.hitTestable(), findsOneWidget);
+        if (step > 1) {
+          expect(
+            find.byKey(const Key('quick-guide-back')).hitTestable(),
+            findsOneWidget,
+          );
+        }
+        if (step < 3) {
+          expect(
+            find.byKey(const Key('quick-guide-skip')).hitTestable(),
+            findsOneWidget,
+          );
+        }
+        final buttonBounds = tester.getRect(next);
+        expect(buttonBounds.top, greaterThanOrEqualTo(0));
+        expect(
+          buttonBounds.bottom,
+          lessThanOrEqualTo(layout.size.height - layout.inset),
+        );
+        final body = find.byKey(const Key('quick-guide-body'));
+        await tester.drag(body, const Offset(0, -300));
+        await tester.pumpAndSettle();
+        expect(
+          tester
+              .state<ScrollableState>(
+                find.descendant(of: body, matching: find.byType(Scrollable)),
+              )
+              .position
+              .pixels,
+          greaterThan(0),
+        );
+        expect(tester.getRect(next), buttonBounds);
+        expect(next.hitTestable(), findsOneWidget);
         await _tapKey(tester, 'quick-guide-next');
         expect(tester.takeException(), isNull);
       }

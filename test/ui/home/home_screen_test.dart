@@ -97,6 +97,10 @@ void main() {
     );
 
     expect(find.byKey(const Key('home-tablet-layout')), findsOneWidget);
+    expect(
+      find.text('Watch on this device without starting a room.'),
+      findsOneWidget,
+    );
     final headline = tester.widget<Text>(
       find.text('Movie night,\neven miles apart.'),
     );

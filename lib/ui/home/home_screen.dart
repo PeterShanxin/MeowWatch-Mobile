@@ -317,7 +317,7 @@ class _InvitationPanel extends StatelessWidget {
                           style: TextStyle(fontWeight: FontWeight.w700),
                         ),
                         SizedBox(height: 3),
-                        Text('Watch on this phone without starting a room.'),
+                        Text('Watch on this device without starting a room.'),
                       ],
                     ),
                   ),

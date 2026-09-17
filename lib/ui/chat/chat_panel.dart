@@ -9,9 +9,15 @@ import '../../core/media/media_item.dart';
 import '../../core/sync/peer_state.dart';
 
 class ChatPanel extends StatefulWidget {
-  const ChatPanel({super.key, required this.app, this.onClose});
+  const ChatPanel({
+    super.key,
+    required this.app,
+    this.onClose,
+    this.closeBeforeLoad,
+  });
   final AppController app;
   final VoidCallback? onClose;
+  final Future<bool> Function()? closeBeforeLoad;
 
   @override
   State<ChatPanel> createState() => _ChatPanelState();
@@ -41,97 +47,112 @@ class _ChatPanelState extends State<ChatPanel> {
     setState(() => _reviewingLink = true);
     final room = app.room;
     final target = app.target;
+    final panelRoute = ModalRoute.of(context);
+    final closeBeforeLoad = widget.closeBeforeLoad;
+    bool canLoad() =>
+        identical(room, app.room) &&
+        identical(target, app.target) &&
+        !app.busy &&
+        app.isConnected &&
+        !app.isNearby &&
+        (!app.isCasting || CastPlaybackTarget.supports(media));
+    ModalRoute<bool>? dialogRoute;
     try {
       final accepted = await showDialog<bool>(
         context: context,
-        builder: (context) => ListenableBuilder(
-          listenable: app,
-          builder: (context, _) {
-            final String? unavailable;
-            if (!identical(room, app.room) || !identical(target, app.target)) {
-              unavailable =
-                  'Your room or screen changed. Close this review and open the link again.';
-            } else if (app.isNearby) {
-              unavailable =
-                  'Choose this link on your desktop, or return to This phone in the screen selector first.';
-            } else if (app.isCasting && !CastPlaybackTarget.supports(media)) {
-              unavailable =
-                  'This link cannot play on your TV. Return to This phone in the screen selector, then open it again.';
-            } else if (!app.isConnected) {
-              unavailable =
-                  'Reconnect to your room before loading this shared video.';
-            } else if (app.busy) {
-              unavailable = 'Wait for the current screen change to finish.';
-            } else {
-              unavailable = null;
-            }
-            return AlertDialog(
-              title: const Text('Watch this too?'),
-              scrollable: true,
-              content: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text(
-                    'Video from ${media.uri.host}',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
-                  const SizedBox(height: 12),
-                  SelectableText(
-                    media.uri.toString(),
-                    textDirection: TextDirection.ltr,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    'Loading replaces the video on ${app.isCasting ? 'your TV' : 'this phone'} and keeps your current room. The video server can see your network address; redirects may contact other servers. Only load links you trust.',
-                  ),
-                  if (media.uri.scheme == 'http') ...[
-                    const SizedBox(height: 12),
-                    const Text('This HTTP link is not encrypted.'),
-                  ],
-                  if (unavailable != null) ...[
-                    const SizedBox(height: 12),
+        builder: (context) {
+          dialogRoute = ModalRoute.of<bool>(context);
+          return ListenableBuilder(
+            listenable: app,
+            builder: (context, _) {
+              final String? unavailable;
+              if (!identical(room, app.room) ||
+                  !identical(target, app.target)) {
+                unavailable =
+                    'Your room or screen changed. Close this review and open the link again.';
+              } else if (app.isNearby) {
+                unavailable =
+                    'Choose this link on your desktop, or return to This phone in the screen selector first.';
+              } else if (app.isCasting && !CastPlaybackTarget.supports(media)) {
+                unavailable =
+                    'This link cannot play on your TV. Return to This phone in the screen selector, then open it again.';
+              } else if (!app.isConnected) {
+                unavailable =
+                    'Reconnect to your room before loading this shared video.';
+              } else if (app.busy) {
+                unavailable = 'Wait for the current screen change to finish.';
+              } else {
+                unavailable = null;
+              }
+              return AlertDialog(
+                title: const Text('Watch this too?'),
+                scrollable: true,
+                content: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
                     Text(
-                      unavailable,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.error,
-                      ),
+                      'Video from ${media.uri.host}',
+                      style: Theme.of(context).textTheme.titleMedium,
                     ),
+                    const SizedBox(height: 12),
+                    SelectableText(
+                      media.uri.toString(),
+                      textDirection: TextDirection.ltr,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Loading replaces the video on ${app.isCasting ? 'your TV' : 'this phone'} and keeps your current room. The video server can see your network address; redirects may contact other servers. Only load links you trust.',
+                    ),
+                    if (media.uri.scheme == 'http') ...[
+                      const SizedBox(height: 12),
+                      const Text('This HTTP link is not encrypted.'),
+                    ],
+                    if (unavailable != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        unavailable,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
                   ],
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancel'),
+                  ),
+                  FilledButton(
+                    onPressed: unavailable == null
+                        ? () => Navigator.pop(context, true)
+                        : null,
+                    child: const Text('Load video'),
+                  ),
                 ],
-              ),
-              actions: [
-                TextButton(
-                  onPressed: () => Navigator.pop(context, false),
-                  child: const Text('Cancel'),
-                ),
-                FilledButton(
-                  onPressed: unavailable == null
-                      ? () => Navigator.pop(context, true)
-                      : null,
-                  child: const Text('Load video'),
-                ),
-              ],
-            );
-          },
-        ),
+              );
+            },
+          );
+        },
       );
-      if (!mounted || accepted != true) return;
-      // A screen/room change may race the dialog's final frame.
-      if (!identical(room, app.room) ||
-          !identical(target, app.target) ||
-          app.busy ||
-          !app.isConnected ||
-          app.isNearby ||
-          (app.isCasting && !CastPlaybackTarget.supports(media))) {
+      // A pop resolves showDialog before its overlay finishes reversing.
+      await dialogRoute?.completed;
+      if (!mounted ||
+          accepted != true ||
+          panelRoute?.isCurrent != true ||
+          !canLoad()) {
+        return;
+      }
+      // Only the owned phone sheet's completed close may outlive this panel.
+      // Navigation elsewhere must not turn a stale confirmation into a load.
+      if (closeBeforeLoad != null && !await closeBeforeLoad()) return;
+      if (!canLoad() ||
+          (closeBeforeLoad == null &&
+              (!mounted || panelRoute?.isCurrent != true))) {
         return;
       }
       await app.load(media);
-      if (mounted &&
-          app.message == null &&
-          app.target.snapshot.media?.uri == media.uri) {
-        widget.onClose?.call();
-      }
     } finally {
       if (mounted) setState(() => _reviewingLink = false);
     }
@@ -388,40 +409,52 @@ class _ChatPanelState extends State<ChatPanel> {
   );
 }
 
-Future<void> showChatSheet(
-  BuildContext context,
-  AppController app,
-) => showModalBottomSheet<void>(
-  context: context,
-  isScrollControlled: true,
-  useSafeArea: true,
-  showDragHandle: false,
-  builder: (context) {
-    final sheetRoute = ModalRoute.of(context)!;
-    final navigator = Navigator.of(context);
-    return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
-      child: SizedBox(
-        height: math.min(
-          MediaQuery.sizeOf(context).height *
-              (MediaQuery.orientationOf(context) == Orientation.landscape
-                  ? .9
-                  : .65),
-          math.max(
-            0,
-            MediaQuery.sizeOf(context).height -
-                MediaQuery.viewInsetsOf(context).bottom,
+Future<void> showChatSheet(BuildContext context, AppController app) {
+  final pageRoute = ModalRoute.of(context);
+  return showModalBottomSheet<void>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: false,
+    builder: (context) {
+      final sheetRoute = ModalRoute.of(context)!;
+      final navigator = Navigator.of(context);
+      return Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.viewInsetsOf(context).bottom,
+        ),
+        child: SizedBox(
+          height: math.min(
+            MediaQuery.sizeOf(context).height *
+                (MediaQuery.orientationOf(context) == Orientation.landscape
+                    ? .9
+                    : .65),
+            math.max(
+              0,
+              MediaQuery.sizeOf(context).height -
+                  MediaQuery.viewInsetsOf(context).bottom,
+            ),
+          ),
+          child: ChatPanel(
+            app: app,
+            onClose: () {
+              // The sheet stays mounted during its reverse animation. A
+              // late close event must not pop a new route.
+              if (sheetRoute.isActive && sheetRoute.isCurrent) navigator.pop();
+            },
+            closeBeforeLoad: () async {
+              if (!sheetRoute.isActive ||
+                  !sheetRoute.isCurrent ||
+                  pageRoute?.isActive != true) {
+                return false;
+              }
+              navigator.pop();
+              await sheetRoute.completed;
+              return pageRoute?.isCurrent == true;
+            },
           ),
         ),
-        child: ChatPanel(
-          app: app,
-          onClose: () {
-            // The sheet stays mounted during its reverse animation. A
-            // late load completion or close event must not pop a new route.
-            if (sheetRoute.isActive && sheetRoute.isCurrent) navigator.pop();
-          },
-        ),
-      ),
-    );
-  },
-);
+      );
+    },
+  );
+}

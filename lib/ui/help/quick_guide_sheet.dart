@@ -93,123 +93,148 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
             color: colors.surface,
             clipBehavior: Clip.antiAlias,
             borderRadius: const BorderRadius.vertical(top: Radius.circular(28)),
-            child: SingleChildScrollView(
-              controller: _scroll,
-              padding: const EdgeInsets.fromLTRB(24, 12, 24, 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          'Quick guide',
-                          style: theme.textTheme.titleLarge,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Flexible(
+                  child: SingleChildScrollView(
+                    key: const Key('quick-guide-body'),
+                    controller: _scroll,
+                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Row(
+                          children: [
+                            Expanded(
+                              child: Text(
+                                'Quick guide',
+                                style: theme.textTheme.titleLarge,
+                              ),
+                            ),
+                            IconButton(
+                              key: const Key('quick-guide-close'),
+                              tooltip: 'Close guide',
+                              onPressed: () => Navigator.of(context).pop(),
+                              icon: const Icon(Icons.close),
+                            ),
+                          ],
                         ),
-                      ),
-                      IconButton(
-                        key: const Key('quick-guide-close'),
-                        tooltip: 'Close guide',
-                        onPressed: () => Navigator.of(context).pop(),
-                        icon: const Icon(Icons.close),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      for (var i = 0; i < _steps.length; i++)
-                        Expanded(
+                        const SizedBox(height: 12),
+                        Row(
+                          children: [
+                            for (var i = 0; i < _steps.length; i++)
+                              Expanded(
+                                child: Container(
+                                  margin: EdgeInsets.only(
+                                    right: i == 2 ? 0 : 6,
+                                  ),
+                                  height: 4,
+                                  decoration: BoxDecoration(
+                                    color: i <= _page
+                                        ? colors.primary
+                                        : colors.surfaceContainerHighest,
+                                    borderRadius: BorderRadius.circular(2),
+                                  ),
+                                ),
+                              ),
+                          ],
+                        ),
+                        const SizedBox(height: 24),
+                        Align(
+                          alignment: Alignment.centerLeft,
                           child: Container(
-                            margin: EdgeInsets.only(right: i == 2 ? 0 : 6),
-                            height: 4,
+                            padding: const EdgeInsets.all(14),
                             decoration: BoxDecoration(
-                              color: i <= _page
-                                  ? colors.primary
-                                  : colors.surfaceContainerHighest,
-                              borderRadius: BorderRadius.circular(2),
+                              color: colors.surfaceContainer,
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                            child: Icon(
+                              step.icon,
+                              size: 34,
+                              color: colors.primary,
                             ),
                           ),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 24),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: Container(
-                      padding: const EdgeInsets.all(14),
-                      decoration: BoxDecoration(
-                        color: colors.surfaceContainer,
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                      child: Icon(step.icon, size: 34, color: colors.primary),
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  Semantics(
-                    liveRegion: true,
-                    child: Text(
-                      'Step ${_page + 1} of ${_steps.length}',
-                      style: theme.textTheme.labelLarge?.copyWith(
-                        color: colors.primary,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(step.title, style: theme.textTheme.headlineMedium),
-                  const SizedBox(height: 14),
-                  Text(
-                    step.body,
-                    style: theme.textTheme.bodyLarge?.copyWith(height: 1.5),
-                  ),
-                  const SizedBox(height: 20),
-                  Container(
-                    padding: const EdgeInsets.all(16),
-                    decoration: BoxDecoration(
-                      color: colors.surfaceContainer,
-                      borderRadius: BorderRadius.circular(16),
-                    ),
-                    child: Text(
-                      step.note,
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: colors.onSurfaceVariant,
-                        height: 1.45,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  Row(
-                    children: [
-                      if (_page > 0) ...[
-                        Expanded(
-                          child: OutlinedButton(
-                            key: const Key('quick-guide-back'),
-                            onPressed: () => _goTo(_page - 1),
-                            child: const Text('Back'),
+                        const SizedBox(height: 20),
+                        Semantics(
+                          liveRegion: true,
+                          child: Text(
+                            'Step ${_page + 1} of ${_steps.length}',
+                            style: theme.textTheme.labelLarge?.copyWith(
+                              color: colors.primary,
+                            ),
                           ),
                         ),
-                        const SizedBox(width: 12),
-                      ],
-                      Expanded(
-                        child: FilledButton(
-                          key: const Key('quick-guide-next'),
-                          onPressed: last
-                              ? () => Navigator.of(context).pop()
-                              : () => _goTo(_page + 1),
-                          child: Text(last ? 'Got it' : 'Next'),
+                        const SizedBox(height: 8),
+                        Text(step.title, style: theme.textTheme.headlineMedium),
+                        const SizedBox(height: 14),
+                        Text(
+                          step.body,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            height: 1.5,
+                          ),
                         ),
+                        const SizedBox(height: 20),
+                        Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                            color: colors.surfaceContainer,
+                            borderRadius: BorderRadius.circular(16),
+                          ),
+                          child: Text(
+                            step.note,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: colors.onSurfaceVariant,
+                              height: 1.45,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                SafeArea(
+                  top: false,
+                  minimum: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      Row(
+                        children: [
+                          if (_page > 0) ...[
+                            Expanded(
+                              child: OutlinedButton(
+                                key: const Key('quick-guide-back'),
+                                onPressed: () => _goTo(_page - 1),
+                                child: const Text('Back'),
+                              ),
+                            ),
+                            const SizedBox(width: 12),
+                          ],
+                          Expanded(
+                            child: FilledButton(
+                              key: const Key('quick-guide-next'),
+                              onPressed: last
+                                  ? () => Navigator.of(context).pop()
+                                  : () => _goTo(_page + 1),
+                              child: Text(last ? 'Got it' : 'Next'),
+                            ),
+                          ),
+                        ],
                       ),
+                      if (!last)
+                        TextButton(
+                          key: const Key('quick-guide-skip'),
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Skip guide'),
+                        ),
                     ],
                   ),
-                  if (!last)
-                    TextButton(
-                      key: const Key('quick-guide-skip'),
-                      onPressed: () => Navigator.of(context).pop(),
-                      child: const Text('Skip guide'),
-                    ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),

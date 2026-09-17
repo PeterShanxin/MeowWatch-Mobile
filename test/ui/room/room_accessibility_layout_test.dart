@@ -167,6 +167,8 @@ void main() {
   testWidgets('native short landscape fits loaded playback and actions', (
     tester,
   ) async {
+    const title =
+        'Sintel — official trailer with a long descriptive title for movie night';
     await _setView(
       tester,
       const Size(800, 360),
@@ -178,7 +180,7 @@ void main() {
       PlaybackSnapshot(
         media: MediaItem(
           uri: Uri.parse('https://example.test/sync-fixture.mp4'),
-          title: 'sync-fixture.mp4',
+          title: title,
         ),
         position: const Duration(hours: 12, minutes: 34, seconds: 56),
         duration: const Duration(hours: 99, minutes: 59, seconds: 59),
@@ -210,6 +212,11 @@ void main() {
     expect(find.text('99:59:59'), findsOneWidget);
     expect(find.text('Watch together'), findsOneWidget);
     expect(find.byTooltip('Play together'), findsOneWidget);
+    expect(find.text(title), findsOneWidget);
+    final titleWidget = tester.widget<Text>(find.text(title));
+    expect(titleWidget.maxLines, 1);
+    expect(titleWidget.overflow, TextOverflow.ellipsis);
+    expect(find.text('Local mode'), findsOneWidget);
     expect(tester.takeException(), isNull);
     await _save(tester, capture, 'a11y-landscape-player');
     await tester.pumpWidget(const SizedBox.shrink());
@@ -240,6 +247,8 @@ void main() {
     await tester.pump();
 
     expect(find.text('Choose a video'), findsOneWidget);
+    expect(find.text('Your own screening'), findsOneWidget);
+    expect(find.text('Local mode'), findsOneWidget);
     expect(find.text('Watch together'), findsOneWidget);
     expect(find.byTooltip('Play together'), findsOneWidget);
     expect(tester.takeException(), isNull);
@@ -287,7 +296,7 @@ void main() {
     expect(tester.getSize(find.byType(RoomScreen)).width, 800);
     expect(tester.getSize(find.byType(Slider)).width, lessThanOrEqualTo(680));
     expect(find.byType(CircularProgressIndicator), findsNothing);
-    expect(find.text('sync-fixture.mp4'), findsOneWidget);
+    expect(find.text('sync-fixture.mp4'), findsNWidgets(2));
     expect(tester.takeException(), isNull);
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.runAsync(fixture.close);

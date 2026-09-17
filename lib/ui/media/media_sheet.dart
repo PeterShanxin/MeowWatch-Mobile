@@ -8,15 +8,24 @@ import '../../core/media/sample_video.dart';
 Future<MediaItem?> showMediaSheet(
   BuildContext context, {
   required AppController app,
-}) => showModalBottomSheet<MediaItem>(
-  context: context,
-  isScrollControlled: true,
-  useSafeArea: true,
-  showDragHandle: false,
-  backgroundColor: Colors.transparent,
-  barrierColor: Colors.black.withValues(alpha: 0.68),
-  builder: (_) => _MediaSheet(app: app),
-);
+}) async {
+  ModalRoute<MediaItem>? sheetRoute;
+  final media = await showModalBottomSheet<MediaItem>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: false,
+    backgroundColor: Colors.transparent,
+    barrierColor: Colors.black.withValues(alpha: 0.68),
+    builder: (context) {
+      sheetRoute = ModalRoute.of<MediaItem>(context);
+      return _MediaSheet(app: app);
+    },
+  );
+  // Keep the player intact until the picker has removed its overlay entries.
+  await sheetRoute?.completed;
+  return media;
+}
 
 class _MediaSheet extends StatefulWidget {
   const _MediaSheet({required this.app});

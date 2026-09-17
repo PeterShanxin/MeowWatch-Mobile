@@ -15,6 +15,21 @@ elapsed time cannot satisfy this requirement. The current display dimensions,
 InsetsState frame and rotation must agree. The phone must go from natural
 portrait to landscape; the tablet must retain its original size and rotation.
 
+At the first `07-entered-fullscreen` observation only, the runner may acknowledge
+Android's first-use `ImmersiveModeConfirmation` tip once. It requires the exact
+focused system window over the same MeowWatch MainActivity process, the native
+`immersive_cling_title` and `immersive_cling_description` labels, and the sole
+enabled, visible `android:id/ok` / `Got it` button. It re-verifies the owned API 35
+AVD, retains the original XML/window/PNG, then re-reads the idle system dialog
+with UIAutomator and validates its current focus, geometry and button bounds
+immediately before tapping. Changed or ambiguous content receives no tap; a
+changed PID or uncertain tap fails the gate. No other dialog or later phase can
+use this acknowledgement, and no global settings are changed. Fresh app UI still
+comes from NativeUiObserver within the original 35-second phase budget and must
+pass all existing bar, rotation, surface and paused-player assertions. The
+`immersiveConfirmations` receipt records whether this branch was exercised; the
+tip occurs in the explicitly unrecorded orientation transition between segments.
+
 In fullscreen, the gate observes the controls automatically hiding during
 playback, then uses a native center tap to show them. It does not claim to prove
 tap-to-hide behavior. A bounded observation must show the real media timeline

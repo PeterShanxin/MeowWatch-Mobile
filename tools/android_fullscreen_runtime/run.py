@@ -18,7 +18,7 @@ from tools.android_lifecycle_runtime.run import (
     LifecycleRecording, Playback, Runner as LifecycleRunner, button,
     playback, require_paused_stability, require_playing_advance,
 )
-from tools.android_native_ui.observer import DEFAULT_APK
+from tools.android_native_ui.observer import DEFAULT_APK, ObserverIntegrityFailure
 from tools.billing_runtime.native_dialog import image_size
 from tools.incoming_media_runtime.run import exact, nodes
 
@@ -133,6 +133,52 @@ def require_same_paused_player(before: Playback, after: Playback, before_pid: st
     require_paused_stability(before, after)
 
 
+def immersive_confirmation_button(xml: str, window: str) -> ET.Element:
+    """Recognize only the retained API 35 first-use Android fullscreen tip."""
+    focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window)
+    apps = re.findall(r"mFocusedApp=([^\r\n]+)", window)
+    activity = rf"{re.escape(PACKAGE)}/(?:\.MainActivity|{re.escape(PACKAGE)}\.MainActivity)"
+    if (len(focuses) != 1 or re.fullmatch(
+            r"Window\{[0-9a-f]+ u0 ImmersiveModeConfirmation\}", focuses[0].strip()) is None
+            or len(apps) != 1 or re.fullmatch(
+                rf"ActivityRecord\{{[0-9a-f]+ u0 {activity} t\d+\}}", apps[0].strip()) is None):
+        raise RuntimeFailure("fullscreen tip must be the sole focused system window over MeowWatch MainActivity")
+    geometry = re.findall(r"\bcur=(\d+)x(\d+)\b", window)
+    if len(geometry) != 1:
+        raise RuntimeFailure("fullscreen tip display geometry is ambiguous")
+    width, height = map(int, geometry[0])
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as error:
+        raise RuntimeFailure("fullscreen tip XML is invalid") from error
+    tree = list(root.iter("node"))
+    if root.tag != "hierarchy" or not tree or any(item.get("package") != "android" for item in tree):
+        raise RuntimeFailure("fullscreen tip must contain only native Android system nodes")
+    selected = {}
+    for identifier, label, class_name, clickable in (
+        ("immersive_cling_title", "Viewing full screen", "android.widget.TextView", "false"),
+        ("immersive_cling_description", "To exit, swipe down from the top of your screen", "android.widget.TextView", "false"),
+        ("ok", "Got it", "android.widget.Button", "true"),
+    ):
+        matches = [item for item in tree if item.get("resource-id") == f"android:id/{identifier}"]
+        if len(matches) != 1:
+            raise RuntimeFailure("fullscreen tip labels or action are missing or ambiguous")
+        item = matches[0]
+        if (item.get("text") != label or item.get("class") != class_name
+                or item.get("enabled") != "true" or item.get("clickable") != clickable
+                or item.get("visible-to-user", "true") != "true"):
+            raise RuntimeFailure("fullscreen tip labels or action do not match the native confirmation")
+        left, top, right, bottom = bounds(item)
+        if not (0 <= left < right <= width <= 10000 and 0 <= top < bottom <= height <= 10000):
+            raise RuntimeFailure("fullscreen tip action or labels lie outside the current display")
+        selected[identifier] = item
+    actions = [item for item in tree if item.get("clickable") == "true"
+               and item.get("visible-to-user", "true") == "true"]
+    if actions != [selected["ok"]]:
+        raise RuntimeFailure("fullscreen tip has an unexpected native action")
+    return selected["ok"]
+
+
 class Runner(LifecycleRunner):
     """Reuse normal installation/share/native-observer and recorder contracts."""
 
@@ -143,6 +189,8 @@ class Runner(LifecycleRunner):
         self.states: list[dict] = []
         self.logcat: subprocess.Popen | None = None
         self.log_file = None
+        self.fullscreen_entry_pid = ""
+        self.immersive_confirmations: list[dict] = []
 
     def require_owned_avd(self) -> None:
         if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
@@ -156,6 +204,60 @@ class Runner(LifecycleRunner):
         if (self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"
                 or self.adb.run("shell", "getprop", "ro.build.version.sdk").stdout.strip() != b"35"):
             raise RuntimeFailure("fullscreen gate requires a dedicated API 35 emulator")
+
+    def require_entry_pid(self) -> None:
+        if not self.fullscreen_entry_pid or self.pid() != self.fullscreen_entry_pid:
+            raise ObserverIntegrityFailure("fullscreen tip handling changed or lost the normal app process")
+
+    def acknowledge_immersive_confirmation(self, xml: str, window: str) -> None:
+        if self.phase != "07-entered-fullscreen" or self.immersive_confirmations:
+            raise ObserverIntegrityFailure("fullscreen tip acknowledgement is allowed once at first entry only")
+        self.require_owned_avd()
+        self.require_entry_pid()
+        prefix = self.output / "07-immersive-confirmation"
+        prefix.with_suffix(".xml").write_text(xml, encoding="utf-8")
+        prefix.with_suffix(".window.txt").write_text(window, encoding="utf-8")
+        immersive_confirmation_button(xml, window)
+        png = self.adb.screenshot()
+        prefix.with_suffix(".png").write_bytes(png)
+        dimensions = image_size(png)
+        # UIAutomator is used only for this idle Android system dialog. The
+        # resumed app must still pass the standalone fresh native observer.
+        fresh_xml, fresh_window = self.adb.observe()
+        self.last_xml, self.last_window = fresh_xml, fresh_window
+        prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
+        prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
+        target = immersive_confirmation_button(fresh_xml, fresh_window)
+        current = re.findall(r"\bcur=(\d+)x(\d+)\b", fresh_window)
+        if dimensions != tuple(map(int, current[0])):
+            raise RuntimeFailure("fullscreen tip display changed between screenshot and fresh confirmation")
+        self.require_entry_pid()
+        receipt = {"phase": self.phase, "attempt": 1, "status": "tap-sent",
+                   "pid": int(self.fullscreen_entry_pid), "evidencePrefix": prefix.name,
+                   "observedAtMonotonic": time.monotonic()}
+        self.immersive_confirmations.append(receipt)
+        try:
+            self.tap(target)
+        except (RuntimeFailure, subprocess.TimeoutExpired) as error:
+            receipt["status"] = "uncertain"
+            raise ObserverIntegrityFailure("fullscreen tip tap was not confirmed; refusing another tap") from error
+        self.require_entry_pid()
+
+    def observe(self) -> str:
+        if self.phase == "07-entered-fullscreen":
+            self.require_entry_pid()
+            window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode()
+            focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window)
+            if any("ImmersiveModeConfirmation" in value for value in focuses) and not self.immersive_confirmations:
+                xml, window = self.adb.observe()
+                self.last_xml, self.last_window = xml, window
+                self.acknowledge_immersive_confirmation(xml, window)
+        xml = super().observe()
+        if self.phase == "07-entered-fullscreen":
+            self.require_entry_pid()
+            if self.immersive_confirmations:
+                self.immersive_confirmations[0]["status"] = "acknowledged"
+        return xml
 
     def evidence(self, phase: str, state: Display, xml: str) -> None:
         self.output.joinpath(f"{phase}.window.txt").write_text(self.last_window, encoding="utf-8")
@@ -256,6 +358,8 @@ class Runner(LifecycleRunner):
         self.stop_for_rotation("05-before-fullscreen")
         # The entry command is sent only after the original recorder is gone.
         xml, _ = self.sample("06-fresh-entry-control", playing=False, screenshot=False)
+        self.fullscreen_entry_pid = app_pid
+        self.require_entry_pid()
         self.tap(button(xml, "Enter full screen"))
         xml, full, entered = self.system_sample("07-entered-fullscreen", baseline, fullscreen=True, playing=False)
         assert entered is not None
@@ -313,6 +417,7 @@ class Runner(LifecycleRunner):
             "controlsShownByNativeTap": True,
             "nativeVisibleBoundsWithinPhysicalDisplay": True,
             "states": self.states, "samples": self.samples,
+            "immersiveConfirmations": self.immersive_confirmations,
             "nativeUiObservations": self.observer.observations,
             "recordings": self.recordings,
             "boundary": "Dedicated API 35 emulator, normal release lib/main.dart; no physical device proof. "
@@ -358,6 +463,7 @@ def main() -> int:
         status = 1
         report = {"completed": False, "phase": runner.phase, "error": f"{type(error).__name__}: {error}",
                   "states": runner.states, "samples": runner.samples,
+                  "immersiveConfirmations": runner.immersive_confirmations,
                   "nativeUiObservations": runner.observer.observations,
                   "observationTimeouts": runner.observation_timeouts}
         if runner.evidence_started:

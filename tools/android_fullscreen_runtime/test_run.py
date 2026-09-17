@@ -7,11 +7,27 @@ from unittest.mock import Mock, patch
 from xml.sax.saxutils import escape
 
 from tools.android_fullscreen_runtime.run import (
-    Display, Runner, display_state, recording_size, require_same_paused_player,
+    Display, Runner, display_state, immersive_confirmation_button, recording_size, require_same_paused_player,
     require_transition, require_visible_bounds,
 )
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_lifecycle_runtime.run import Playback
+from tools.android_native_ui.observer import ObserverIntegrityFailure
+
+
+# Native API 35 hierarchy/window shape from phone run 35250983436, phase 07.
+IMMERSIVE_XML = '''<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy>
+<node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="android" content-desc="" clickable="false" enabled="true" visible-to-user="true" bounds="[0,0][2400,1080]">
+<node index="0" text="Viewing full screen" resource-id="android:id/immersive_cling_title" class="android.widget.TextView" package="android" content-desc="" clickable="false" enabled="true" visible-to-user="true" bounds="[606,200][1793,285]" />
+<node index="1" text="To exit, swipe down from the top of your screen" resource-id="android:id/immersive_cling_description" class="android.widget.TextView" package="android" content-desc="" clickable="false" enabled="true" visible-to-user="true" bounds="[606,285][1793,373]" />
+<node index="2" text="Got it" resource-id="android:id/ok" class="android.widget.Button" package="android" content-desc="" clickable="true" enabled="true" visible-to-user="true" bounds="[1611,436][1793,562]" />
+</node></hierarchy>'''
+
+
+def immersive_window():
+    value = window(width=2400, height=1080, rotation=1, bars=False)
+    return value.replace(f"mCurrentFocus=Window{{123 u0 {PACKAGE}/.MainActivity}}", f"""mCurrentFocus=Window{{2ac2226 u0 ImmersiveModeConfirmation}}
+  mFocusedApp=ActivityRecord{{dd28180 u0 {PACKAGE}/.MainActivity t8}}""")
 
 
 def window(*, width=1080, height=2400, rotation=0, smallest=411, bars=True):
@@ -207,6 +223,153 @@ class OwnershipTests(unittest.TestCase):
                     self.assertRaisesRegex(RuntimeFailure, "has not advanced"):
                 runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
             runner.tap.assert_not_called()
+
+
+class ImmersiveConfirmationTests(unittest.TestCase):
+    def runner(self, directory):
+        runner = OwnershipTests().runner(directory)
+        runner.output.mkdir()
+        runner.phase = "07-entered-fullscreen"
+        runner.fullscreen_entry_pid = "123"
+        runner.pid = Mock(return_value="123")
+        runner.require_owned_avd = Mock()
+        runner.adb.screenshot = Mock(return_value=(b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR"
+                                                 + (2400).to_bytes(4, "big") + (1080).to_bytes(4, "big")))
+        runner.adb.run = Mock(return_value=subprocess.CompletedProcess([], 0, immersive_window().encode(), b""))
+        runner.adb.observe = Mock(return_value=(IMMERSIVE_XML, immersive_window()))
+        runner.observer.observe = Mock(return_value=("<hierarchy/>", window(width=2400, height=1080, bars=False)))
+        runner.tap = Mock()
+        return runner
+
+    def test_exact_native_tip_is_selected_with_uiautomator_visibility_format(self):
+        for xml in (IMMERSIVE_XML, IMMERSIVE_XML.replace(' visible-to-user="true"', "")):
+            target = immersive_confirmation_button(xml, immersive_window())
+            self.assertEqual(target.get("resource-id"), "android:id/ok")
+            self.assertEqual(target.get("bounds"), "[1611,436][1793,562]")
+
+    def test_foreign_ambiguous_or_similarly_named_focused_windows_are_rejected(self):
+        original = immersive_window()
+        cases = [window(), original.replace("ImmersiveModeConfirmation", "ImmersiveModeConfirmationFake"),
+                 original.replace("ImmersiveModeConfirmation", f"Application Not Responding: {PACKAGE}"),
+                 original.replace(PACKAGE, "com.other.app"), original.replace("/.MainActivity t8", "/.OtherActivity t8"),
+                 original + "mCurrentFocus=Window{def u0 ImmersiveModeConfirmation}\n",
+                 original + f"mFocusedApp=ActivityRecord{{abc u0 {PACKAGE}/.MainActivity t9}}\n"]
+        for value in cases:
+            with self.subTest(window=value[-120:]), self.assertRaises(RuntimeFailure):
+                immersive_confirmation_button(IMMERSIVE_XML, value)
+
+    def test_missing_hidden_disabled_duplicate_or_offscreen_system_content_is_rejected(self):
+        button = IMMERSIVE_XML[IMMERSIVE_XML.index('<node index="2"'):IMMERSIVE_XML.index("</node>")]
+        cases = ["<broken", IMMERSIVE_XML.replace("Viewing full screen", "Other tip"),
+                 IMMERSIVE_XML.replace("To exit, swipe down from the top of your screen", "Permission needed"),
+                 IMMERSIVE_XML.replace("Got it", "Allow"),
+                 IMMERSIVE_XML.replace("immersive_cling_description", "other_description"),
+                 IMMERSIVE_XML.replace('enabled="true"', 'enabled="false"'),
+                 IMMERSIVE_XML.replace('visible-to-user="true"', 'visible-to-user="false"'),
+                 IMMERSIVE_XML.replace('package="android"', f'package="{PACKAGE}"'),
+                 IMMERSIVE_XML.replace('class="android.widget.Button"', 'class="android.widget.TextView"'),
+                 IMMERSIVE_XML.replace("[1611,436][1793,562]", "[1611,436][2500,562]"),
+                 IMMERSIVE_XML.replace("[1611,436][1793,562]", "[1611,436][1611,562]"),
+                 IMMERSIVE_XML.replace("</node>", button + "</node>"),
+                 IMMERSIVE_XML.replace("</node>", button.replace("android:id/ok", "android:id/other") + "</node>")]
+        for index, value in enumerate(cases):
+            with self.subTest(case=index), self.assertRaises(RuntimeFailure):
+                immersive_confirmation_button(value, immersive_window())
+
+    def test_tap_uses_fresh_bounds_after_retaining_originals_and_then_native_app_observation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            fresh = IMMERSIVE_XML.replace("[1611,436][1793,562]", "[1511,436][1693,562]")
+            runner.adb.observe.side_effect = [(IMMERSIVE_XML, immersive_window()), (fresh, immersive_window())]
+            def tap(target):
+                self.assertEqual(target.get("bounds"), "[1511,436][1693,562]")
+                self.assertEqual((runner.output / "07-immersive-confirmation.xml").read_text(), IMMERSIVE_XML)
+                self.assertEqual((runner.output / "07-immersive-confirmation.fresh.xml").read_text(), fresh)
+                self.assertTrue((runner.output / "07-immersive-confirmation.png").is_file())
+                self.assertEqual((runner.output / "07-immersive-confirmation.fresh.window.txt").read_text(), immersive_window())
+                self.assertEqual(runner.pid.call_count, 3)
+            runner.tap.side_effect = tap
+            self.assertEqual(runner.observe(), "<hierarchy/>")
+            runner.require_owned_avd.assert_called_once()
+            runner.tap.assert_called_once()
+            runner.observer.observe.assert_called_once()
+            self.assertEqual(runner.immersive_confirmations[0]["status"], "acknowledged")
+            # An animation tail or recurring tip never authorizes a second tap.
+            runner.observe()
+            self.assertEqual(runner.tap.call_count, 1)
+            self.assertEqual(runner.adb.observe.call_count, 2)
+
+    def test_normal_app_focus_never_uses_system_dialog_uiautomator_path(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.adb.run.return_value.stdout = (window() + "inactive Window{abc ImmersiveModeConfirmation}\n").encode()
+            runner.observe()
+            runner.adb.observe.assert_not_called()
+            runner.tap.assert_not_called()
+            runner.observer.observe.assert_called_once()
+
+    def test_system_tip_is_never_accepted_as_fresh_fullscreen_app_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.observer.observe.return_value = (IMMERSIVE_XML, immersive_window())
+            with self.assertRaisesRegex(RuntimeFailure, "not the focused Android package"):
+                runner.observe()
+            self.assertEqual(runner.immersive_confirmations[0]["status"], "tap-sent")
+            with self.assertRaises(RuntimeFailure):
+                display_state(immersive_window())
+            runner.tap.assert_called_once()
+            runner.observer.observe.assert_called_once()
+
+    def test_other_phases_and_repeated_acknowledgement_never_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            for phase in ("01-fixture-review", "08-controls-auto-hidden", "13-back-exits-fullscreen"):
+                runner.phase = phase
+                runner.observe()
+                with self.assertRaises(ObserverIntegrityFailure):
+                    runner.acknowledge_immersive_confirmation(IMMERSIVE_XML, immersive_window())
+            runner.phase = "07-entered-fullscreen"
+            runner.immersive_confirmations.append({"status": "tap-sent"})
+            with self.assertRaises(ObserverIntegrityFailure):
+                runner.acknowledge_immersive_confirmation(IMMERSIVE_XML, immersive_window())
+            runner.tap.assert_not_called()
+            runner.adb.observe.assert_not_called()
+
+    def test_changed_fresh_focus_or_content_and_unverified_avd_never_tap(self):
+        for case in ("focus", "content", "geometry", "ownership"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                if case == "ownership":
+                    runner.require_owned_avd.side_effect = RuntimeFailure("unowned AVD")
+                else:
+                    fresh_xml = IMMERSIVE_XML.replace("Got it", "Allow") if case == "content" else IMMERSIVE_XML
+                    fresh_window = window() if case == "focus" else immersive_window()
+                    if case == "geometry":
+                        fresh_window = fresh_window.replace("cur=2400x1080", "cur=2500x1080")
+                    runner.adb.observe.return_value = (fresh_xml, fresh_window)
+                with self.assertRaises(RuntimeFailure):
+                    runner.acknowledge_immersive_confirmation(IMMERSIVE_XML, immersive_window())
+                runner.tap.assert_not_called()
+
+    def test_changed_process_before_or_after_tap_is_a_hard_failure(self):
+        for pids, taps in ((["456"], 0), (["123", "456"], 0), (["123", "123", "456"], 1)):
+            with self.subTest(pids=pids), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                runner.pid.side_effect = pids
+                with self.assertRaises(ObserverIntegrityFailure):
+                    runner.acknowledge_immersive_confirmation(IMMERSIVE_XML, immersive_window())
+                self.assertEqual(runner.tap.call_count, taps)
+
+    def test_uncertain_tap_is_retained_and_cannot_be_retried(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.tap.side_effect = subprocess.TimeoutExpired("adb input tap", 25)
+            with self.assertRaises(ObserverIntegrityFailure):
+                runner.acknowledge_immersive_confirmation(IMMERSIVE_XML, immersive_window())
+            self.assertEqual(runner.immersive_confirmations[0]["status"], "uncertain")
+            with self.assertRaises(ObserverIntegrityFailure):
+                runner.acknowledge_immersive_confirmation(IMMERSIVE_XML, immersive_window())
+            runner.tap.assert_called_once()
 
 
 if __name__ == "__main__":

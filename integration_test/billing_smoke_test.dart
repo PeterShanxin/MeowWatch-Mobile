@@ -49,6 +49,13 @@ void main() {
 
       final billing = RevenueCatBillingService(apiKey: _apiKey);
       addTearDown(billing.dispose);
+      final customerUpdates = <Map<String, Object?>>[];
+      final customerSubscription = billing.customerInfoStream.listen((info) {
+        final observation = _customerInfoEvidence(info);
+        customerUpdates.add(observation);
+        debugPrint('RC_SMOKE_CUSTOMER_UPDATE ${jsonEncode(observation)}');
+      });
+      addTearDown(customerSubscription.cancel);
       final stage = ValueNotifier<String>(
         'Connecting to RevenueCat Test Store',
       );
@@ -95,6 +102,7 @@ void main() {
         'customerRequestDate': info.requestDate,
         'startedAtUtc': DateTime.now().toUtc().toIso8601String(),
         'verified': <String>['sdk', 'offering', 'monthly', 'customer_info'],
+        'customerUpdates': customerUpdates,
       };
       final verified = evidence['verified']! as List<String>;
       binding.reportData ??= <String, dynamic>{};
@@ -252,10 +260,16 @@ void main() {
             await billing.restore().timeout(_networkTimeout),
             'restore in $_mode state',
           );
+          // Retain the real SDK response even when the strict state assertion
+          // fails, so a renewal can be distinguished from a stale callback.
+          evidence['restoredEntitlement'] = _entitlementEvidence(billing);
+          debugPrint(
+            'RC_SMOKE_RESTORE_OBSERVATION '
+            '${jsonEncode(evidence['restoredEntitlement'])}',
+          );
           expect(billing.isPlus, _mode == 'relaunch');
           expect(_customerHash(billing), customerHash);
           if (_mode != 'relaunch') _expectExpiredPlus(billing);
-          evidence['restoredEntitlement'] = _entitlementEvidence(billing);
           verified.add(
             _mode == 'relaunch' ? 'restore_relaunch' : 'restore_expired',
           );
@@ -322,17 +336,24 @@ Map<String, Object?> _entitlementEvidence(RevenueCatBillingService billing) {
   final info = billing.customerInfo!;
   final entitlement = info.entitlements.all[_entitlement];
   expect(entitlement, isNotNull, reason: 'Purchased entitlement must persist.');
+  return _customerInfoEvidence(info);
+}
+
+Map<String, Object?> _customerInfoEvidence(CustomerInfo info) {
+  final entitlement = info.entitlements.all[_entitlement];
   return <String, Object?>{
-    'customerHash': _customerHash(billing),
+    'customerHash': sha256
+        .convert(utf8.encode(info.originalAppUserId))
+        .toString(),
     'customerRequestDate': info.requestDate,
     'observedAtUtc': DateTime.now().toUtc().toIso8601String(),
-    'identifier': entitlement!.identifier,
-    'productIdentifier': entitlement.productIdentifier,
-    'isActive': entitlement.isActive,
-    'isSandbox': entitlement.isSandbox,
-    'originalPurchaseDate': entitlement.originalPurchaseDate,
-    'latestPurchaseDate': entitlement.latestPurchaseDate,
-    'expirationDate': entitlement.expirationDate,
+    'identifier': entitlement?.identifier,
+    'productIdentifier': entitlement?.productIdentifier,
+    'isActive': entitlement?.isActive,
+    'isSandbox': entitlement?.isSandbox,
+    'originalPurchaseDate': entitlement?.originalPurchaseDate,
+    'latestPurchaseDate': entitlement?.latestPurchaseDate,
+    'expirationDate': entitlement?.expirationDate,
   };
 }
 

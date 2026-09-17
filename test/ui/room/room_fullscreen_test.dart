@@ -71,9 +71,10 @@ void main() {
 
   Future<void> flushPlatform(WidgetTester tester) async {
     // Platform replies and the initialized video stream can complete in the
-    // real zone. Flush that event turn as well as Flutter's fake-async zone.
+    // real zone. Explicitly advance the fake clock by zero too: pump() alone
+    // flushes microtasks, but leaves Timer.run callbacks pending.
     await tester.runAsync(() => Future<void>.delayed(Duration.zero));
-    await tester.pump();
+    await tester.pump(Duration.zero);
   }
 
   Future<void> waitUntil(
@@ -554,6 +555,108 @@ void main() {
     await flushPlatform(tester);
     await verifyModes(tester, [true, false, false]);
     expect(leaves, 0);
+    await close(tester);
+  });
+
+  for (final replaceRoom in [false, true]) {
+    fullscreenTest(
+      replaceRoom
+          ? 'stale exit Retry cannot change a replacement room full screen'
+          : 'stale exit Retry cannot undo a later full-screen entry',
+      (tester) async {
+        var failExit = true;
+        modeBehavior = (enabled) async {
+          if (!enabled && failExit) {
+            throw PlatformException(code: 'unavailable');
+          }
+        };
+        await open(tester);
+        await enter(tester);
+        await tester.tap(find.byTooltip('Exit full screen'));
+        await tester.pump();
+        await waitUntil(
+          tester,
+          () => find.byType(SnackBarAction).evaluate().isNotEmpty,
+          'The failed exit exposes its Retry action.',
+        );
+        final staleRetry = tester
+            .widget<SnackBarAction>(find.byType(SnackBarAction))
+            .onPressed;
+        await verifyModes(tester, [true, false]);
+        failExit = false;
+
+        if (replaceRoom) {
+          await close(tester);
+          await open(tester);
+        }
+        await enter(tester);
+        // The error may still be entering when the user re-enters fullscreen.
+        // Advance both its onVisible callback and subsequent exit animation.
+        for (var turn = 0; turn < 4; turn++) {
+          await tester.pump(const Duration(milliseconds: 300));
+          await flushPlatform(tester);
+        }
+        final currentModes = List<bool>.of(modeCalls);
+        expect(currentModes.last, isTrue);
+
+        // A queued tap from the old error must not override a newer intent,
+        // including after its RoomScreen has been disposed.
+        staleRetry();
+        await tester.pump();
+        await flushPlatform(tester);
+        await verifyModes(tester, currentModes);
+        expect(find.byKey(fullscreenKey), findsOneWidget);
+        expect(find.text('Retry'), findsNothing);
+        expect(
+          find.text('Could not restore the system controls. Please try again.'),
+          findsNothing,
+        );
+        expect(leaves, 0);
+        await close(tester);
+      },
+    );
+  }
+
+  fullscreenTest('retiring a queued mode error preserves other app messages', (
+    tester,
+  ) async {
+    var failExit = true;
+    modeBehavior = (enabled) async {
+      if (!enabled && failExit) throw PlatformException(code: 'unavailable');
+    };
+    await open(tester);
+    await enter(tester);
+    final otherMessage =
+        ScaffoldMessenger.of(
+          tester.element(find.byKey(fullscreenKey)),
+        ).showSnackBar(
+          const SnackBar(content: Text('Another app message'), persist: true),
+        );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.tap(find.byTooltip('Exit full screen'));
+    await tester.pump();
+    await verifyModes(tester, [true, false]);
+    await flushPlatform(tester);
+    failExit = false;
+    await enter(tester);
+    await tester.pump(const Duration(milliseconds: 400));
+    expect(find.text('Another app message'), findsOneWidget);
+
+    otherMessage.close();
+    for (var turn = 0; turn < 4; turn++) {
+      await tester.pump(const Duration(milliseconds: 300));
+      await flushPlatform(tester);
+    }
+    expect(find.text('Another app message'), findsNothing);
+    expect(find.text('Retry'), findsNothing);
+    expect(
+      find.text('Could not restore the system controls. Please try again.'),
+      findsNothing,
+    );
+    expect(find.byKey(fullscreenKey), findsOneWidget);
+    await verifyModes(tester, [true, false, true]);
+    expect(tester.takeException(), isNull);
     await close(tester);
   });
 }

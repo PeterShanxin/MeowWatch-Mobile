@@ -57,6 +57,7 @@ class RoomScreenState extends State<RoomScreen> {
   bool _controlsPressed = false;
   bool _platformMayBeFullscreen = false;
   int _modeRevision = 0;
+  VoidCallback? _dismissModeError;
 
   AppController get app => widget.app;
   VoidCallback get onLoad => widget.onLoad;
@@ -161,6 +162,7 @@ class RoomScreenState extends State<RoomScreen> {
 
   void _requestImmersiveMode(bool enabled) {
     final revision = ++_modeRevision;
+    _clearModeError();
     if (enabled) _platformMayBeFullscreen = true;
     // Send every intent immediately. The platform bridge owns global ordering;
     // an old RoomScreen must never delay its exit until a new room has entered.
@@ -183,22 +185,66 @@ class RoomScreenState extends State<RoomScreen> {
         return;
       }
       if (enabled) exitFullscreen();
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            enabled
-                ? 'Could not enter full screen. Please try again.'
-                : 'Could not restore the system controls. Please try again.',
-          ),
-          action: enabled
-              ? null
-              : SnackBarAction(
-                  label: 'Retry',
-                  onPressed: () => _requestImmersiveMode(false),
-                ),
-        ),
-      );
+      _showModeError(enabled);
     }
+  }
+
+  void _clearModeError() {
+    final dismiss = _dismissModeError;
+    _dismissModeError = null;
+    dismiss?.call();
+  }
+
+  void _showModeError(bool entering) {
+    _clearModeError();
+    final revision = _modeRevision;
+    final messenger = ScaffoldMessenger.of(context);
+    var visible = false;
+    var closed = false;
+    var retired = false;
+    var closeScheduled = false;
+    late final ScaffoldFeatureController<SnackBar, SnackBarClosedReason> notice;
+    void dismiss() {
+      retired = true;
+      if (!visible || closed || closeScheduled) return;
+      closeScheduled = true;
+      // Like app messages, close only our visible notice after closed futures
+      // settle. A queued controller cannot close another notice ahead of it.
+      Timer.run(() {
+        if (messenger.mounted && !closed) notice.close();
+      });
+    }
+
+    _dismissModeError = dismiss;
+    notice = messenger.showSnackBar(
+      SnackBar(
+        content: Text(
+          entering
+              ? 'Could not enter full screen. Please try again.'
+              : 'Could not restore the system controls. Please try again.',
+        ),
+        onVisible: () {
+          visible = true;
+          if (retired || !mounted || revision != _modeRevision) dismiss();
+        },
+        action: entering
+            ? null
+            : SnackBarAction(
+                label: 'Retry',
+                onPressed: () {
+                  if (!mounted || revision != _modeRevision || _fullscreen) {
+                    return;
+                  }
+                  _requestImmersiveMode(false);
+                },
+              ),
+      ),
+    );
+    unawaited(
+      notice.closed.then((_) {
+        closed = true;
+      }),
+    );
   }
 
   void _toggleControls() {
@@ -212,6 +258,7 @@ class RoomScreenState extends State<RoomScreen> {
   void dispose() {
     app.removeListener(_appChanged);
     _hideControlsTimer?.cancel();
+    _clearModeError();
     if (_platformMayBeFullscreen) _requestImmersiveMode(false);
     super.dispose();
   }

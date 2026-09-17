@@ -328,9 +328,10 @@ class LifecycleRuntimeTests(unittest.TestCase):
                                  ['04-advanced', '14-restored-play-advanced'])
 
     def test_native_recording_uses_even_proportional_dimensions(self):
-        self.assertEqual(recording_size("Physical size: 1080x2400\n"), (720, 1600))
-        self.assertEqual(recording_size("Physical size: 1080x2400\nOverride size: 1179x2556\n"), (720, 1560))
-        self.assertEqual(recording_size("Physical size: 2560x1600\n"), (720, 450))
+        self.assertEqual(recording_size("Physical size: 1080x2400\n"), (432, 960))
+        self.assertEqual(recording_size("Physical size: 1080x2400\nOverride size: 1179x2556\n"), (432, 936))
+        self.assertEqual(recording_size("Physical size: 2560x1600\n"), (432, 270))
+        self.assertEqual(recording_size("Physical size: 360x800\n"), (360, 800))
         for value in ("", "Physical size: 0x0", "Physical size: 1080x2400\nPhysical size: 720x1600"):
             with self.assertRaises(RuntimeFailure):
                 recording_size(value)
@@ -342,6 +343,32 @@ class LifecycleRuntimeTests(unittest.TestCase):
                                          (10, float("inf"), False)):
             with self.assertRaises(RuntimeFailure):
                 validate_recording_duration(duration, elapsed, early)
+
+    def test_codec_diagnostics_bound_output_and_preserve_collection_failures(self):
+        cases = [
+            (subprocess.CompletedProcess([], 0, b"x" * (256 * 1024 + 1), b""), "collected", True),
+            (subprocess.CompletedProcess([], 1, b"", b"codec service unavailable"), "failed", False),
+            (subprocess.TimeoutExpired("adb", 3, output=b"partial codec state", stderr=b"partial error"), "timeout", False),
+        ]
+        for result, status, truncated in cases:
+            with self.subTest(status=status), tempfile.TemporaryDirectory() as directory:
+                adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/")
+                if isinstance(result, Exception):
+                    adb.run.side_effect = result
+                else:
+                    adb.run.return_value = result
+                recording = LifecycleRecording(adb, Path(directory), 1, (432, 960))
+                recording.output.parent.mkdir()
+                recording.codec_evidence("codec-state", ("shell", "dumpsys", "media.codec"))
+                adb.run.assert_called_once_with("shell", "dumpsys", "media.codec", timeout=3, check=False)
+                evidence = recording.metadata["codecEvidence"]["codec-state"]
+                self.assertEqual(evidence["status"], status)
+                self.assertEqual(evidence["stdout"]["truncated"], truncated)
+                payload = recording.output.with_suffix(".codec-state.stdout.txt").read_bytes()
+                self.assertLessEqual(len(payload), 256 * 1024)
+                if status == "timeout":
+                    self.assertEqual(payload, b"partial codec state")
+                self.assertEqual(recording.metadata["status"], "not-started")
 
     def test_recording_does_not_signal_a_changed_android_pid_owner(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -375,8 +402,16 @@ class LifecycleRuntimeTests(unittest.TestCase):
             adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
             recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
             recording.output.parent.mkdir()
+            recording.codec_log_since = "09-17 13:00:00.000"
             media = b"ftyp" + b"x" * 5000 + b"moov"
             def command(*arguments, **_kwargs):
+                if arguments[:2] == ("exec-out", "logcat"):
+                    self.assertEqual(arguments[arguments.index("--pid") + 1], "44")
+                    self.assertEqual(arguments[arguments.index("-T") + 1], recording.codec_log_since)
+                    self.assertEqual(arguments[-1], "*:S")
+                    self.assertNotIn("-c", arguments)
+                    self.assertEqual(_kwargs["timeout"], 3)
+                    raise subprocess.TimeoutExpired("adb", 3, output=b"partial current recorder codec log")
                 if arguments == ("exec-out", "cat", "/proc/uptime"):
                     return subprocess.CompletedProcess([], 0, b"160.00 80.00\n")
                 if arguments[:2] == ("exec-out", "cat"):
@@ -403,6 +438,10 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertEqual(recording.metadata["status"], "failed")
             self.assertEqual(recording.metadata["videoDurationSeconds"], 20)
             self.assertEqual(len(recording.metadata["sha256"]), 64)
+            self.assertIn("does not cover", recording.metadata["error"])
+            self.assertEqual(recording.metadata["codecEvidence"]["codec-log"]["status"], "timeout")
+            self.assertEqual(recording.output.with_suffix(".codec-log.stdout.txt").read_bytes(),
+                             b"partial current recorder codec log")
 
     def test_media_readiness_requires_picture_payload_not_pid_or_container_header(self):
         ftyp = (24).to_bytes(4, "big") + b"ftyp" + b"isom" + b"\0" * 12
@@ -464,9 +503,15 @@ class LifecycleRuntimeTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             adb = Mock(serial="emulator-5554", prefix=["adb", "-s", "emulator-5554"],
                        remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
-            recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+            recording = LifecycleRecording(adb, Path(directory), 1, recording_size("Physical size: 1080x2400\n"))
             prefixes = iter([b"\0\0\0\0mdat", b"\0\0\0\0mdat\0\0\0\x05\x65abcd"])
             def command(*arguments, **_kwargs):
+                if arguments == ("exec-out", "date", "+%m-%d %H:%M:%S.000"):
+                    self.assertIsNone(recording.process)
+                    return subprocess.CompletedProcess([], 0, b"09-17 13:00:00.000\n")
+                if arguments == ("shell", "dumpsys", "media.codec"):
+                    self.assertEqual(recording.metadata["mediaReadyAtDeviceElapsedSeconds"], 67)
+                    return subprocess.CompletedProcess([], 0, b"c2.android.avc.encoder")
                 if arguments == ("shell", "getprop", "ro.kernel.qemu"):
                     return subprocess.CompletedProcess([], 0, b"1")
                 if arguments == ("shell", "pidof", "screenrecord"):
@@ -480,7 +525,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
             adb.run.side_effect = command
             process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
             process.poll.return_value = None
-            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process) as launch, patch(
                 "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[100, 101, 102, 103, 104],
             ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
                 recording.start()
@@ -488,6 +533,9 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertEqual(recording.metadata["pidObservedAtMonotonic"], 101)
             self.assertEqual(recording.metadata["startedAtMonotonic"], 104)
             self.assertEqual(recording.metadata["mediaReadyAtDeviceElapsedSeconds"], 67)
+            self.assertIn("--size 432x960 --bit-rate 2000000", launch.call_args.args[0][-1])
+            self.assertEqual(recording.codec_log_since, "09-17 13:00:00.000")
+            self.assertEqual(recording.metadata["codecEvidence"]["codec-state"]["status"], "collected")
 
     def test_recording_start_fails_on_exit_or_missing_picture_without_restarting(self):
         for early in (True, False):
@@ -496,6 +544,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
                            remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
                 adb.run.side_effect = [subprocess.CompletedProcess([], 0, b"1"),
                                        subprocess.CompletedProcess([], 0, b""),
+                                       subprocess.CompletedProcess([], 0, b"invalid device clock"),
                                        subprocess.CompletedProcess([], 0, b"\0\0\0\0mdat")]
                 recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
                 process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
@@ -509,6 +558,8 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 launch.assert_called_once()
                 self.assertEqual(recording.metadata["status"], "failed")
                 self.assertNotIn("startedAtMonotonic", recording.metadata)
+                self.assertIsNone(recording.codec_log_since)
+                self.assertIn("baseline unavailable or invalid", recording.metadata["codecLogSkipped"])
 
     def test_recording_finish_rejects_invalid_video_decode_and_process_exit(self):
         video = {"codec_type": "video", "width": 720, "height": 1600, "duration": "10"}
@@ -881,7 +932,10 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertEqual(state, Playback(20, 90, True))
             self.assertEqual(xml, observed_xml)
             self.assertEqual(len(dump_commands), 2)
-            self.assertNotEqual(dump_commands[0][-2], dump_commands[1][-2])
+            self.assertNotEqual(
+                dump_commands[0][dump_commands[0].index("nonce") + 1],
+                dump_commands[1][dump_commands[1].index("nonce") + 1],
+            )
             self.assertEqual([item["position_seconds"] for item in runner.samples], [20])
             self.assertEqual(runner.observation_timeouts[0]["operation"], "native accessibility snapshot")
             self.assertEqual([item["status"] for item in runner.observer.observations], ["failure", "success"])

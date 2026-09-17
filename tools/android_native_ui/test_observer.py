@@ -128,7 +128,8 @@ class SnapshotParserTests(unittest.TestCase):
                 parse_snapshot(data, NONCE)
 
     def test_complete_snapshot_is_required_no_partial_root_fallback(self):
-        for code in ("root_missing", "root_refresh_failed", "root_invisible", "child_missing", "capture_deadline"):
+        for code in ("root_missing", "root_refresh_failed", "root_invisible", "child_missing", "capture_deadline",
+                     "flutter_semantics_unavailable"):
             with self.assertRaisesRegex(ObserverCaptureFailure, "complete active-window") as caught:
                 parse_snapshot(failure_response(code), NONCE)
             self.assertNotIsInstance(caught.exception, ObserverIntegrityFailure)
@@ -177,6 +178,40 @@ class SnapshotParserTests(unittest.TestCase):
                 parse_snapshot(response(attempts=attempts), NONCE)
             self.assertNotIn(marker, str(caught.exception))
 
+    def test_expected_flutter_container_shell_cannot_be_a_successful_snapshot(self):
+        # API 35 evidence: the visible dialog remained rendered, but Android
+        # temporarily returned only these two native FrameLayout containers.
+        container = {"text": "", "class": "android.widget.FrameLayout", "clickable": "false",
+                     "checkable": "false", "long-clickable": "false", "focusable": "true"}
+        xml = "<hierarchy>" + node(node(**container), **container) + "</hierarchy>"
+        with self.assertRaisesRegex(ObserverIntegrityFailure, "incomplete Flutter accessibility shell"):
+            parse_snapshot(response(xml), NONCE)
+
+    def test_shell_detection_is_package_and_content_specific_not_a_minimum_node_count(self):
+        container = {"text": "", "class": "android.widget.FrameLayout", "clickable": "false"}
+        for content in ({"text": "A different screen"}, {"content-desc": "Loading video"},
+                        {"resource-id": "android:id/content"}, {"clickable": "true"},
+                        {"long-clickable": "true"}, {"scrollable": "true"}, {"checkable": "true"},
+                        {"class": "android.widget.ProgressBar"}, {"package": "com.android.documentsui"}):
+            with self.subTest(content=content):
+                xml = "<hierarchy>" + node(**(container | content)) + "</hierarchy>"
+                parsed = parse_snapshot(response(xml), NONCE)
+                self.assertEqual(parsed.node_count, 1)
+                self.assertEqual(parsed.xml, xml)
+
+    def test_shell_recapture_trace_is_bounded_and_requires_actual_published_content(self):
+        pending = "flutter_semantics_unavailable:2:1:0:0"
+        parsed = parse_snapshot(response(attempts=pending + ";ok:1:0:0:0"), NONCE)
+        self.assertEqual(parsed.attempts[0]["reason"], "flutter_semantics_unavailable")
+        self.assertEqual(parsed.attempts[0]["visitedNodes"], 2)
+        with self.assertRaises(ObserverCaptureFailure) as caught:
+            parse_snapshot(failure_response("flutter_semantics_unavailable",
+                                            attempts=";".join([pending] * 4)), NONCE)
+        self.assertNotIsInstance(caught.exception, ObserverIntegrityFailure)
+        self.assertEqual(len(caught.exception.attempts), 4)
+        with self.assertRaises(ObserverIntegrityFailure):
+            parse_snapshot(response(attempts=";".join([pending] * 4 + ["ok:1:0:0:0"])), NONCE)
+
     def test_output_xml_size_and_entity_bounds_are_enforced(self):
         for data in [b"x" * (MAX_OUTPUT_BYTES + 1),
                      response().replace(b"observer_xml=", b"observer_xml=%"),
@@ -220,6 +255,7 @@ class NativeObserverTests(unittest.TestCase):
             self.assertNotIn(("shell", "am", "force-stop", PACKAGE), commands)
             instrumentation = [args for args in commands if args[:3] == ("shell", "am", "instrument")]
             self.assertEqual(instrumentation[0][-1], COMPONENT)
+            self.assertEqual(instrumentation[0][8:11], ("-e", "expectedPackage", PACKAGE))
             self.assertEqual(observer.observations[0]["applicationPid"], 123)
 
     def test_helper_with_idsig_requires_completed_non_incremental_install(self):

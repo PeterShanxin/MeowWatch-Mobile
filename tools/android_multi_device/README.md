@@ -44,6 +44,33 @@ The new AVDs also set `skin.name` and `skin.path` to those same `WxH` sizes:
 the [emulator's skin resolver](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/emu/avd/src/android/avd/info.c#1599)
 checks `skin.path` before falling back to the configured LCD size.
 
+Before read-only admission, a separate `prepare_sdk_setup.py` step may recover
+one Google SDK Setup ANR per task-created emulator within a shared 90-second
+budget. It verifies the actual AVD name, debuggable emulator properties and
+absence of MeowWatch. Recovery additionally requires completed boot/provisioning, a uniquely focused
+`com.google.android.googlesdksetup` ANR window and a matching `am_anr` event.
+Both devices pass these safety checks before either is changed. Normal screens
+receive no mutation, including Home with historical GMS or other ANR events.
+Normal provisioning with unresolved Home or Settings FallbackHome also receives
+no mutation and proceeds to the existing read-only gate's bounded wait.
+All well-formed user-0 ANR history remains in the evidence; unrelated history
+never authorizes SDK recovery. Ambiguous state, another package's current ANR
+window, installed MeowWatch or an unverified device fails preparation.
+
+An eligible recovery saves the original PNG and window/event evidence, rechecks
+the same conditions, and force-stops only that exact SDK setup package once.
+Android dismisses the ANR window asynchronously; only that original window ID
+may retire during bounded observation. The old window must disappear before
+the single HOME intent is sent to the verified launcher. Both settling phases
+share a 30-second window, and final success requires Home owning both focus
+fields with no remaining ANR window. It retains every command outcome,
+before/after snapshot and original ANR event. Failure or uncertainty is never
+retried. Any new, changed or missing ANR history between confirmation and the
+post-recovery checks stops further mutation. No package is disabled, log cleared,
+provisioning/security setting changed, or MeowWatch ANR dismissed.
+`sdk-setup-preparation/` holds this separate
+pre-installation record; it never substitutes for the following fresh admission.
+
 Before the launcher returns, `device_readiness.py` reads both devices within a
 shared 240-second budget. Both must pass three consecutive device-time windows
 of at least five seconds: completed boot/provisioning, stopped boot animation,

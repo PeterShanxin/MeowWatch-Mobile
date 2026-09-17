@@ -2,6 +2,7 @@
 
 import copy
 import importlib.util
+import json
 from pathlib import Path
 import tempfile
 import unittest
@@ -181,15 +182,40 @@ class RecordingCoverageContract(unittest.TestCase):
 
     def test_rejects_one_second_valid_mp4_that_exited_early(self):
         completed = runner.subprocess.CompletedProcess(
-            args=[], returncode=0, stdout="1.000000\n", stderr=""
+            args=[], returncode=0,
+            stdout=json.dumps({
+                "streams": [{"width": 480, "height": 1040}],
+                "format": {"duration": "1.000000"},
+            }),
+            stderr="",
         )
         with patch.object(runner.subprocess, "run", return_value=completed) as probe:
             duration = runner.ffprobe_duration(Path("early-valid.mp4"), "ffprobe")
         self.assertEqual(duration, 1.0)
-        self.assertIn("format=duration", probe.call_args.args[0])
+        self.assertIn(
+            "stream=width,height:format=duration", probe.call_args.args[0]
+        )
         segments = [self.segment(0.0, 70.0, duration, early=True)]
         with self.assertRaisesRegex(RuntimeError, "exited before the requested stop"):
             runner.validate_recording_coverage(segments, 0.1, 69.9)
+
+    def test_rejects_recording_with_unexpected_encoded_dimensions(self):
+        completed = runner.subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout=json.dumps({
+                "streams": [{"width": 720, "height": 1560}],
+                "format": {"duration": "69.500000"},
+            }),
+            stderr="",
+        )
+        with patch.object(runner.subprocess, "run", return_value=completed):
+            with self.assertRaisesRegex(RuntimeError, "480x1040"):
+                runner.ffprobe_duration(Path("wrong-size.mp4"), "ffprobe")
+
+    def test_capture_dimensions_keep_native_screenshots_full_size(self):
+        self.assertEqual(runner.NATIVE_SCREENSHOT_PIXELS, (1179, 2556))
+        self.assertEqual(runner.RECORDING_PIXELS, (480, 1040))
+        self.assertEqual(runner.RECORDING_BIT_RATE, 2_000_000)
 
     def test_rejects_probe_duration_shorter_than_monotonic_recording(self):
         segments = [self.segment(0.0, 70.0, 1.0)]

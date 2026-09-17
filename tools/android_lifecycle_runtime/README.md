@@ -94,7 +94,10 @@ Two original native `screenrecord` MP4 segments supplement the XML assertions:
 initial fixture review/playback, then the immediate pre-HOME sample through
 foreground, explicit replay, new-process restoration and manual continuation.
 Each is limited to
-180 seconds and uses an even, proportional size within 720 x 1600 at 2 Mbps.
+180 seconds and uses an even, proportional size within 432 x 960 at 2 Mbps.
+This changes only the recorder output; the device display, application layout
+and original PNG screenshots retain their normal dimensions. The Pixel 6
+1080 x 2400 display records at exactly 432 x 960, without stretching.
 The runner waits for a complete H.264 picture in the MP4 media payload before
 starting UI actions. It checks the exact recorder PID and output path before
 sending SIGINT, refuses an existing recorder, and transfers only its own files.
@@ -105,6 +108,32 @@ missing. Both endpoints use Android `/proc/uptime`; host times are retained
 separately. Early exits, truncated footage, a failed full `ffmpeg` decode, missing
 device clock observations or cleanup failures cannot leave a passing result.
 No recording is padded.
+
+The lower output size is a single-variable recording-cost diagnosis, not a
+confirmed CPU or software-encoder fix. Run `35223362716` at 720 x 1600 recorded
+the required observation at device elapsed 116.29 seconds through a last frame
+at 117.51941565 seconds, but stopped at 124.53 seconds. Its duration was
+58.690544 seconds against a 62.6-second measured segment, so the unchanged
+three-second gate failed despite successful post-roll picture progress.
+432 x 960 uses 36% of the previous output pixels while retaining 2 Mbps.
+If a fresh run still has a comparable tail lag, investigate capture/codec/output
+queuing instead of repeatedly lowering resolution or increasing tolerance.
+
+Each recorder also collects auxiliary `native/lifecycle-XX.codec-*` evidence:
+a device `date` baseline before launch, one `dumpsys media.codec` after picture
+readiness, and codec-tag logcat output after stopping, including failure exits.
+The log request is restricted to the observed recorder PID and the device-clock
+baseline (rounded down to its second); it never clears logcat. Only CCodec,
+Codec2Client, ACodec, OMXClient, MediaCodec and screenrecord tags are selected.
+The codec-state dump belongs to this controlled CI emulator; it is not a general
+device diagnostic collector. Each of the three commands has a three-second
+timeout. Each saved stdout/stderr stream is capped at 256 KiB, with original
+byte counts, truncation, nonzero exits and partial timeout output recorded in
+`codecEvidence`. An unavailable baseline skips the log request explicitly.
+These diagnostics do not substitute for or change acceptance: a failed or
+missing diagnostic is reported, and cannot turn a failed recording into a pass.
+Use the actual codec component evidence before attributing lag to software
+encoding; a low frame count and SwiftShader graphics alone do not establish it.
 
 After the final successful native observation and its screenshot in each segment,
 the runner samples `/proc/uptime` as `requiredThroughDeviceElapsedSeconds` and

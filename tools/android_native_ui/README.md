@@ -76,7 +76,7 @@ missing children, structural limits and recognized exception categories. An
 unknown exception is an immediate integrity failure; its message is never emitted.
 
 Android can temporarily return a missing root or child while a new accessibility
-connection or updated tree is being published. For these four transient reasons,
+connection or updated tree is being published. For these transient reasons,
 the helper permits at most four attempts in the **same** `UiAutomation` connection,
 100 ms apart, under a four-second capture budget checked during traversal. Each
 attempt obtains and refreshes a new active root, resets its node count and XML
@@ -86,6 +86,20 @@ Exceeding the internal time budget produces `capture_deadline`; structural limit
 and native exceptions are never retried inside the connection or by callers that
 honor `ObserverIntegrityFailure`. No acceptance deadline or timeline requirement
 is extended.
+
+An expected Flutter application's native containers can also appear before its
+virtual accessibility descendants. In API 35 evidence, a review dialog remained
+rendered while a new connection returned only two empty `FrameLayout` nodes.
+The host sends `expectedPackage` with its verified application package. Only a
+tree entirely in that package, entirely composed of `android.widget.FrameLayout`
+nodes, with no text, description, resource ID, click/long-click, scroll or check
+action is classified as `flutter_semantics_unavailable`. The helper discards it
+and rereads a fresh root in the same connection under the existing attempt and
+time budgets. The host independently rejects an empty shell incorrectly marked
+successful. A different package, a real control or any accessible content does
+not meet this condition, even in a one-node tree. Such a complete tree still
+faces the caller's original review and playback assertions immediately; a wrong
+or dismissed review is never repaired by waiting for the expected title.
 
 `observer_attempts` is a bounded, content-free sequence of
 `reason:visitedNodes:depth:childIndex:childCount` records. Unknown numeric locations

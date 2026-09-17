@@ -237,6 +237,10 @@ done
 
 "$adb" devices -l > "$session_dir/adb-devices.txt"
 write_session
+python3 -m tools.android_multi_device.prepare_sdk_setup \
+  --adb "$adb" --phone "$phone_serial" --tablet "$tablet_serial" \
+  --phone-avd "$phone_avd" --tablet-avd "$tablet_avd" \
+  --output "$session_dir/sdk-setup-preparation"
 python3 -m tools.android_multi_device.device_readiness \
   --adb "$adb" --phone "$phone_serial" --tablet "$tablet_serial" \
   --phone-log "$session_dir/phone-emulator.log" \

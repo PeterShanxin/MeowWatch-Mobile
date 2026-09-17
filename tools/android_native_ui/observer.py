@@ -28,6 +28,7 @@ MAX_ATTRIBUTE = 4096
 MAX_CAPTURE_ATTEMPTS = 4
 RETRYABLE_CAPTURE_ERRORS = frozenset({
     "root_missing", "root_refresh_failed", "root_invisible", "child_missing", "capture_deadline",
+    "flutter_semantics_unavailable",
 })
 CAPTURE_ERRORS = RETRYABLE_CAPTURE_ERRORS | {
     "node_limit", "depth_limit", "attribute_limit", "byte_limit", "child_count_limit",
@@ -175,6 +176,14 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
         stack.extend((child, depth + 1) for child in node)
     if count != node_count:
         raise ObserverIntegrityFailure("native observer hierarchy node count does not match")
+    if all(node.get("package") == PACKAGE and node.get("class") == "android.widget.FrameLayout"
+           and not any(node.get(name, "") for name in ("text", "content-desc", "resource-id"))
+           and all(node.get(name, "false") == "false"
+                   for name in ("clickable", "long-clickable", "scrollable", "checkable"))
+           for node in root.iter("node")):
+        # The helper must retry this known Android-container-only response while
+        # its accessibility connection is alive, never label it a complete tree.
+        raise ObserverIntegrityFailure("native observer returned an incomplete Flutter accessibility shell")
     return Snapshot(xml, uptime, count, attempts)
 
 
@@ -243,6 +252,7 @@ class NativeUiObserver:
             stage = "instrumentation"
             try:
                 result = self.adb.run("shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
+                                      "-e", "expectedPackage", PACKAGE,
                                       COMPONENT, timeout=10)
             except subprocess.TimeoutExpired:
                 # Stop only our independently installed helper, never the app.

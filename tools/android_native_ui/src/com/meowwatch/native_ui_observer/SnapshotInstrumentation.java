@@ -24,6 +24,8 @@ public final class SnapshotInstrumentation extends Instrumentation {
     private static final long CAPTURE_BUDGET_MS = 4000;
     private static final long RETRY_DELAY_MS = 100;
     private String nonce;
+    private String expectedPackage;
+    private boolean emptyExpectedAppShell;
     private int nodes;
     private int currentDepth = -1;
     private int currentIndex = -1;
@@ -34,6 +36,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         nonce = arguments == null ? null : arguments.getString("nonce");
+        expectedPackage = arguments == null ? null : arguments.getString("expectedPackage");
         start();
     }
 
@@ -42,7 +45,8 @@ public final class SnapshotInstrumentation extends Instrumentation {
         deadline = SystemClock.uptimeMillis() + CAPTURE_BUDGET_MS;
         StringBuilder attempts = new StringBuilder();
         try {
-            if (nonce == null || !nonce.matches("[a-f0-9]{32}")) {
+            if (nonce == null || !nonce.matches("[a-f0-9]{32}") || expectedPackage == null
+                    || !expectedPackage.matches("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")) {
                 throw new IllegalArgumentException();
             }
             UiAutomation automation = getUiAutomation(
@@ -53,6 +57,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
             automation.setServiceInfo(service);
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 nodes = 0;
+                emptyExpectedAppShell = true;
                 currentDepth = currentIndex = currentChildren = -1;
                 try {
                     Bundle result = snapshot(automation);
@@ -117,6 +122,12 @@ public final class SnapshotInstrumentation extends Instrumentation {
             serializer.endDocument();
             serializer.flush();
             checkDeadline();
+            if (emptyExpectedAppShell) {
+                // Android can publish Flutter's native containers before its
+                // virtual accessibility descendants. Keep the same connection
+                // and reread; an empty shell is not evidence of a dismissed UI.
+                throw new CaptureFailure("flutter_semantics_unavailable");
+            }
             Bundle result = new Bundle();
             result.putString("observer_uptime_ms", Long.toString(capturedAt));
             result.putString("observer_nodes", Integer.toString(nodes));
@@ -169,6 +180,13 @@ public final class SnapshotInstrumentation extends Instrumentation {
         if (depth > MAX_DEPTH) {
             throw new CaptureFailure("depth_limit");
         }
+        emptyExpectedAppShell &= expectedPackage.contentEquals(
+            node.getPackageName() == null ? "" : node.getPackageName())
+            && "android.widget.FrameLayout".contentEquals(
+                node.getClassName() == null ? "" : node.getClassName())
+            && empty(node.getText()) && empty(node.getContentDescription())
+            && empty(node.getViewIdResourceName()) && !node.isClickable()
+            && !node.isLongClickable() && !node.isScrollable() && !node.isCheckable();
         xml.startTag(null, "node");
         attribute(xml, "index", Integer.toString(index));
         attribute(xml, "text", node.getText());
@@ -225,6 +243,10 @@ public final class SnapshotInstrumentation extends Instrumentation {
         xml.attribute(null, name, text);
     }
 
+    private static boolean empty(CharSequence value) {
+        return value == null || value.length() == 0;
+    }
+
     private static final class CaptureFailure extends RuntimeException {
         final String reason;
 
@@ -234,7 +256,8 @@ public final class SnapshotInstrumentation extends Instrumentation {
 
         boolean retryable() {
             return reason.equals("root_missing") || reason.equals("root_refresh_failed")
-                || reason.equals("root_invisible") || reason.equals("child_missing");
+                || reason.equals("root_invisible") || reason.equals("child_missing")
+                || reason.equals("flutter_semantics_unavailable");
         }
     }
 

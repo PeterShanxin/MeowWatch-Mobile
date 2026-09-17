@@ -39,6 +39,7 @@ MAX_OBSERVATION_TIMEOUTS = 3
 MAX_PREPARATION_ANR_RECOVERIES = 2
 POST_ROLL_SECONDS = 8
 MAX_RECORDING_BYTES = 64 * 1024 * 1024
+MAX_CODEC_EVIDENCE_BYTES = 256 * 1024
 T = TypeVar("T")
 
 
@@ -54,7 +55,7 @@ def recording_size(display: str) -> tuple[int, int]:
     width, height = int(selected[1]), int(selected[2])
     if not 200 <= width <= 10000 or not 200 <= height <= 10000:
         raise RuntimeFailure("native recording display dimensions are outside supported bounds")
-    scale = min(720 / width, 1600 / height, 1)
+    scale = min(432 / width, 960 / height, 1)
     return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
 
 
@@ -208,9 +209,34 @@ class LifecycleRecording:
         self.pid: str | None = None
         self.lines: list[str] = []
         self.finished = False
+        self.codec_log_since: str | None = None
         self.metadata: dict[str, object] = {"file": str(self.output.relative_to(output)).replace("\\", "/"),
                                             "status": "not-started", "width": size[0], "height": size[1],
-                                            "timeLimitSeconds": 180}
+                                            "timeLimitSeconds": 180, "bitRate": 2000000}
+
+    def codec_evidence(self, name: str, arguments: tuple[str, ...]) -> bytes | None:
+        """Bound auxiliary diagnostics; never replace recording acceptance failures."""
+        evidence: dict[str, object] = {"timeoutSeconds": 3, "byteLimitPerStream": MAX_CODEC_EVIDENCE_BYTES}
+        self.metadata.setdefault("codecEvidence", {})[name] = evidence
+        try:
+            result = self.adb.run(*arguments, timeout=3, check=False)
+            stdout, stderr = result.stdout or b"", result.stderr or b""
+            evidence.update({"status": "collected" if result.returncode == 0 else "failed",
+                             "exitCode": result.returncode})
+        except subprocess.TimeoutExpired as error:
+            stdout, stderr = error.stdout or b"", error.stderr or b""
+            evidence["status"] = "timeout"
+        except (OSError, RuntimeFailure) as error:
+            stdout, stderr = b"", b""
+            evidence.update({"status": "failed", "errorType": type(error).__name__})
+        for label, data in (("stdout", stdout), ("stderr", stderr)):
+            if isinstance(data, str):
+                data = data.encode("utf-8", errors="replace")
+            path = self.output.with_suffix(f".{name}.{label}.txt")
+            path.write_bytes(data[:MAX_CODEC_EVIDENCE_BYTES])
+            evidence[label] = {"file": path.name, "bytes": len(data),
+                               "truncated": len(data) > MAX_CODEC_EVIDENCE_BYTES}
+        return stdout if evidence["status"] == "collected" else None
 
     def start(self) -> None:
         if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
@@ -221,6 +247,11 @@ class LifecycleRecording:
             raise RuntimeFailure("refusing to replace an existing Android screen recorder")
         self.output.parent.mkdir(parents=True, exist_ok=True)
         self.adb.remote_files.append(self.remote)
+        baseline = self.codec_evidence("codec-log-clock", ("exec-out", "date", "+%m-%d %H:%M:%S.000"))
+        if baseline is not None and re.fullmatch(rb"[0-9]{2}-[0-9]{2} [0-9]{2}:[0-9]{2}:[0-9]{2}\.000\s*", baseline):
+            self.codec_log_since = baseline.decode("ascii").strip()
+        else:
+            self.metadata["codecLogSkipped"] = "device log-clock baseline unavailable or invalid"
         width, height = self.size
         command = (f"screenrecord --verbose --size {width}x{height} --bit-rate 2000000 --time-limit 180 {self.remote} & "
                    "record_pid=$!; printf 'LIFECYCLE_RECORDER_PID=%s\\n' \"$record_pid\"; wait \"$record_pid\"")
@@ -256,6 +287,7 @@ class LifecycleRecording:
                     self.metadata.update({"status": "recording", "startedAtMonotonic": time.monotonic(),
                                           "mediaReadyAtDeviceElapsedSeconds": device_elapsed,
                                           "readiness": "complete H.264 picture NAL in native MP4 mdat"})
+                    self.codec_evidence("codec-state", ("shell", "dumpsys", "media.codec"))
                     return
                 time.sleep(0.2)
             raise RuntimeFailure("native lifecycle recorder produced no picture before the readiness deadline")
@@ -423,6 +455,15 @@ class LifecycleRecording:
                 self.process.wait(timeout=5)
             if self.process.stdout:
                 self.process.stdout.close()
+            if self.codec_log_since is not None and self.pid is not None:
+                self.metadata["codecLogRecorderPid"] = int(self.pid)
+                self.metadata["codecLogSinceDeviceTime"] = self.codec_log_since
+                self.codec_evidence("codec-log", (
+                    "exec-out", "logcat", "-d", "-b", "main", "-b", "system", "-v", "threadtime",
+                    "-T", self.codec_log_since, "--pid", self.pid,
+                    "CCodec:D", "Codec2Client:D", "ACodec:D", "OMXClient:D", "MediaCodec:D",
+                    "screenrecord:D", "*:S",
+                ))
 
 
 @dataclass(frozen=True)

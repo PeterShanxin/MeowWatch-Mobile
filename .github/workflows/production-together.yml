@@ -61,7 +61,7 @@ jobs:
         if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
         run: |
           set -o pipefail
-          flutter test --reporter expanded tools/flutter_compat/overlay_sibling_conflict_test.dart 2>&1 | tee build/flutter-compat/upstream-regression.log
+          flutter test --reporter expanded tools/flutter_compat/overlay_sibling_conflict_test.dart tools/flutter_compat/sibling_conflict_semantics_contract_test.dart 2>&1 | tee build/flutter-compat/upstream-regression.log
       - name: Verify invite rendezvous and runner syntax
         run: |
           python3 -m unittest discover -s tools/production_together -p 'test_*.py'

@@ -32,12 +32,23 @@ storage; the script never recursively deletes an SDK or reuses an output path.
 Before any app build, the candidate workflow runs this upstream regression:
 
 ```sh
-flutter test --reporter expanded tools/flutter_compat/overlay_sibling_conflict_test.dart
+flutter test --reporter expanded tools/flutter_compat/overlay_sibling_conflict_test.dart tools/flutter_compat/sibling_conflict_semantics_contract_test.dart
 ```
 
 The fixture deliberately remains outside ordinary `test/`: it reproduces an
 upstream failure on the baseline SDK. Its `ExcludeSemantics` widget belongs to
 the upstream trigger and is not an app accessibility workaround.
+
+The separate semantics contract checks exact labels, action dispatch, traversal
+order and leaf identity while a sibling tap action appears and disappears. It
+passes on both baseline and candidate: it checks retained accessibility
+behavior, not reproduction of the upstream bug. It does not establish Android
+TalkBack gestures, announcements or focus recovery.
+
+Candidate Together run `35223358577` at `ec856b5` still hits the ancestor-identity
+geometry assertion (`object.dart:6684`, formerly `6670`) during shared-media
+replacement. The 14-line patch is not a demonstrated fix for that path and
+remains unadopted. Its earlier five-layout pass does not override this result.
 
 `build/flutter-compat/` is uploaded even when preparation or the regression
 fails. It contains the preparation result, fixed-source provenance, and

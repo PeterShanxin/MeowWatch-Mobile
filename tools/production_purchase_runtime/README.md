@@ -36,7 +36,12 @@ it does not recover Google Play purchase history for a lost anonymous identity.
 The runner sets and restores the selected emulator's display overrides to
 1179×2556 at density 480. Native screenshots must have those exact submission
 dimensions; no synthetic resizing is performed. Screen recording explicitly
-uses 720×1560 so the odd screenshot width cannot break the video encoder.
+uses 480×1040 at 2 Mbps so the odd screenshot width cannot break the video
+encoder. `run.json` keeps the full native screenshot dimensions separate from
+the requested recording dimensions and bitrate, and every completed segment is
+rejected unless `ffprobe` confirms the requested encoded dimensions. This lowers
+only recording cost; it does not establish that capture size caused any prior
+duration shortfall.
 
 The runner intentionally clears this package only after verifying the explicit
 serial is an Android emulator. Use a disposable test emulator. The Test Store

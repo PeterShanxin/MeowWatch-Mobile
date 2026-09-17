@@ -47,6 +47,9 @@ RECORDING_SEGMENT_SECONDS = 70.0
 MAX_RECORDING_DURATION_SHORTFALL_SECONDS = 3.0
 MAX_RECORDING_GAP_SECONDS = 15.0
 MIN_RECORDING_COVERAGE_RATIO = 0.90
+NATIVE_SCREENSHOT_PIXELS = (1179, 2556)
+RECORDING_PIXELS = (480, 1040)
+RECORDING_BIT_RATE = 2_000_000
 
 
 def ffprobe_duration(path: Path, ffprobe: str) -> float:
@@ -54,8 +57,9 @@ def ffprobe_duration(path: Path, ffprobe: str) -> float:
         [
             ffprobe,
             "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height:format=duration",
+            "-of", "json",
             str(path),
         ],
         stdout=subprocess.PIPE,
@@ -70,11 +74,20 @@ def ffprobe_duration(path: Path, ffprobe: str) -> float:
         detail = result.stderr.strip() or "no ffprobe diagnostic"
         raise RuntimeError(f"ffprobe rejected {path.name}: {detail}")
     try:
-        duration = float(result.stdout.strip())
-    except ValueError as error:
-        raise RuntimeError(f"ffprobe returned no duration for {path.name}") from error
+        probe = json.loads(result.stdout)
+        streams = probe["streams"]
+        duration = float(probe["format"]["duration"])
+        width = int(streams[0]["width"])
+        height = int(streams[0]["height"])
+    except (IndexError, KeyError, TypeError, ValueError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"ffprobe returned incomplete video metadata for {path.name}") from error
     if not math.isfinite(duration) or duration <= 0:
         raise RuntimeError(f"ffprobe returned an invalid duration for {path.name}: {duration}")
+    if len(streams) != 1 or (width, height) != RECORDING_PIXELS:
+        expected = f"{RECORDING_PIXELS[0]}x{RECORDING_PIXELS[1]}"
+        raise RuntimeError(
+            f"Native recording must be {expected}: {path.name} is {width}x{height}"
+        )
     return duration
 
 
@@ -172,8 +185,10 @@ class PortraitRecording(NativeRecording):
     """The submission screenshot has odd width; the encoder needs even pixels."""
 
     def start(self) -> None:
+        width, height = RECORDING_PIXELS
         command = (
-            f"screenrecord --size 720x1560 --bit-rate 2000000 --time-limit 90 {self.remote} & "
+            f"screenrecord --size {width}x{height} --bit-rate {RECORDING_BIT_RATE} "
+            f"--time-limit 90 {self.remote} & "
             "record_pid=$!; printf 'RC_RECORDER_PID=%s\\n' \"$record_pid\"; wait \"$record_pid\""
         )
         self.process = subprocess.Popen(
@@ -284,6 +299,7 @@ class JourneyRecording:
                     "coverageEndedMonotonicSeconds": coverage_ended,
                     "monotonicCoverageSeconds": round(coverage_ended - coverage_started, 3),
                     "videoDurationSeconds": round(video_duration, 3),
+                    "recordingPixels": list(RECORDING_PIXELS),
                     "endedBeforeRequestedStop": ended_before_requested_stop,
                 }
                 self.segments.append(segment)
@@ -374,8 +390,11 @@ def validate_evidence(report: object, artifacts: Path, actions: list[dict[str, o
         if not path.is_file() or path.stat().st_size <= 4096:
             raise RuntimeError(f"Missing screenshot: {name}")
         width, height = image_size(path.read_bytes())
-        if (width, height) != (1179, 2556):
-            raise RuntimeError(f"Native screenshot must be 1179x2556: {name} is {width}x{height}")
+        if (width, height) != NATIVE_SCREENSHOT_PIXELS:
+            expected = f"{NATIVE_SCREENSHOT_PIXELS[0]}x{NATIVE_SCREENSHOT_PIXELS[1]}"
+            raise RuntimeError(
+                f"Native screenshot must be {expected}: {name} is {width}x{height}"
+            )
     sessions = evidence.get("sessions")
     if not isinstance(sessions, list) or len(sessions) != 3:
         raise RuntimeError("Need one free and two paid real sessions")
@@ -454,16 +473,18 @@ def main() -> int:
             output = adb.run("shell", "wm", setting).decode().replace("\r", "")
             original_display[setting] = display_override(output)
             (artifacts / f"original-wm-{setting}.txt").write_text(output, encoding="utf-8")
-        adb.run("shell", "wm", "size", "1179x2556")
+        native_width, native_height = NATIVE_SCREENSHOT_PIXELS
+        adb.run("shell", "wm", "size", f"{native_width}x{native_height}")
         adb.run("shell", "wm", "density", "480")
         for _ in range(10):
-            if image_size(adb.screenshot()) == (1179, 2556):
+            if image_size(adb.screenshot()) == NATIVE_SCREENSHOT_PIXELS:
                 break
             time.sleep(0.5)
         else:
             raise RuntimeError("Native emulator screenshot did not adopt submission dimensions")
-        summary["nativeScreenshotPixels"] = [1179, 2556]
-        summary["requestedRecordingPixels"] = [720, 1560]
+        summary["nativeScreenshotPixels"] = list(NATIVE_SCREENSHOT_PIXELS)
+        summary["requestedRecordingPixels"] = list(RECORDING_PIXELS)
+        summary["recordingBitRate"] = RECORDING_BIT_RATE
         with apk.open("rb") as binary:
             summary["apkSha256"] = hashlib.file_digest(binary, "sha256").hexdigest()
         adb.run("install", "-r", "-t", str(apk), timeout=120)

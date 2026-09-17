@@ -4,6 +4,16 @@ These scripts launch two real Android Virtual Devices, capture their native
 displays independently, and optionally compose the recordings side by side.
 They never generate or substitute app screens.
 
+CI requests a maximum recording edge of 1600 pixels for the phone and 1280
+for the tablet at 3 Mbps. Before each native segment, the recorder reads the
+current default-display geometry and chooses proportional, even output bounds
+without upscaling. Each raw display dump and `recording-sizes.tsv` retain the
+source and requested dimensions. Android display/UI geometry, native timestamps
+and real recording gaps are unchanged. Rotation during a segment retains
+Android screenrecord behavior; fresh footage must establish whether reduced
+encoding load improves stalls. CLI callers that omit these options retain
+the original full-resolution, 8 Mbps behavior.
+
 ## Hosted Ubuntu sequence
 
 Generate the long-form media fixture and build both role-specific APKs serially
@@ -44,9 +54,10 @@ binds only `127.0.0.1:18765`. Android Emulator maps host loopback through
 Replace the provided smoke runner with another test or automation command only
 when the repository uses another integration target. The provided runner drives
 prebuilt host and guest APKs concurrently, uses host VM service ports 39101 and
-39102, and collects the driver's fixed role-specific artifact directories. Its
-six-minute bound uses consecutive 170-second native segments; process rotation
-and transfers can leave recording gaps. Every `adb`
+39102, and collects the driver's fixed role-specific artifact directories. The
+default recording window is six minutes with 330-second drives; production UI
+uses ten minutes with 540-second drives. Both use consecutive 170-second native
+segments; process rotation and transfers can leave recording gaps. Every `adb`
 call that targets a device includes the serial; do the same in custom commands.
 The server-start and device-inventory calls are intentionally global. If no
 command is supplied, recording lasts for `--seconds`.

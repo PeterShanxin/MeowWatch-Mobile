@@ -5,16 +5,19 @@ import json
 import subprocess
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_lifecycle_runtime.run import (
-    FIXTURE_NAME, Playback, PreparationRecoveryFailure, Runner, button, history_card, history_swipe, main,
+    FIXTURE_NAME, LifecycleRecording, Playback, PreparationRecoveryFailure, Runner, button, history_card, history_swipe, main,
     parse_time, playback, require_background_pause, require_paused_stability,
     require_playing_advance, require_restored_position, timed_out_observation,
+    recording_size, validate_recording_duration,
 )
 from tools.billing_runtime.native_dialog import LAUNCHER_PACKAGE, SETUP_PACKAGE
+from tools.android_native_ui.observer import OBSERVER_PACKAGE, ObserverIntegrityFailure
+from tools.android_native_ui.test_observer import node as native_node, response as native_response
 
 
 def node(label="", *, children="", clickable=False, extra="", class_name="android.view.View"):
@@ -80,11 +83,104 @@ def preparation_runner(root, adb):
     fixture.write_bytes(b"fixture")
     runner = Runner("emulator-5554", apk, fixture, root)
     runner.adb = adb
+    runner.observer.observe = adb.observe
     runner.phase = "01-fixture-review"
     return runner
 
 
 class LifecycleRuntimeTests(unittest.TestCase):
+    def test_native_recording_uses_even_proportional_dimensions(self):
+        self.assertEqual(recording_size("Physical size: 1080x2400\n"), (720, 1600))
+        self.assertEqual(recording_size("Physical size: 1080x2400\nOverride size: 1179x2556\n"), (720, 1560))
+        self.assertEqual(recording_size("Physical size: 2560x1600\n"), (720, 450))
+        for value in ("", "Physical size: 0x0", "Physical size: 1080x2400\nPhysical size: 720x1600"):
+            with self.assertRaises(RuntimeFailure):
+                recording_size(value)
+
+    def test_native_recording_short_early_and_expired_segments_fail(self):
+        validate_recording_duration(58, 60, False)
+        for duration, elapsed, early in ((30, 60, False), (60, 60, True), (180, 182, False),
+                                         (0, 10, False), (float("nan"), 10, False),
+                                         (10, float("inf"), False)):
+            with self.assertRaises(RuntimeFailure):
+                validate_recording_duration(duration, elapsed, early)
+
+    def test_recording_does_not_signal_a_changed_android_pid_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            adb.run.return_value = subprocess.CompletedProcess([], 0, b"unrelated\0process\0")
+            recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+            recording.pid = "44"
+            recording.process = Mock()
+            recording.process.poll.return_value = None
+            recording.metadata["startedAtMonotonic"] = 1.0
+            with self.assertRaisesRegex(RuntimeFailure, "ownership changed"):
+                recording.finish()
+            self.assertEqual(recording.metadata["status"], "failed")
+            self.assertFalse(any(call.args[:3] == ("shell", "kill", "-2") for call in adb.run.call_args_list))
+            recording.process.terminate.assert_called_once()
+
+    def test_existing_screen_recorder_is_not_replaced(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(serial="emulator-5554", remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            adb.run.side_effect = [subprocess.CompletedProcess([], 0, b"1"),
+                                   subprocess.CompletedProcess([], 0, b"44")]
+            recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen") as process:
+                with self.assertRaisesRegex(RuntimeFailure, "existing Android screen recorder"):
+                    recording.start()
+            process.assert_not_called()
+            self.assertEqual(adb.remote_files, [])
+
+    def test_short_native_recording_is_retained_with_failure_and_hash(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+            recording.output.parent.mkdir()
+            media = b"ftyp" + b"x" * 5000 + b"moov"
+            def command(*arguments, **_kwargs):
+                if arguments[:2] == ("exec-out", "cat"):
+                    return subprocess.CompletedProcess([], 0, f"screenrecord\0{recording.remote}\0".encode())
+                if arguments[0] == "pull":
+                    recording.output.write_bytes(media)
+                return subprocess.CompletedProcess([], 0, b"")
+            adb.run.side_effect = command
+            recording.process = Mock()
+            recording.process.poll.side_effect = [None, 0]
+            recording.pid = "44"
+            recording.metadata["startedAtMonotonic"] = 0.0
+            probe = {"streams": [{"codec_type": "video", "width": 720, "height": 1600}],
+                     "format": {"duration": "20"}}
+            with patch("tools.android_lifecycle_runtime.run.time.monotonic", return_value=60.0), patch(
+                "tools.android_lifecycle_runtime.run.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 0, json.dumps(probe).encode()),
+            ):
+                with self.assertRaisesRegex(RuntimeFailure, "does not cover"):
+                    recording.finish()
+            self.assertEqual(recording.output.read_bytes(), media)
+            self.assertEqual(recording.metadata["status"], "failed")
+            self.assertEqual(recording.metadata["videoDurationSeconds"], 20)
+            self.assertEqual(len(recording.metadata["sha256"]), 64)
+
+    def test_cleanup_failure_cannot_leave_a_successful_result(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture, output = root / "app.apk", root / FIXTURE_NAME, root / "evidence"
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            def complete(runner):
+                output.mkdir()
+                runner.evidence_started = True
+                return {"completed": True}
+            with patch.object(Runner, "run", complete), patch.object(
+                Runner, "cleanup", side_effect=RuntimeFailure("observer could not be removed"),
+            ), redirect_stdout(io.StringIO()) as logged:
+                status = main(["--serial", "emulator-5554", "--apk", str(apk),
+                               "--fixture", str(fixture), "--output", str(output)])
+            self.assertEqual(status, 1)
+            self.assertNotIn("RUNTIME_PASS", logged.getvalue())
+            self.assertFalse(json.loads((output / "result.json").read_text())["completed"])
+
     def test_initial_launcher_and_sdk_setup_recovery_requires_fresh_app_ui(self):
         for package in (LAUNCHER_PACKAGE, SETUP_PACKAGE):
             with self.subTest(package=package), tempfile.TemporaryDirectory() as directory:
@@ -335,18 +431,28 @@ class LifecycleRuntimeTests(unittest.TestCase):
             apk.write_bytes(b"apk")
             fixture.write_bytes(b"fixture")
             runner = Runner("emulator-5554", apk, fixture, root)
+            runner.observer.installed = True
             runner.last_xml = player("0:03", "Pause")
             dump_commands = []
+            observed_xml = '<hierarchy>' + native_node(
+                player("0:20", "Pause").removeprefix('<hierarchy>').removesuffix('</hierarchy>'),
+                text='', clickable='false',
+            ) + '</hierarchy>'
+            observed_xml = observed_xml.replace('content-desc="" package=',
+                                                'content-desc="" resource-id="" scrollable="false" package=')
 
             def native_command(command, **_kwargs):
                 arguments = command[3:]
-                if arguments[:3] == ["shell", "uiautomator", "dump"]:
+                if arguments[:3] == ["shell", "pidof", PACKAGE]:
+                    return subprocess.CompletedProcess(command, 0, b"123", b"")
+                if arguments[:3] == ["shell", "am", "instrument"]:
                     dump_commands.append(command)
                     if len(dump_commands) == 1:
                         raise subprocess.TimeoutExpired(command, 10)
-                    return subprocess.CompletedProcess(command, 0, b"UI hierarchy dumped", b"")
-                if arguments[:2] == ["exec-out", "cat"]:
-                    return subprocess.CompletedProcess(command, 0, player("0:20", "Pause").encode(), b"")
+                    return subprocess.CompletedProcess(command, 0,
+                                                       native_response(observed_xml, nonce=arguments[7]), b"")
+                if arguments == ["shell", "am", "force-stop", OBSERVER_PACKAGE]:
+                    return subprocess.CompletedProcess(command, 0, b"", b"")
                 if arguments[:4] == ["shell", "dumpsys", "window", "displays"]:
                     window = f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}\n".encode()
                     return subprocess.CompletedProcess(command, 0, window, b"")
@@ -358,13 +464,45 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 xml, state = runner.sample("04-advanced", playing=True, screenshot=False)
 
             self.assertEqual(state, Playback(20, 90, True))
-            self.assertEqual(xml, player("0:20", "Pause"))
+            self.assertEqual(xml, observed_xml)
             self.assertEqual(len(dump_commands), 2)
-            self.assertNotEqual(dump_commands[0][-1], dump_commands[1][-1])
+            self.assertNotEqual(dump_commands[0][-2], dump_commands[1][-2])
             self.assertEqual([item["position_seconds"] for item in runner.samples], [20])
-            self.assertEqual(runner.observation_timeouts[0]["operation"], "UIAutomator hierarchy dump")
+            self.assertEqual(runner.observation_timeouts[0]["operation"], "native accessibility snapshot")
+            self.assertEqual(len(runner.observer.observations), 1)
             self.assertEqual(runner.observation_timeouts[0]["phase"], "04-advanced")
             self.assertEqual(runner.last_observation["phase"], "04-advanced")
+
+    def test_observer_integrity_failure_is_not_retried_into_a_false_pass(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            with patch.object(runner.observer, "observe", side_effect=[
+                ObserverIntegrityFailure("application process changed during native UI capture"),
+                (player(), f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}"),
+            ]) as observe:
+                with self.assertRaisesRegex(ObserverIntegrityFailure, "process changed"):
+                    runner.sample("03-playing", playing=True)
+            self.assertEqual(observe.call_count, 1)
+            self.assertEqual(runner.samples, [])
+
+    def test_fresh_snapshot_still_requires_exact_production_window_focus(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            runner.phase = "03-playing"
+            with patch.object(runner.observer, "observe", return_value=(
+                player(), f"mCurrentFocus=Window{{abc {OBSERVER_PACKAGE}/.Activity}}",
+            )):
+                with self.assertRaisesRegex(RuntimeFailure, "not the focused"):
+                    runner.observe()
+            self.assertEqual(runner.samples, [])
 
     def test_repeated_ui_timeouts_fail_without_a_playback_sample(self):
         with tempfile.TemporaryDirectory() as directory:

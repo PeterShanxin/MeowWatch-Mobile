@@ -85,7 +85,25 @@ if [[ "${1:-}" == shell ]]; then
       printf 'Physical size: 1080x1920\n'
       ;;
     dumpsys)
-      printf 'fake diagnostic\n'
+      if [[ "${2:-} ${3:-}" == 'window displays' ]]; then
+        size=1080x2400
+        if [[ "$serial" == emulator-5556 ]]; then
+          size=1600x2560
+          [[ "${FAKE_SCENARIO:-}" == landscape ]] && size=2560x1600
+        fi
+        count_file="$FAKE_ANDROID_STORAGE/$serial.display.count"
+        count=0
+        [[ -f "$count_file" ]] && count=$(cat "$count_file")
+        printf '%s' "$((count + 1))" > "$count_file"
+        # Initial evidence is deliberately stale: segment startup must refresh.
+        [[ "$count" -eq 0 ]] && size=800x600
+        printf '  Display: mDisplayId=0 (organized)\n    init=2560x1600 cur=%s app=%s\n' "$size" "$size"
+        if [[ "${FAKE_SCENARIO:-}" == ambiguous ]]; then
+          printf '    cur=100x200 app=100x200\n'
+        fi
+      else
+        printf 'fake diagnostic\n'
+      fi
       ;;
     *) ;;
   esac
@@ -183,6 +201,7 @@ run_case() {
   local name="$1"
   local scenario="$2"
   local command_exit="${3:-0}"
+  shift 3
   local case_root="$test_root/$name"
   mkdir -p "$case_root/device"
   set +e
@@ -194,12 +213,13 @@ run_case() {
       --session "$test_root/session.env" \
       --output "$case_root/evidence" \
       --seconds 5 \
+      "$@" \
       -- sh -c 'exit "$1"' recorder-contract "$command_exit"
   case_status=$?
   set -e
 }
 
-run_case transient transient
+run_case transient transient 0
 test "$case_status" -eq 0
 evidence="$test_root/transient/evidence"
 
@@ -232,7 +252,7 @@ grep -Eq $'emulator-5554\tshell screenrecord .* /sdcard/meowwatch-evidence-.+-ph
 grep -Eq $'emulator-5556\tshell screenrecord .* /sdcard/meowwatch-evidence-.+-tablet/tablet-000.mp4$' \
   "$test_root/transient/adb.log"
 
-run_case cleanup cleanup-warning
+run_case cleanup cleanup-warning 0
 test "$case_status" -eq 0
 test -s "$test_root/cleanup/evidence/phone-emulator-5554/segments/phone-000.mp4"
 test ! -e "$test_root/cleanup/evidence/recorder-control/phone.failed"
@@ -265,3 +285,57 @@ test -s "$missing_phone_evidence/tablet-emulator-5556/media-codec.txt"
 test -s "$missing_phone_evidence/tablet-emulator-5556/display-after.txt"
 
 echo 'two-device recording duration, path and alignment contract passed'
+
+for role in phone tablet; do
+  for invalid in '' 0 1 3 4098 999999999999999999999 01600 720x1600 nope; do
+    set +e
+    error="$(bash "$repo_root/tools/android_multi_device/record_two_devices.sh" \
+      --session "$test_root/session.env" "--$role-max-edge" "$invalid" 2>&1)"
+    status=$?
+    set -e
+    test "$status" -eq 2
+    grep -Fq -- "--$role-max-edge must be an even integer" <<< "$error"
+  done
+done
+
+for orientation in portrait landscape; do
+  run_case "$orientation" "$orientation" 0 \
+    --phone-max-edge 1600 --tablet-max-edge 1280 --bit-rate 3000000
+  test "$case_status" -eq 0
+  evidence="$test_root/$orientation/evidence"
+  tablet_source=1600x2560
+  tablet_output=800x1280
+  if [[ "$orientation" == landscape ]]; then
+    tablet_source=2560x1600
+    tablet_output=1280x800
+  fi
+  grep -Fq $'emulator-5554\tshell screenrecord --size 720x1600 --bit-rate 3000000' \
+    "$test_root/$orientation/adb.log"
+  grep -Fq "shell screenrecord --size $tablet_output --bit-rate 3000000" \
+    "$test_root/$orientation/adb.log"
+  grep -Fq $'0\tphone-000.mp4\t1080x2400\t720x1600' \
+    "$evidence/phone-emulator-5554/recording-sizes.tsv"
+  grep -Fq "0"$'\t'"tablet-000.mp4"$'\t'"$tablet_source"$'\t'"$tablet_output" \
+    "$evidence/tablet-emulator-5556/recording-sizes.tsv"
+  grep -Fq $'requested_bit_rate\t3000000' "$evidence/recording-session.tsv"
+  if grep -Eq $'\tshell wm (size|density) [0-9]' "$test_root/$orientation/adb.log"; then
+    echo 'Recorder changed Android display geometry.' >&2
+    exit 1
+  fi
+done
+
+run_case rounding portrait 0 --phone-max-edge 4096 --tablet-max-edge 1000
+test "$case_status" -eq 0
+grep -Fq 'shell screenrecord --size 1080x2400 --bit-rate 8000000' \
+  "$test_root/rounding/adb.log"
+grep -Fq 'shell screenrecord --size 624x1000 --bit-rate 8000000' \
+  "$test_root/rounding/adb.log"
+
+run_case ambiguous ambiguous 0 --phone-max-edge 1600 --tablet-max-edge 1280
+test "$case_status" -ne 0
+if grep -q 'shell screenrecord ' "$test_root/ambiguous/adb.log"; then
+  echo 'Recorder accepted ambiguous source display dimensions.' >&2
+  exit 1
+fi
+grep -Fq 'shell screenrecord --bit-rate 8000000' "$test_root/transient/adb.log"
+echo 'per-device native recording size and bitrate contracts passed'

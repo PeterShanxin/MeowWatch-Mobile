@@ -12,6 +12,7 @@ import 'package:meowwatch_mobile/core/billing/revenuecat_billing_service.dart';
 import 'package:meowwatch_mobile/core/playback/local_mobile_target.dart';
 import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/main.dart';
+import 'package:meowwatch_mobile/ui/chat/chat_panel.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
@@ -425,7 +426,7 @@ void main() {
       if (isHost) {
         await _waitForRemoteMessage(tester, app, guestChat);
         await _openChat(tester);
-        expect(find.text(guestChat), findsOneWidget);
+        await _expectChatMessageVisible(tester, guestChat);
         expect(find.text(peerName), findsWidgets);
         await _sendChatThroughUi(tester, app, hostChat, closeAfter: false);
         await _capture(nativeScreenshots, tester, screenshots, 'chat-visible');
@@ -434,7 +435,7 @@ void main() {
         await _sendChatThroughUi(tester, app, guestChat);
         await _waitForRemoteMessage(tester, app, hostChat);
         await _openChat(tester);
-        expect(find.text(hostChat), findsOneWidget);
+        await _expectChatMessageVisible(tester, hostChat);
         expect(find.text(peerName), findsWidgets);
         await _capture(nativeScreenshots, tester, screenshots, 'chat-visible');
         await _closeChatIfNeeded(tester);
@@ -853,6 +854,24 @@ Future<void> _closeChatIfNeeded(WidgetTester tester) async {
   );
 }
 
+Future<void> _expectChatMessageVisible(
+  WidgetTester tester,
+  String message,
+) async {
+  // The phone room also previews the latest message behind the chat sheet.
+  final bubble = find.descendant(
+    of: find.byType(ChatPanel),
+    matching: find.text(message),
+  );
+  await _waitFor(
+    tester,
+    bubble.hitTestable(),
+    'visible production chat message',
+  );
+  expect(bubble, findsOneWidget);
+  expect(bubble.hitTestable(), findsOneWidget);
+}
+
 Future<void> _sendChatThroughUi(
   WidgetTester tester,
   AppController app,
@@ -874,7 +893,7 @@ Future<void> _sendChatThroughUi(
     app,
     'sent chat message',
   );
-  expect(find.text(message), findsOneWidget);
+  await _expectChatMessageVisible(tester, message);
   if (closeAfter) await _closeChatIfNeeded(tester);
 }
 

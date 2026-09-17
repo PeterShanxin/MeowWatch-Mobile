@@ -5,6 +5,7 @@ import 'package:meowwatch_mobile/core/media/media_item.dart';
 import 'package:meowwatch_mobile/core/sync/endpoint_settings.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/ui/chat/chat_panel.dart';
+import 'package:meowwatch_mobile/ui/room/room_screen.dart';
 
 import '../../app/app_controller_test.dart' as support;
 import '../../support/sync_playback_fakes.dart';
@@ -83,6 +84,86 @@ void main() {
     });
     expect(app.messages.last.text, message);
     await tester.pumpAndSettle();
+  }
+
+  for (final layout in [
+    (name: 'phone', size: const Size(412, 892), hasPreview: true),
+    (name: 'tablet', size: const Size(1280, 800), hasPreview: false),
+  ]) {
+    testWidgets('${layout.name} chat bubbles are distinct from room previews', (
+      tester,
+    ) async {
+      tester.view.physicalSize = layout.size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() => app.connect(support.ticket));
+      await tester.pumpWidget(
+        MaterialApp(
+          home: ListenableBuilder(
+            listenable: app,
+            builder: (context, _) => RoomScreen(
+              app: app,
+              onLoad: () {},
+              onInvite: () {},
+              onDevices: () {},
+              onLeave: () {},
+              onStartRoom: () {},
+              onTogglePlay: () {},
+              onSeek: (_) {},
+            ),
+          ),
+        ),
+      );
+
+      const received = 'Ready for movie night, Host! 🍿';
+      await tester.runAsync(() async {
+        client.receive(const ChatMessage(username: 'Guest', text: received));
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pumpAndSettle();
+      if (layout.hasPreview) {
+        // Keep the real room preview built behind the phone's chat sheet.
+        await tester.ensureVisible(find.text(received));
+        await tester.pumpAndSettle();
+        await tester.tap(find.widgetWithText(TextButton, 'Chat'));
+        await tester.pumpAndSettle();
+      }
+
+      void expectBubble(String message) {
+        final bubble = find.descendant(
+          of: find.byType(ChatPanel),
+          matching: find.text(message),
+        );
+        expect(bubble, findsOneWidget);
+        expect(bubble.hitTestable(), findsOneWidget);
+        expect(find.text(message), findsNWidgets(layout.hasPreview ? 2 : 1));
+        expect(
+          app.messages.where((item) => item.text == message),
+          hasLength(1),
+        );
+      }
+
+      expectBubble(received);
+      const sent = 'Ready here too. Press play when you are comfy.';
+      final composer = find.descendant(
+        of: find.byType(ChatPanel),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(composer, sent);
+      await tester.tap(find.byTooltip('Send message').hitTestable());
+      expect(client.sent, contains(sent));
+      // The server echoes a sent message before it becomes a local bubble.
+      await tester.runAsync(() async {
+        client.receive(ChatMessage(username: app.username, text: sent));
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pumpAndSettle();
+      expect(tester.widget<TextField>(composer).controller!.text, isEmpty);
+      expectBubble(sent);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+    });
   }
 
   testWidgets(

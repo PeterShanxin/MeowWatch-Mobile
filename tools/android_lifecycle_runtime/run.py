@@ -7,11 +7,14 @@ import argparse
 from dataclasses import asdict, dataclass
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
+import queue
 import re
 import signal
 import subprocess
+import threading
 import time
 from typing import Callable, Sequence, TypeVar
 import xml.etree.ElementTree as ET
@@ -19,12 +22,14 @@ import xml.etree.ElementTree as ET
 from tools.android_install.runner import (
     ACTIVITY, Adb, PACKAGE, RuntimeFailure, focused_component,
     install_output_succeeded, launch_output_succeeded, parse_package_metadata,
+    validate_mp4,
 )
 from tools.incoming_media_runtime.run import center, exact, nodes, require_review
 from tools.billing_runtime.native_dialog import (
     LAUNCHER_PACKAGE, SETUP_PACKAGE, UnsafeDialog, image_size,
     select_google_sdk_setup_anr_close, select_pixel_launcher_anr_close,
 )
+from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver, ObserverIntegrityFailure
 
 
 FIXTURE_NAME = "sync-fixture.mp4"
@@ -36,6 +41,132 @@ T = TypeVar("T")
 
 class PreparationRecoveryFailure(RuntimeFailure):
     """Preparation recovery must stop rather than repeat an uncertain action."""
+
+
+def recording_size(display: str) -> tuple[int, int]:
+    sizes = re.findall(r"(?m)^(Physical|Override) size: (\d+)x(\d+)\s*$", display)
+    if not sizes or len({kind for kind, _, _ in sizes}) != len(sizes):
+        raise RuntimeFailure("native recording requires unambiguous Android display dimensions")
+    selected = next((row for row in sizes if row[0] == "Override"), sizes[0])
+    width, height = int(selected[1]), int(selected[2])
+    if not 200 <= width <= 10000 or not 200 <= height <= 10000:
+        raise RuntimeFailure("native recording display dimensions are outside supported bounds")
+    scale = min(720 / width, 1600 / height, 1)
+    return max(2, int(width * scale) // 2 * 2), max(2, int(height * scale) // 2 * 2)
+
+
+def validate_recording_duration(duration: float, elapsed: float, exited_early: bool) -> None:
+    if (not math.isfinite(duration) or not math.isfinite(elapsed) or duration <= 0
+            or elapsed <= 0 or duration > 181 or elapsed > 180 or exited_early
+            or duration + 3 < elapsed):
+        raise RuntimeFailure("native recording ended early or does not cover its measured segment")
+
+
+class LifecycleRecording:
+    """One original, bounded screenrecord segment with verified process ownership."""
+
+    def __init__(self, adb: Adb, output: Path, index: int, size: tuple[int, int]):
+        self.adb, self.size = adb, size
+        self.output = output / "native" / f"lifecycle-{index:02}.mp4"
+        self.remote = f"{adb.remote_prefix}lifecycle-{index:02}.mp4"
+        self.process: subprocess.Popen[str] | None = None
+        self.reader: threading.Thread | None = None
+        self.pid: str | None = None
+        self.finished = False
+        self.metadata: dict[str, object] = {"file": str(self.output.relative_to(output)).replace("\\", "/"),
+                                            "status": "not-started", "width": size[0], "height": size[1],
+                                            "timeLimitSeconds": 180}
+
+    def start(self) -> None:
+        if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
+                or self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"
+                or re.fullmatch(r"/sdcard/meowwatch-install-[A-Za-z0-9_-]+/lifecycle-\d+\.mp4", self.remote) is None):
+            raise RuntimeFailure("native recording requires an owned path and verified emulator")
+        if self.adb.run("shell", "pidof", "screenrecord", check=False).stdout.strip():
+            raise RuntimeFailure("refusing to replace an existing Android screen recorder")
+        self.output.parent.mkdir(parents=True, exist_ok=True)
+        self.adb.remote_files.append(self.remote)
+        width, height = self.size
+        command = (f"screenrecord --size {width}x{height} --bit-rate 2000000 --time-limit 180 {self.remote} & "
+                   "record_pid=$!; printf 'LIFECYCLE_RECORDER_PID=%s\\n' \"$record_pid\"; wait \"$record_pid\"")
+        self.metadata["launchRequestedAtMonotonic"] = time.monotonic()
+        self.process = subprocess.Popen(self.adb.prefix + ["shell", command], stdout=subprocess.PIPE,
+                                        stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+        observed: queue.Queue[str] = queue.Queue()
+
+        def read_output() -> None:
+            assert self.process and self.process.stdout
+            for line in self.process.stdout:
+                match = re.fullmatch(r"LIFECYCLE_RECORDER_PID=(\d+)\s*", line)
+                if match:
+                    observed.put(match[1])
+
+        self.reader = threading.Thread(target=read_output, daemon=True)
+        self.reader.start()
+        try:
+            self.pid = observed.get(timeout=10)
+        except queue.Empty:
+            self.metadata["status"] = "failed"
+            raise RuntimeFailure("could not identify the owned lifecycle recorder") from None
+        self.metadata.update({"status": "recording", "pid": int(self.pid),
+                              "startedAtMonotonic": time.monotonic()})
+
+    def finish(self) -> None:
+        if self.finished or self.process is None:
+            return
+        self.finished = True
+        stopped = time.monotonic()
+        self.metadata["stopRequestedAtMonotonic"] = stopped
+        exited_early = self.process.poll() is not None
+        self.metadata["exitedBeforeStopRequest"] = exited_early
+        try:
+            if not exited_early:
+                if self.pid is None:
+                    raise RuntimeFailure("native lifecycle recorder PID is missing")
+                command = self.adb.run("exec-out", "cat", f"/proc/{self.pid}/cmdline").stdout.decode(
+                    "utf-8", errors="replace").split("\x00")
+                if command[0].rsplit("/", 1)[-1] != "screenrecord" or self.remote not in command:
+                    raise RuntimeFailure("native lifecycle recorder ownership changed; no signal sent")
+                self.adb.run("shell", "kill", "-2", self.pid)
+            self.process.wait(timeout=20)
+            if self.reader:
+                self.reader.join(timeout=5)
+                if self.reader.is_alive():
+                    raise RuntimeFailure("native lifecycle recorder output did not close")
+            self.adb.run("pull", self.remote, str(self.output), timeout=40)
+            data = self.output.read_bytes()
+            validate_mp4(data)
+            self.metadata.update({"pulledAtMonotonic": time.monotonic(),
+                                  "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+            probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
+                                    "format=duration:stream=codec_type,width,height", "-of", "json", str(self.output)],
+                                   capture_output=True, check=False, timeout=15)
+            if probe.returncode:
+                raise RuntimeFailure("native lifecycle recording could not be decoded by ffprobe")
+            try:
+                metadata = json.loads(probe.stdout)
+                streams = metadata["streams"]
+                duration = float(metadata["format"]["duration"])
+                if (len(streams) != 1 or streams[0]["codec_type"] != "video"
+                        or (streams[0]["width"], streams[0]["height"]) != self.size):
+                    raise ValueError()
+            except (ValueError, TypeError, KeyError):
+                raise RuntimeFailure("native lifecycle recording dimensions or duration are invalid") from None
+            elapsed = stopped - float(self.metadata["startedAtMonotonic"])
+            self.metadata.update({"videoDurationSeconds": duration, "measuredSegmentSeconds": elapsed})
+            validate_recording_duration(duration, elapsed, exited_early)
+            self.metadata["status"] = "verified"
+        except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
+            self.metadata["status"] = "failed"
+            self.metadata["error"] = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
+            raise
+        finally:
+            if self.process.poll() is None:
+                # This is our local ADB subprocess, not an unverified Android PID.
+                self.process.terminate()
+                self.process.wait(timeout=5)
+            if self.process.stdout:
+                self.process.stdout.close()
 
 
 @dataclass(frozen=True)
@@ -113,6 +244,8 @@ def timed_out_observation(error: subprocess.TimeoutExpired) -> str:
     arguments = list(command[3:]) if len(command) > 3 and command[1] == "-s" else []
     if arguments[:3] == ["shell", "uiautomator", "dump"]:
         return "UIAutomator hierarchy dump"
+    if arguments[:3] == ["shell", "am", "instrument"]:
+        return "native accessibility snapshot"
     if arguments[:2] == ["exec-out", "cat"]:
         return "UI hierarchy transfer"
     if arguments[:4] == ["shell", "dumpsys", "window", "displays"]:
@@ -167,10 +300,12 @@ def history_swipe(xml: str) -> tuple[int, int, int, int]:
 
 
 class Runner:
-    def __init__(self, serial: str, apk: Path, fixture: Path, output: Path) -> None:
+    def __init__(self, serial: str, apk: Path, fixture: Path, output: Path,
+                 observer_apk: Path = DEFAULT_APK) -> None:
         if not apk.is_file() or not fixture.is_file() or fixture.name != FIXTURE_NAME:
             raise ValueError("normal APK and prepared sync-fixture.mp4 are required")
         self.adb = Adb(serial, f"lifecycle-{os.getpid()}-{time.time_ns()}")
+        self.observer = NativeUiObserver(self.adb, observer_apk)
         self.apk, self.fixture, self.output = apk, fixture, output
         self.cleanup_authorized = False
         self.evidence_started = False
@@ -181,6 +316,8 @@ class Runner:
         self.observation_timeouts: list[dict[str, object]] = []
         self.samples: list[dict[str, object]] = []
         self.preparation_recoveries: list[dict[str, object]] = []
+        self.recording: LifecycleRecording | None = None
+        self.recordings: list[dict[str, object]] = []
 
     def prepare(self) -> dict[str, object]:
         if self.output.exists() and any(self.output.iterdir()):
@@ -203,7 +340,9 @@ class Runner:
         installed = self.adb.run("install", "-t", str(self.apk), timeout=120).stdout.decode()
         if not install_output_succeeded(installed):
             raise RuntimeFailure("normal APK installation failed")
+        observer = self.observer.install()
         return {
+            "nativeUiObserver": observer,
             "runtime": {
                 "emulator": True,
                 "physicalDevice": False,
@@ -224,7 +363,7 @@ class Runner:
         return value
 
     def observe(self) -> str:
-        xml, window = self.adb.observe()
+        xml, window = self.observer.observe()
         self.last_xml = xml
         self.last_window = window
         if self.recover_preparation_anr(xml, window):
@@ -261,7 +400,7 @@ class Runner:
             width, height = image_size(png)
         except UnsafeDialog as error:
             raise PreparationRecoveryFailure("initial ANR screenshot dimensions are invalid") from error
-        fresh_xml, fresh_window = self.adb.observe()
+        fresh_xml, fresh_window = self.observer.observe()
         self.last_xml, self.last_window = fresh_xml, fresh_window
         prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
         prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
@@ -297,7 +436,7 @@ class Runner:
         while time.monotonic() < deadline:
             try:
                 xml = self.observe()
-            except PreparationRecoveryFailure:
+            except (PreparationRecoveryFailure, ObserverIntegrityFailure):
                 raise
             except subprocess.TimeoutExpired as error:
                 # A transient read timeout is not a playback result. Retry a
@@ -423,6 +562,7 @@ class Runner:
 
     def run(self) -> dict[str, object]:
         report = self.prepare()
+        self.start_recording()
         self.load_fixture()
         xml, loaded = self.sample("02-loaded-paused", playing=False)
         self.tap(button(xml, "Play", "Play together"))
@@ -430,6 +570,8 @@ class Runner:
         time.sleep(4)
         _, advanced = self.sample("04-advanced", playing=True)
         first_advance = require_playing_advance(initial, advanced)
+        self.finish_recording()
+        self.start_recording()
         before_home_pid = self.pid()
         if not before_home_pid:
             raise RuntimeFailure("playing process is absent")
@@ -476,6 +618,7 @@ class Runner:
         time.sleep(4)
         _, restored_stable = self.sample("12-restored-no-autoplay", playing=False)
         require_paused_stability(restored, restored_stable)
+        self.finish_recording()
         report.update({
             "completed": True,
             "initialPlayAdvanceSeconds": first_advance,
@@ -495,13 +638,42 @@ class Runner:
             "samples": self.samples,
             "observationTimeouts": self.observation_timeouts,
             "preparationAnrRecoveries": self.preparation_recoveries,
+            "nativeUiObservations": self.observer.observations,
+            "recordings": self.recordings,
+            "recordingBoundary": "Original native segments; measured inter-stage gaps are not continuous footage",
         })
         return report
 
+    def start_recording(self) -> None:
+        size = recording_size(self.adb.run("shell", "wm", "size").stdout.decode("ascii", errors="replace"))
+        self.recording = LifecycleRecording(self.adb, self.output, len(self.recordings) + 1, size)
+        self.recordings.append(self.recording.metadata)
+        self.recording.start()
+        if len(self.recordings) > 1:
+            self.recording.metadata["gapAfterPreviousStopSeconds"] = (
+                float(self.recording.metadata["startedAtMonotonic"])
+                - float(self.recordings[-2]["stopRequestedAtMonotonic"]))
+
+    def finish_recording(self) -> None:
+        if self.recording is not None:
+            try:
+                self.recording.finish()
+            finally:
+                self.recording = None
+
     def cleanup(self) -> None:
-        if self.cleanup_authorized:
-            self.adb.run("shell", "am", "force-stop", PACKAGE, check=False)
-            self.adb.cleanup()
+        try:
+            self.finish_recording()
+        finally:
+            if self.evidence_started:
+                self.output.joinpath("recordings.json").write_text(json.dumps(self.recordings, indent=2), encoding="utf-8")
+            try:
+                self.observer.cleanup()
+            finally:
+                if self.cleanup_authorized:
+                    self.adb.run("shell", "am", "force-stop", PACKAGE, check=False)
+                    self.adb.cleanup()
+                    self.cleanup_authorized = False
 
 
 def main(argv: Sequence[str] | None = None) -> int:
@@ -509,26 +681,29 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--serial", required=True)
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--fixture", type=Path, required=True)
+    parser.add_argument("--observer-apk", type=Path, default=DEFAULT_APK)
     parser.add_argument("--output", type=Path, default=Path("build/android-lifecycle-artifacts"))
     args = parser.parse_args(argv)
-    runner = Runner(args.serial, args.apk, args.fixture, args.output)
+    runner = Runner(args.serial, args.apk, args.fixture, args.output, args.observer_apk)
     def timed_out(_signum: int, _frame: object) -> None:
         raise RuntimeFailure("native lifecycle acceptance exceeded its external time bound")
     signal.signal(signal.SIGTERM, timed_out)
+    status = 0
+    report: dict[str, object] = {}
     try:
         report = runner.run()
-        args.output.joinpath("result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
-        print("ANDROID_LIFECYCLE_RUNTIME_PASS")
-        return 0
     except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
+        status = 1
         message = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
         if runner.evidence_started:
-            args.output.joinpath("result.json").write_text(json.dumps({
+            report = {
                 "completed": False, "phase": runner.phase, "error": message, "samples": runner.samples,
                 "observationTimeouts": runner.observation_timeouts,
                 "lastCompletedUiObservation": runner.last_observation,
                 "preparationAnrRecoveries": runner.preparation_recoveries,
-            }, indent=2), encoding="utf-8")
+                "nativeUiObservations": runner.observer.observations,
+                "recordings": runner.recordings,
+            }
             args.output.joinpath("failure.xml").write_text(runner.last_xml, encoding="utf-8")
             args.output.joinpath("failure-window.txt").write_text(runner.last_window, encoding="utf-8")
             try:
@@ -536,9 +711,21 @@ def main(argv: Sequence[str] | None = None) -> int:
             except (RuntimeFailure, OSError, subprocess.TimeoutExpired):
                 pass
         print(f"ANDROID_LIFECYCLE_RUNTIME_FAIL: {runner.phase}: {message}")
-        return 1
     finally:
-        runner.cleanup()
+        try:
+            runner.cleanup()
+        except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
+            status = 1
+            message = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
+            report.update({"completed": False, "cleanupError": message})
+            print(f"ANDROID_LIFECYCLE_RUNTIME_FAIL: cleanup: {message}")
+    if runner.evidence_started:
+        report["recordings"] = runner.recordings
+        report["nativeUiObserverRemoved"] = not runner.observer.owns_package
+        args.output.joinpath("result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    if status == 0:
+        print("ANDROID_LIFECYCLE_RUNTIME_PASS")
+    return status
 
 
 if __name__ == "__main__":

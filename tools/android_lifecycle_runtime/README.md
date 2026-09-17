@@ -1,7 +1,7 @@
 # Native Android lifecycle acceptance
 
 This gate exercises the installed, normal `lib/main.dart` release APK through ADB
-and Android UIAutomator. It does not use an integration-test application,
+and the Android accessibility API. It does not use an integration-test application,
 injected player, app-private instrumentation endpoint, or screenshot recognition.
 The workflow builds the APK it installs. A manual invocation must supply that same
 normal application build; the runner cannot determine its Dart entrypoint itself.
@@ -10,7 +10,7 @@ The dedicated API 35 Google APIs x86_64 Pixel 6 AVD is reinstalled before testin
 Do not run this gate on a personal device: it intentionally removes this package
 and its data. The runner requires an explicit `emulator-*` serial and checks
 `ro.kernel.qemu=1` before installation. It leaves the application installed and
-stopped, removes only its own remote UI dumps, and stops only the fixture server
+stopped, removes its separately installed observer helper, and stops only the fixture server
 whose ownership the existing server helper verifies.
 
 ## What must pass
@@ -52,11 +52,12 @@ Use `.github/workflows/android-lifecycle.yml` (**Android normal application
 lifecycle**), or from the repository root on a Linux Android SDK host:
 
 ```sh
-python3 -m unittest tools.android_lifecycle_runtime.test_run -v
+python3 -m unittest tools.android_lifecycle_runtime.test_run tools.android_native_ui.test_observer -v
 bash tools/android_multi_device/prepare_fixture.sh \
   --output build/android-lifecycle-fixture --seconds 90
 flutter build apk --release --target=lib/main.dart \
   --dart-define=REVENUECAT_API_KEY=
+python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
 # Start a dedicated API 35 emulator-5554 before this command.
 bash tools/android_lifecycle_runtime/ci.sh
 ```
@@ -74,6 +75,34 @@ phase, safe error message, previous samples, last XML, and a screenshot where
 available. `failure-window.txt` preserves the focused-window dump paired with
 the last XML. The workflow uploads these plus fixture provenance and local HTTP
 server logs even on failure. A missing/false `completed` field is not a pass.
+
+The separate [native UI observer](../android_native_ui/README.md) is a test-only
+APK whose instrumentation targets its own package. It never instruments or
+restarts MeowWatch. It reads `UiAutomation.getRootInActiveWindow` directly without
+an idle wait, returns bounded XML through a nonce-bound Base64 result, and checks
+the actual app PID before and after every capture. Exact MeowWatch window focus
+and the existing timeline/source/action semantics are still required.
+`nativeUiObserver` records the helper hash and target; `nativeUiObservations`
+records each snapshot's nonce, device/host times, app PID, node count and XML hash.
+The workflow retains the helper build/signature/manifest evidence as well.
+
+Two original native `screenrecord` MP4 segments supplement the XML assertions:
+initial fixture review/playback, then the immediate pre-HOME sample through
+foreground, explicit replay and new-process restoration. Each is limited to
+180 seconds and uses an even, proportional size within 720 x 1600 at 2 Mbps.
+The runner checks the exact recorder PID and output path before sending SIGINT,
+refuses an existing recorder, and transfers only its own files. `ffprobe` must
+confirm the expected video dimensions and a duration within three seconds of
+the measured recording interval; early exits, truncated footage and probe or
+cleanup failures cannot leave a passing result. No recording is padded.
+
+`recordings.json` and `result.json` retain start/stop/pull monotonic times, the
+original MP4 SHA-256, measured/decoded durations and failures. There is an
+explicitly measured stop/pull/start gap between the two stages, before the fresh
+pre-HOME baseline. The segments are not presented as uninterrupted footage.
+No playback assertion depends on video appearance, frame rate or these timing
+tolerances. Raw segments remain available after a failed test where transfer
+is possible.
 
 Python tests exercise the runner's acceptance/rejection rules with synthetic XML;
 they do not validate Android playback. Only a successful actual workflow run
@@ -96,12 +125,14 @@ than raw command arguments. On failure, `lastCompletedUiObservation` identifies
 the phase/time associated with the retained diagnostic XML. A screenshot taken
 after a timeout may show a later player time than that older XML.
 
-Run `35188550930` stopped before HOME while sampling `04-advanced`: only the
-0-second loaded state and 3-second playing state were recorded. The exception
-was an unhandled observation `TimeoutExpired`; the supplementary failure image
-shows playback at 20 seconds. That run did not retain the timed-out subcommand
-and is not a lifecycle pass. This change makes that transient capture failure
-retryable and diagnosable; a fresh native run is still required.
+Run `35194003102` stopped at `03-playing` after three ten-second UIAutomator
+dump timeouts. The failure screenshot shows actual playback at 30 seconds;
+the last completed XML was the earlier paused state. Android's dump command
+waits for one second without accessibility events, while the playing timeline
+updates about every 100 ms. The independent observer removes this idle-wait
+dependency. That failed run provides no HOME/restart evidence, and a fresh native
+run is required. The original 45-second phase deadlines, 65-second initial-review
+deadline and all playback thresholds remain unchanged.
 
 ### Initial emulator setup dialogs
 

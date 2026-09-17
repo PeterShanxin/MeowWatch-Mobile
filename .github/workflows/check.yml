@@ -69,6 +69,7 @@ jobs:
           python3 -m unittest discover -s tools/android_install -p 'test_*.py'
           python3 -m unittest discover -s tools/production_together -p 'test_*.py'
           python3 -m unittest discover -s tools/android_lifecycle_runtime -p 'test_*.py'
+          python3 -m unittest tools.android_native_ui.test_observer
           python3 -m unittest discover -s tools/production_purchase_runtime -p 'test_*.py'
           python3 -m unittest discover -s tools/incoming_media_runtime -p 'test_*.py'
           bash tools/android_runtime/test_playback_smoke.sh

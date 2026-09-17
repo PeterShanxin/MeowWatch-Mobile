@@ -236,12 +236,14 @@ fi
 sha256sum "$apk" > "$artifact_root/application.apk.sha256"
 
 declare -a profiles=(phone small tablet tablet-landscape landscape)
+# Use explicit landscape bounds. A user-rotation override can be reverted by
+# Android's launcher-to-app transition before the journey starts.
 declare -A profile_size=(
   [phone]='1080x2400'
   [small]='720x1280'
   [tablet]='1600x2560'
   [tablet-landscape]='2560x1600'
-  [landscape]='720x1600'
+  [landscape]='1600x720'
 )
 declare -A profile_density=(
   [phone]='420'
@@ -255,7 +257,7 @@ declare -A profile_rotation=(
   [small]='0'
   [tablet]='0'
   [tablet-landscape]='0'
-  [landscape]='1'
+  [landscape]='0'
 )
 declare -A profile_vm_port=(
   [phone]='39301'

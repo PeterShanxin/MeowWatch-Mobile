@@ -191,6 +191,9 @@ set +e
 bash tools/android_multi_device/record_two_devices.sh \
   --session "$session_file" \
   --seconds "$record_seconds" \
+  --phone-max-edge 1600 \
+  --tablet-max-edge 1280 \
+  --bit-rate 3000000 \
   -- bash tools/android_multi_device/run_together_smoke.sh \
     --session "$session_file" \
     --host-apk "$host_apk" \

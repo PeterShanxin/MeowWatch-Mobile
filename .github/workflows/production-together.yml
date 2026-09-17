@@ -1,7 +1,14 @@
 name: Production phone and tablet journey
+run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }})
 
 on:
   workflow_dispatch:
+    inputs:
+      semantics_candidate:
+        description: 'Diagnose with the unmerged pinned Flutter semantics patch in a copied SDK'
+        type: boolean
+        required: false
+        default: false
   pull_request:
     paths:
       - 'tools/native_capture/**'
@@ -18,12 +25,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: production-together-${{ github.ref }}
+  group: production-together-${{ github.ref }}-${{ inputs.semantics_candidate && 'semantics-candidate' || 'baseline' }}
   cancel-in-progress: true
 
 jobs:
   production-together:
-    name: Production UI on independent phone and tablet (API 35)
+    name: Production phone and tablet API 35 (${{ inputs.semantics_candidate && 'UNMERGED CANDIDATE' || 'baseline' }})
     runs-on: ubuntu-24.04
     timeout-minutes: 45
     steps:
@@ -35,7 +42,26 @@ jobs:
           flutter-version: '3.44.0'
           cache: true
           pub-cache: true
+      - name: Prepare isolated unmerged semantics candidate SDK
+        if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
+        env:
+          CANDIDATE_SDK: ${{ runner.temp }}/meowwatch-semantics-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p build/flutter-compat
+          cp tools/flutter_compat/provenance.json build/flutter-compat/upstream-source.json
+          echo '## Unmerged Flutter semantics diagnostic candidate' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Copied SDK only; this run does not establish adoption or a geometry fix.' >> "$GITHUB_STEP_SUMMARY"
+          python3 -m unittest discover -s tools/flutter_compat -p 'test_*.py'
+          python3 tools/flutter_compat/prepare.py --source-sdk "$FLUTTER_ROOT" --output-sdk "$CANDIDATE_SDK" --report build/flutter-compat/preparation.json
+          echo "FLUTTER_ROOT=$CANDIDATE_SDK" >> "$GITHUB_ENV"
+          echo "$CANDIDATE_SDK/bin" >> "$GITHUB_PATH"
+          echo "$CANDIDATE_SDK/bin/cache/dart-sdk/bin" >> "$GITHUB_PATH"
       - run: flutter pub get --enforce-lockfile
+      - name: Verify candidate against the upstream semantics regression
+        if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded tools/flutter_compat/overlay_sibling_conflict_test.dart 2>&1 | tee build/flutter-compat/upstream-regression.log
       - name: Verify invite rendezvous and runner syntax
         run: |
           python3 -m unittest discover -s tools/production_together -p 'test_*.py'
@@ -70,10 +96,11 @@ jobs:
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
-          name: production-phone-tablet-${{ github.run_attempt }}
+          name: production-phone-tablet-${{ github.run_attempt }}${{ inputs.semantics_candidate && '-semantics-candidate' || '' }}
           path: |
             build/android-multi-device/
             build/production-together-artifacts/
+            build/flutter-compat/
             !build/android-multi-device/apks/*.apk
             !build/android-multi-device/fixture/sync-fixture.mp4
           retention-days: 14

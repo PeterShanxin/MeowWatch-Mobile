@@ -27,7 +27,7 @@ jobs:
           channel: stable
           cache: true
       - run: flutter pub get --enforce-lockfile
-      - run: dart format --output=none --set-exit-if-changed lib test integration_test test_driver tools/native_capture
+      - run: dart format --output=none --set-exit-if-changed lib test integration_test test_driver tools/native_capture tools/flutter_compat
       - run: flutter analyze --no-pub
       - run: python3 tools/ci/nearby_test_interface.py
       - run: flutter test --no-pub --reporter expanded
@@ -69,6 +69,7 @@ jobs:
           python3 -m unittest discover -s tools/android_install -p 'test_*.py'
           python3 -m unittest discover -s tools/app_journey -p 'test_*.py'
           python3 -m unittest discover -s tools/production_together -p 'test_*.py'
+          python3 -m unittest discover -s tools/flutter_compat -p 'test_*.py'
           python3 -m unittest discover -s tools/android_lifecycle_runtime -p 'test_*.py'
           python3 -m unittest tools.android_native_ui.test_observer
           python3 -m unittest discover -s tools/production_purchase_runtime -p 'test_*.py'

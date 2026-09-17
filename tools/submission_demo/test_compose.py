@@ -96,6 +96,22 @@ class EdlValidationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "SHA256 mismatch"):
             self.validate()
 
+    def test_v3_timed_window_is_accepted_but_retained_still_is_not_footage(self):
+        timing_path = self.root / "synthetic-timing.json"
+        timing = compose.read_json(timing_path)
+        timing["schemaVersion"] = 3
+        timing_path.write_text(json.dumps(timing), encoding="utf-8")
+        self.edl["timelines"]["together"]["sha256"] = compose.sha256(timing_path)
+        self.assertEqual(self.validate()["shots"][1]["duration"], 1)
+        timing["sources"]["phone"]["segments"][0].update({
+            "status": "retained-but-no-duration",
+            "estimatedEndSeconds": "0",
+        })
+        timing_path.write_text(json.dumps(timing), encoding="utf-8")
+        self.edl["timelines"]["together"]["sha256"] = compose.sha256(timing_path)
+        with self.assertRaisesRegex(ValueError, "Unavailable phone segment"):
+            self.validate()
+
     def test_declared_dimensions_must_match_the_video(self):
         self.edl["sources"]["phone"]["width"] = 1080
         with self.assertRaisesRegex(ValueError, "Dimensions disagree"):

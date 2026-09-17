@@ -7,12 +7,13 @@ import argparse
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 FRAME_RATE = 30
@@ -29,14 +30,23 @@ class Segment:
     start_ns: int
     path: Path
     probe: dict[str, object] | None
+    no_duration_validation: dict[str, object] | None = None
 
     @property
     def duration(self) -> Decimal:
+        if self.no_duration_validation is not None:
+            return Decimal(0)
         return video_duration(self.probe) if self.probe is not None else Decimal(0)
+
+    @property
+    def status(self) -> str:
+        if self.probe is None:
+            return "missing"
+        return "retained-but-no-duration" if self.no_duration_validation else "available"
 
 
 def read_segments(
-    role: str, video: Path, timing_file: Path, ffprobe: str
+    role: str, video: Path, timing_file: Path, ffprobe: str, ffmpeg: str = "ffmpeg"
 ) -> list[Segment]:
     metadata = timing_file.parent / "recorder-control" / f"{role}-segments.tsv"
     segments = []
@@ -55,7 +65,13 @@ def read_segments(
             raise ValueError(f"Invalid or missing {role} segment timing row: {row!r}")
         path = video.parent / "segments" / name
         probe = probe_video(ffprobe, path) if path.is_file() else None
-        segments.append(Segment(index, start, path, probe))
+        validation = None
+        if probe is not None:
+            if has_explicit_zero_duration(probe):
+                validation = validate_untimed_single_frame(ffmpeg, path, probe)
+            else:
+                video_duration(probe)
+        segments.append(Segment(index, start, path, probe, validation))
     if not segments:
         raise ValueError(f"No {role} segment timing evidence")
     listed = {segment.path.name for segment in segments}
@@ -99,6 +115,19 @@ def recording_gaps(
     return gaps
 
 
+def bounded_timeline_duration(groups: Sequence[Sequence[Segment]], origin_ns: int) -> Decimal:
+    positive_ends = [end for segments in groups
+                     for start, end in segment_intervals(segments, origin_ns) if end > start]
+    if not positive_ends:
+        raise ValueError("No positive-duration native segment can bound the recording timeline")
+    duration = max(positive_ends)
+    if any(segment.duration == 0
+           and Decimal(segment.start_ns - origin_ns) / Decimal(1_000_000_000) >= duration
+           for segments in groups for segment in segments):
+        raise ValueError("Missing trailing segment or untimed frame has no known end; cannot bound its recording gap")
+    return duration
+
+
 def build_timeline_graph(
     role: str,
     segments: Sequence[Segment],
@@ -114,13 +143,13 @@ def build_timeline_graph(
         f"color=c=0x05070B:s={width}x{height}:r={FRAME_RATE}:d={_seconds(duration)},"
         f"drawtext=fontfile='{font}':fontcolor=0xEFB38C:text='RECORDING GAP':"
         "fontsize=22:x=(w-text_w)/2:y=h/2-26,"
-        f"drawtext=fontfile='{font}':fontcolor=0xB5BDCC:text='No captured frames':"
+        f"drawtext=fontfile='{font}':fontcolor=0xB5BDCC:text='No timed frames':"
         f"fontsize=17:x=(w-text_w)/2:y=h/2+8[{role}_base]"
     ]
     previous = f"{role}_base"
     sources = []
     for segment, (start, end) in zip(segments, segment_intervals(segments, origin_ns)):
-        if segment.probe is None:
+        if segment.probe is None or end <= start:
             continue
         label = f"{role}_segment_{segment.index}"
         output = f"{role}_overlay_{segment.index}"
@@ -232,7 +261,7 @@ def probe_video(ffprobe: str, path: Path) -> dict[str, object]:
             "-select_streams",
             "v:0",
             "-show_entries",
-            "stream=codec_name,width,height,r_frame_rate,avg_frame_rate,duration",
+            "stream=codec_name,width,height,r_frame_rate,avg_frame_rate,duration,nb_frames",
             "-show_entries",
             "format=duration,start_time",
             "-of",
@@ -244,6 +273,40 @@ def probe_video(ffprobe: str, path: Path) -> dict[str, object]:
         text=True,
     )
     return json.loads(result.stdout)
+
+
+def has_explicit_zero_duration(probe: Mapping[str, object]) -> bool:
+    streams = probe.get("streams")
+    if not isinstance(streams, list) or len(streams) != 1 or not isinstance(streams[0], dict):
+        return False
+    try:
+        return Decimal(str(streams[0].get("duration"))) == 0
+    except InvalidOperation:
+        return False
+
+
+def validate_untimed_single_frame(ffmpeg: str, path: Path, probe: Mapping[str, object]) -> dict[str, object]:
+    """Retain a decoded still as evidence without assigning it any screen time."""
+    if not has_explicit_zero_duration(probe):
+        raise ValueError("Untimed-frame retention requires explicit zero video duration")
+    video_dimensions(probe)
+    format_data = probe.get("format")
+    raw_format_duration = format_data.get("duration") if isinstance(format_data, dict) else None
+    if raw_format_duration is not None and Decimal(str(raw_format_duration)) != 0:
+        raise ValueError("Zero-duration video conflicts with the container duration")
+    result = subprocess.run(
+        [ffmpeg, "-v", "error", "-xerror", "-i", str(path), "-map", "0:v:0",
+         "-fps_mode", "passthrough", "-f", "framemd5", "-"],
+        check=True, capture_output=True, text=True, timeout=30,
+    )
+    frames = [line for line in result.stdout.splitlines() if line and not line.startswith("#")]
+    # Decode every packet; metadata's nb_frames alone is not integrity evidence.
+    if (result.stderr.strip() or len(frames) != 1
+            or re.fullmatch(r"\s*0,\s*-?\d+,\s*-?\d+,\s*\d+,\s*[1-9]\d*,\s*[0-9a-f]{32}\s*", frames[0]) is None):
+        raise ValueError("Zero-duration segment must fully decode to exactly one video frame")
+    return {"method": "ffmpeg full decode to framemd5 with -xerror and fps passthrough",
+            "exitCode": result.returncode, "decodedFrameCount": 1, "frameMd5": frames[0].strip(),
+            "coverage": "none; no duration is inferred and the retained frame is not rendered"}
 
 
 def video_duration(probe: Mapping[str, object]) -> Decimal:
@@ -260,7 +323,7 @@ def video_duration(probe: Mapping[str, object]) -> Decimal:
     if raw is None:
         raise ValueError("Recording duration is unavailable.")
     duration = Decimal(str(raw))
-    if duration <= 0:
+    if not duration.is_finite() or duration <= 0:
         raise ValueError("Recording duration must be positive.")
     return duration
 
@@ -403,9 +466,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     font = find_font(args.font_file)
     timing = read_tsv(args.timing_file)
     alignment = compute_alignment(timing)
-    phone_segments = read_segments("phone", args.phone_video, args.timing_file, ffprobe)
+    phone_segments = read_segments("phone", args.phone_video, args.timing_file, ffprobe, ffmpeg)
     tablet_segments = read_segments(
-        "tablet", args.tablet_video, args.timing_file, ffprobe
+        "tablet", args.tablet_video, args.timing_file, ffprobe, ffmpeg
     )
     if (
         phone_segments[0].start_ns != alignment.phone_start_ns
@@ -416,21 +479,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     all_segments = phone_segments + tablet_segments
     if not any(segment.probe is not None for segment in all_segments):
         raise ValueError("No native frames are available on either device")
-    common_duration = max(
-        end
-        for segments in (phone_segments, tablet_segments)
-        for segment, (_, end) in zip(segments, segment_intervals(segments, origin_ns))
-        if segment.probe is not None
-    )
-    if any(
-        segment.probe is None
-        and Decimal(segment.start_ns - origin_ns) / Decimal(1_000_000_000)
-        >= common_duration
-        for segment in all_segments
-    ):
-        raise ValueError(
-            "Missing trailing segment has no known end; cannot bound its recording gap"
-        )
+    common_duration = bounded_timeline_duration((phone_segments, tablet_segments), origin_ns)
     protected_sources = {segment.path.resolve() for segment in all_segments}
     protected_sources.update((args.phone_video.resolve(), args.tablet_video.resolve()))
     if args.output_video.resolve() in protected_sources:
@@ -522,7 +571,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     output_probe = probe_video(ffprobe, args.output_video)
     output_hash = sha256(args.output_video)
     manifest = {
-        "schemaVersion": 2,
+        "schemaVersion": 3,
         "presentation": {
             "width": CANVAS[0],
             "height": CANVAS[1],
@@ -541,6 +590,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             "basis": "Host timestamp immediately before launching each ADB screenrecord command; first-frame latency is unknown.",
             "overlapPolicy": "A later segment takes over at its recorded command timestamp; original source files retain all frames.",
             "durationPolicy": "Longest estimated device timeline; shorter tails and missing segments remain visible as recording gaps.",
+            "untimedFramePolicy": "A fully decoded single frame with zero duration is retained and hashed but never rendered or extended; other positive-duration segments must bound the timeline.",
         },
         "sources": {
             **{
@@ -564,7 +614,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                         {
                             "path": str(segment.path.resolve()),
                             "sha256": sha256(segment.path) if segment.probe else None,
-                            "status": "available" if segment.probe else "missing",
+                            "status": segment.status,
                             "commandStartNs": segment.start_ns,
                             "estimatedStartSeconds": _seconds(start),
                             "estimatedEndSeconds": _seconds(end),
@@ -572,6 +622,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                                 max(Decimal(0), start + segment.duration - end)
                             ),
                             "probe": segment.probe,
+                            "noDurationValidation": segment.no_duration_validation,
                         }
                         for segment, (start, end) in zip(
                             segments, segment_intervals(segments, origin_ns)
@@ -616,6 +667,6 @@ def main(argv: Sequence[str] | None = None) -> int:
 if __name__ == "__main__":
     try:
         raise SystemExit(main())
-    except (FileNotFoundError, ValueError, subprocess.CalledProcessError) as error:
+    except (FileNotFoundError, ValueError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
         print(f"compose_side_by_side: {error}", file=sys.stderr)
         raise SystemExit(2) from error

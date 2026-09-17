@@ -86,7 +86,7 @@ Android purchase take's headless protocol peer as a filmed tablet.
 
 ### Paired timeline evidence
 
-The `timelines` map references a **pinned schema-v2 manifest** from
+The `timelines` map references a **pinned schema-v2 or schema-v3 manifest** from
 `tools/android_multi_device/compose_side_by_side.py`, which already preserves
 raw ADB screenrecord segment start timestamps and missing intervals. The editor
 uses its segment SHA256 + original basename to locate each role's actual

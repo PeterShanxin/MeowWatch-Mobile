@@ -161,6 +161,14 @@ directories; their concatenated contents are not used. Missing native files
 remain explicit gaps. Missing timing rows or an unbounded missing final segment
 fail composition instead of guessing a timeline.
 
+A segment with explicit zero video duration is retained only when FFmpeg fully
+decodes it without errors to exactly one frame. Its original file, hash, probe,
+decode check and command-time anchor remain in the manifest with status
+`retained-but-no-duration`. That frame is not rendered and receives no invented
+duration; the device panel shows `RECORDING GAP / No timed frames`. Other native
+segments with positive durations must bound the overall timeline. All-untimed
+inputs or an untimed final anchor beyond that known bound still fail.
+
 Starting the next native segment requires a new `screenrecord` process, so a
 small rotation gap can occur at each 170-second boundary. The per-segment TSV
 timestamps expose those boundaries. The legacy concatenated `native.mp4`

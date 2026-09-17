@@ -151,7 +151,8 @@ def validate(edl_path: Path, ffprobe: str = "ffprobe") -> dict:
     for name, entry in edl.get("timelines", {}).items():
         path, digest = pinned(entry, edl_path.parent)
         timing = read_json(path)
-        require(timing.get("schemaVersion") == 2, "Paired clips require a schema-v2 timing manifest")
+        require(timing.get("schemaVersion") in (2, 3),
+                "Paired clips require a schema-v2 or schema-v3 timing manifest")
         timelines[name] = timing
         protected[path] = digest
     shots, seen, used, elapsed = [], set(), set(), 0.0

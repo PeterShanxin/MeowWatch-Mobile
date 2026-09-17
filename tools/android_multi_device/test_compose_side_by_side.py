@@ -1,5 +1,6 @@
 import json
 import shutil
+import struct
 import subprocess
 import sys
 import tempfile
@@ -25,7 +26,53 @@ def segment(index: int, start: str, duration: str | None) -> composer.Segment:
     )
 
 
+def clear_fixture_duration(path: Path) -> None:
+    """Build a native-like untimed fixture; alter timing, never compressed frames."""
+    data = bytearray(path.read_bytes())
+    def visit(start, end):
+        while start < end:
+            size, kind = struct.unpack_from(">I4s", data, start)
+            assert size >= 8 and start + size <= end
+            payload = start + 8
+            if kind == b"edts":
+                data[start + 4:start + 8] = b"free"
+            elif kind in (b"moov", b"trak", b"mdia", b"minf", b"stbl"):
+                visit(payload, start + size)
+            elif kind in (b"mvhd", b"mdhd", b"tkhd"):
+                assert data[payload] == 0
+                struct.pack_into(">I", data, payload + (20 if kind == b"tkhd" else 16), 0)
+            elif kind in (b"stts", b"elst"):
+                assert data[payload] == 0
+                count = struct.unpack_from(">I", data, payload + 4)[0]
+                for index in range(count):
+                    offset = payload + 8 + index * (8 if kind == b"stts" else 12)
+                    struct.pack_into(">I", data, offset + (4 if kind == b"stts" else 0), 0)
+            start += size
+    visit(0, len(data))
+    path.write_bytes(data)
+
+
 class SegmentTimelineTests(unittest.TestCase):
+    def test_retained_untimed_frame_has_no_interval_or_rendered_source(self) -> None:
+        still = composer.Segment(1, 2_000_000_000, Path("still.mp4"),
+                                 {"streams": [{"duration": "0", "width": 32, "height": 64}]},
+                                 {"decodedFrameCount": 1})
+        segments = [segment(0, "0", "1"), still]
+        self.assertEqual(still.status, "retained-but-no-duration")
+        self.assertEqual(composer.recording_gaps(composer.segment_intervals(segments, 0), Decimal(3)),
+                         [(Decimal(1), Decimal(3))])
+        graph, sources = composer.build_timeline_graph("phone", segments, 0, Decimal(3),
+                                                       Path("/tmp/font.ttf"), 0, 350, 776)
+        self.assertNotIn(still.path, sources)
+        self.assertNotIn("phone_segment_1", ";".join(graph))
+        self.assertEqual(composer.bounded_timeline_duration((segments, [segment(0, "0", "3")]), 0), Decimal(3))
+        with self.assertRaisesRegex(ValueError, "No positive-duration"):
+            composer.bounded_timeline_duration(([still],), 0)
+        with self.assertRaisesRegex(ValueError, "no known end"):
+            composer.bounded_timeline_duration((segments,), 0)
+        with self.assertRaisesRegex(ValueError, "must be positive"):
+            composer.video_duration(still.probe)
+
     def test_rotation_gap_and_shorter_device_tail_are_retained(self) -> None:
         intervals = composer.segment_intervals(
             [
@@ -122,6 +169,40 @@ class SegmentTimelineTests(unittest.TestCase):
     shutil.which("ffmpeg") and shutil.which("ffprobe"), "ffmpeg required"
 )
 class RenderedTimelineTests(unittest.TestCase):
+    def test_real_single_frame_retention_rejects_multiple_frames_and_corruption(self) -> None:
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            folder = root / "phone/segments"
+            folder.mkdir(parents=True)
+            control = root / "recorder-control"
+            control.mkdir()
+            (control / "phone-segments.tsv").write_text("0\t1000000000\tphone-000.mp4\n")
+            for count in (1, 2):
+                path = folder / "phone-000.mp4"
+                subprocess.run(["ffmpeg", "-v", "error", "-y", "-f", "lavfi", "-i",
+                                "color=red:s=64x128:r=10", "-frames:v", str(count),
+                                "-c:v", "libx264", "-threads", "1", str(path)], check=True)
+                clear_fixture_duration(path)
+                probe = composer.probe_video("ffprobe", path)
+                self.assertTrue(composer.has_explicit_zero_duration(probe))
+                original_hash = composer.sha256(path)
+                if count == 2:
+                    with self.assertRaisesRegex(ValueError, "exactly one"):
+                        composer.read_segments("phone", root / "phone/native.mp4",
+                                               root / "recording-session.tsv", "ffprobe")
+                    continue
+                result = composer.read_segments("phone", root / "phone/native.mp4",
+                                                root / "recording-session.tsv", "ffprobe")
+                self.assertEqual(result[0].duration, 0)
+                self.assertEqual(result[0].start_ns, 1_000_000_000)
+                self.assertEqual(result[0].no_duration_validation["decodedFrameCount"], 1)
+                self.assertEqual(composer.sha256(path), original_hash)
+                self.assertEqual(result[0].probe, probe)
+                corrupt = root / "corrupt.mp4"
+                corrupt.write_bytes(b"not a video")
+                with self.assertRaises(subprocess.CalledProcessError):
+                    composer.validate_untimed_single_frame("ffmpeg", corrupt, probe)
+
     def test_rendered_gap_and_shorter_tail_are_black_not_repeated_video(self) -> None:
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)

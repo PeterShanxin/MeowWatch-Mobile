@@ -26,6 +26,14 @@ MAX_NODES = 2048
 MAX_DEPTH = 48
 MAX_ATTRIBUTE = 4096
 MAX_CAPTURE_ATTEMPTS = 4
+MAX_STAGE_EVENTS = 40
+STAGES = frozenset({
+    "on_create", "on_start", "automation_start", "automation_ready", "service_ready",
+    "root_start", "root_ready", "refresh_start", "refresh_ready", "traverse_start",
+    "traverse_ready", "attempt_failed", "finish",
+})
+STAGE_PREFIX = "INSTRUMENTATION_STATUS: observer_stage="
+STAGE_CODE = "INSTRUMENTATION_STATUS_CODE: 2"
 RETRYABLE_CAPTURE_ERRORS = frozenset({
     "root_missing", "root_refresh_failed", "root_invisible", "child_missing", "capture_deadline",
     "flutter_semantics_unavailable",
@@ -103,10 +111,69 @@ def installation_diagnostics(result: subprocess.CompletedProcess[bytes]) -> dict
             "stderrSha256": hashlib.sha256(stderr).hexdigest()}
 
 
+def _stage_output(
+    output: bytes, nonce: str, *, partial: bool = False,
+) -> tuple[bytes, list[dict[str, object]], str]:
+    """Separate validated progress from the unchanged final snapshot protocol."""
+    events: list[dict[str, object]] = []
+
+    def invalid(reason: str) -> tuple[bytes, list[dict[str, object]], str]:
+        if not partial:
+            raise ObserverIntegrityFailure("native observer stage diagnostics are invalid")
+        return b"", events, reason
+
+    if re.fullmatch(r"[a-f0-9]{32}", nonce) is None:
+        return invalid("invalid_nonce")
+    oversized = len(output) > MAX_OUTPUT_BYTES
+    if oversized and not partial:
+        return invalid("output_limit")
+    lines = output[:MAX_OUTPUT_BYTES].splitlines()
+    payload: list[str] = []
+    index = 0
+    while index < len(lines):
+        try:
+            line = lines[index].decode("utf-8", errors="strict")
+        except UnicodeError:
+            return invalid("invalid_encoding")
+        if not line.startswith(STAGE_PREFIX):
+            if line.startswith("INSTRUMENTATION_STATUS"):
+                return invalid("invalid_status")
+            payload.append(line)
+            index += 1
+            continue
+        if index + 1 == len(lines):
+            return invalid("incomplete_status")
+        if lines[index + 1] != STAGE_CODE.encode("ascii"):
+            return invalid("invalid_status")
+        match = re.fullmatch(
+            r"([a-f0-9]{32}):([0-9]{1,10}):([0-9]{1,2}):([a-z_]+):"
+            r"([0-9]{1,16}):([0-9]):([0-9]{1,4})", line[len(STAGE_PREFIX):])
+        if match is None or not secrets.compare_digest(match[1], nonce) or match[4] not in STAGES:
+            return invalid("invalid_stage")
+        helper_pid, sequence, uptime, attempt, nodes = map(int, (match[2], match[3], match[5], match[6], match[7]))
+        if (helper_pid <= 0 or sequence != len(events) + 1 or sequence > MAX_STAGE_EVENTS
+                or not 0 <= attempt <= MAX_CAPTURE_ATTEMPTS or not 0 <= nodes <= MAX_NODES + 1
+                or (events and (helper_pid != events[-1]["helperPid"] or uptime < events[-1]["uptimeMs"]))):
+            return invalid("invalid_sequence")
+        events.append({"nonce": nonce, "helperPid": helper_pid, "sequence": sequence,
+                       "stage": match[4], "uptimeMs": uptime, "attempt": attempt, "visitedNodes": nodes})
+        index += 2
+    return "\n".join(payload).encode("utf-8"), events, "output_limit" if oversized else "valid"
+
+
+def stage_diagnostics(output: bytes | str | None, nonce: str) -> dict[str, object]:
+    """Keep only a bounded validated prefix; never retain arbitrary partial XML."""
+    data = output.encode("utf-8", errors="replace") if isinstance(output, str) else output or b""
+    _, events, status = _stage_output(data, nonce, partial=True)
+    return {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+            "stageStreamStatus": status, "stages": events}
+
+
 def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -> Snapshot:
     """Reject malformed/stale/oversized output without echoing its UI contents."""
     if len(output) > MAX_OUTPUT_BYTES or re.fullmatch(r"[a-f0-9]{32}", nonce) is None:
         raise ObserverIntegrityFailure("native observer output or request is invalid")
+    output, _, _ = _stage_output(output, nonce)
     try:
         decoded = output.decode("utf-8", errors="strict")
     except UnicodeError:
@@ -254,7 +321,9 @@ class NativeUiObserver:
                 result = self.adb.run("shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
                                       "-e", "expectedPackage", PACKAGE,
                                       COMPONENT, timeout=10)
-            except subprocess.TimeoutExpired:
+            except subprocess.TimeoutExpired as error:
+                evidence["instrumentationProgress"] = stage_diagnostics(error.output, nonce)
+                evidence["instrumentationStderr"] = stage_diagnostics(error.stderr, nonce)
                 # Stop only our independently installed helper, never the app.
                 self.adb.run("shell", "am", "force-stop", OBSERVER_PACKAGE, timeout=10)
                 if self.production_pid() != before_pid:
@@ -262,6 +331,7 @@ class NativeUiObserver:
                 raise
             evidence["stdoutBytes"] = len(result.stdout)
             evidence["stdoutSha256"] = hashlib.sha256(result.stdout).hexdigest()
+            evidence["instrumentationProgress"] = stage_diagnostics(result.stdout, nonce)
             stage = "window"
             window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode(
                 "utf-8", errors="replace")

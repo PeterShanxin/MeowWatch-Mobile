@@ -6,8 +6,10 @@ import android.app.UiAutomation;
 import android.accessibilityservice.AccessibilityServiceInfo;
 import android.graphics.Rect;
 import android.os.Bundle;
+import android.os.Process;
 import android.os.SystemClock;
 import android.util.Base64;
+import android.util.Log;
 import android.util.Xml;
 import android.view.accessibility.AccessibilityNodeInfo;
 import java.io.ByteArrayOutputStream;
@@ -23,6 +25,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
     private static final int MAX_ATTEMPTS = 4;
     private static final long CAPTURE_BUDGET_MS = 4000;
     private static final long RETRY_DELAY_MS = 100;
+    private static final int MAX_STAGE_EVENTS = 40;
     private String nonce;
     private String expectedPackage;
     private boolean emptyExpectedAppShell;
@@ -31,31 +34,39 @@ public final class SnapshotInstrumentation extends Instrumentation {
     private int currentIndex = -1;
     private int currentChildren = -1;
     private long deadline;
+    private int captureAttempt;
+    private int stageSequence;
 
     @Override
     public void onCreate(Bundle arguments) {
         super.onCreate(arguments);
         nonce = arguments == null ? null : arguments.getString("nonce");
         expectedPackage = arguments == null ? null : arguments.getString("expectedPackage");
+        stage("on_create");
         start();
     }
 
     @Override
     public void onStart() {
         deadline = SystemClock.uptimeMillis() + CAPTURE_BUDGET_MS;
+        stage("on_start");
         StringBuilder attempts = new StringBuilder();
         try {
             if (nonce == null || !nonce.matches("[a-f0-9]{32}") || expectedPackage == null
                     || !expectedPackage.matches("[a-z][a-z0-9_]*(\\.[a-z][a-z0-9_]*)+")) {
                 throw new IllegalArgumentException();
             }
+            stage("automation_start");
             UiAutomation automation = getUiAutomation(
                 UiAutomation.FLAG_DONT_SUPPRESS_ACCESSIBILITY_SERVICES);
+            stage("automation_ready");
             AccessibilityServiceInfo service = automation.getServiceInfo();
             service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
             service.flags &= ~AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
             automation.setServiceInfo(service);
+            stage("service_ready");
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                captureAttempt = attempt;
                 nodes = 0;
                 emptyExpectedAppShell = true;
                 currentDepth = currentIndex = currentChildren = -1;
@@ -63,9 +74,11 @@ public final class SnapshotInstrumentation extends Instrumentation {
                     Bundle result = snapshot(automation);
                     appendAttempt(attempts, "ok");
                     metadata(result, attempts);
+                    stage("finish");
                     finish(Activity.RESULT_OK, result);
                     return;
                 } catch (CaptureFailure error) {
+                    stage("attempt_failed");
                     appendAttempt(attempts, error.reason);
                     if (!error.retryable() || attempt == MAX_ATTEMPTS
                             || SystemClock.uptimeMillis() + RETRY_DELAY_MS >= deadline) {
@@ -101,13 +114,17 @@ public final class SnapshotInstrumentation extends Instrumentation {
         AccessibilityNodeInfo root = null;
         try {
             checkDeadline();
+            stage("root_start");
             root = automation.getRootInActiveWindow();
             if (root == null) {
                 throw new CaptureFailure("root_missing");
             }
+            stage("root_ready");
+            stage("refresh_start");
             if (!root.refresh()) {
                 throw new CaptureFailure("root_refresh_failed");
             }
+            stage("refresh_ready");
             if (!root.isVisibleToUser()) {
                 throw new CaptureFailure("root_invisible");
             }
@@ -117,11 +134,13 @@ public final class SnapshotInstrumentation extends Instrumentation {
             serializer.setOutput(output, "UTF-8");
             serializer.startDocument("UTF-8", true);
             serializer.startTag(null, "hierarchy");
+            stage("traverse_start");
             writeNode(serializer, root, 0, 0);
             serializer.endTag(null, "hierarchy");
             serializer.endDocument();
             serializer.flush();
             checkDeadline();
+            stage("traverse_ready");
             if (emptyExpectedAppShell) {
                 // Android can publish Flutter's native containers before its
                 // virtual accessibility descendants. Keep the same connection
@@ -151,7 +170,30 @@ public final class SnapshotInstrumentation extends Instrumentation {
         metadata(result, attempts);
         result.putString("observer_uptime_ms", Long.toString(SystemClock.uptimeMillis()));
         result.putString("observer_error", reason);
+        stage("finish");
         finish(Activity.RESULT_CANCELED, result);
+    }
+
+    private void stage(String name) {
+        if (nonce == null || !nonce.matches("[a-f0-9]{32}") || stageSequence >= MAX_STAGE_EVENTS) {
+            return;
+        }
+        // Only fixed call-site names and bounded structural numbers are sent.
+        // No view contents, resource IDs, window names or exception text.
+        String value = nonce + ":" + Process.myPid() + ":" + (++stageSequence) + ":" + name
+            + ":" + SystemClock.uptimeMillis() + ":" + captureAttempt
+            + ":" + Math.min(nodes, MAX_NODES + 1);
+        Log.i("MWNativeUiStage", value);
+        Bundle progress = new Bundle();
+        progress.putString("observer_stage", value);
+        try {
+            // Status is streamed before the final XML result, so the host can
+            // retain completed stages even if its unchanged watchdog expires.
+            sendStatus(2, progress);
+        } catch (RuntimeException ignored) {
+            // A timed-out watcher may already be gone. Logcat retains the same
+            // fixed diagnostic; this must not change the capture's outcome.
+        }
     }
 
     private void appendAttempt(StringBuilder attempts, String reason) {

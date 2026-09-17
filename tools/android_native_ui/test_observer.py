@@ -9,11 +9,16 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_native_ui.observer import (
     COMPONENT, SHORT_COMPONENT, MAX_ATTRIBUTE, MAX_DEPTH, MAX_NODES, MAX_OUTPUT_BYTES, MAX_XML_BYTES,
     NativeUiObserver, OBSERVER_PACKAGE, ObserverCaptureFailure, ObserverIntegrityFailure, parse_snapshot,
-    installation_diagnostics,
+    installation_diagnostics, stage_diagnostics, MAX_STAGE_EVENTS,
 )
 
 
 NONCE = "a" * 32
+
+
+def progress(stage="on_start", *, nonce=NONCE, pid=567, sequence=1, uptime=1000, attempt=0, nodes=0):
+    return (f"INSTRUMENTATION_STATUS: observer_stage={nonce}:{pid}:{sequence}:{stage}:"
+            f"{uptime}:{attempt}:{nodes}\nINSTRUMENTATION_STATUS_CODE: 2\n").encode()
 
 
 def node(children="", **attributes):
@@ -47,7 +52,7 @@ def failure_response(reason="child_missing", *, nonce=NONCE, uptime=1234, attemp
 class FakeAdb:
     def __init__(self, *, serial="emulator-5554", qemu=b"1", already_installed=False,
                  target=OBSERVER_PACKAGE, pids=None, first_timeout=False, stale=False,
-                 instrumentation_output=None, capture_response=None, window_output=None):
+                 instrumentation_output=None, capture_response=None, window_output=None, timeout_output=None):
         self.serial, self.qemu = serial, qemu
         self.already_installed, self.target = already_installed, target
         self.pids = iter(pids or [b"123"] * 50)
@@ -56,6 +61,7 @@ class FakeAdb:
         self.nonces = []
         self.instrumentation_output = instrumentation_output
         self.capture_response, self.window_output = capture_response, window_output
+        self.timeout_output = timeout_output
 
     def run(self, *arguments, **kwargs):
         self.commands.append((arguments, kwargs))
@@ -78,7 +84,9 @@ class FakeAdb:
             self.nonces.append(arguments[7])
             if self.first_timeout and len(self.nonces) == 1:
                 raise subprocess.TimeoutExpired(["adb", "-s", self.serial, *arguments], 10,
-                                                output=b"private stale snapshot payload")
+                                                output=(b"private stale snapshot payload" if self.timeout_output is None
+                                                        else self.timeout_output(arguments[7])),
+                                                stderr=b"private stderr payload")
             nonce = self.nonces[0] if self.stale else arguments[7]
             output = (response(nonce=nonce, uptime=1234 + len(self.nonces))
                       if self.capture_response is None else self.capture_response(nonce))
@@ -95,6 +103,73 @@ class FakeAdb:
 
 
 class SnapshotParserTests(unittest.TestCase):
+    def test_progress_retains_phase_timings_without_replacing_complete_snapshot_checks(self):
+        stages = (progress("on_start") + progress("automation_start", sequence=2, uptime=1001)
+                  + progress("automation_ready", sequence=3, uptime=1100)
+                  + progress("traverse_start", sequence=4, uptime=1101, attempt=1))
+        parsed = parse_snapshot(stages + response(), NONCE)
+        self.assertEqual(parsed.xml, parse_snapshot(response(), NONCE).xml)
+        self.assertEqual(parsed.uptime_ms, 1234)
+        diagnostics = stage_diagnostics(stages + response(), NONCE)
+        self.assertEqual([event["stage"] for event in diagnostics["stages"]],
+                         ["on_start", "automation_start", "automation_ready", "traverse_start"])
+        self.assertEqual(diagnostics["stages"][2]["uptimeMs"], 1100)
+        self.assertEqual(diagnostics["stages"][2]["nonce"], NONCE)
+        self.assertNotIn("Pause", str(diagnostics))
+        for incomplete in (stages, stages + response().replace(b"observer_xml=", b"observer_xml=%")):
+            with self.assertRaises(ObserverIntegrityFailure):
+                parse_snapshot(incomplete, NONCE)
+        with self.assertRaises(ObserverCaptureFailure):
+            parse_snapshot(stages + failure_response("root_missing", attempts="root_missing:0:-1:-1:-1"), NONCE)
+        with self.assertRaises(ObserverIntegrityFailure):
+            parse_snapshot(stages + response(), NONCE, previous_uptime_ms=1234)
+
+    def test_unknown_stale_out_of_order_and_oversized_stage_records_fail_without_echoing_payload(self):
+        private = "private-view-text"
+        excessive = b"".join(progress(sequence=index, uptime=1000 + index)
+                              for index in range(1, MAX_STAGE_EVENTS + 2))
+        for stages in (progress(private), progress(nonce="b" * 32), progress(pid=0), progress(sequence=2),
+                       progress(attempt=5), progress(nodes=MAX_NODES + 2),
+                       progress() + progress(sequence=2, pid=568),
+                       progress() + progress(sequence=2, uptime=999),
+                       progress().replace(b"STATUS_CODE: 2", b"STATUS_CODE: 3"), excessive):
+            with self.subTest(stages=stages[:100]), self.assertRaises(ObserverIntegrityFailure) as caught:
+                parse_snapshot(stages + response(), NONCE)
+            self.assertNotIn(private, str(caught.exception))
+            self.assertNotIn(private, str(stage_diagnostics(stages, NONCE)))
+        self.assertEqual(len(stage_diagnostics(excessive, NONCE)["stages"]), MAX_STAGE_EVENTS)
+
+    def test_timeout_diagnostics_keep_only_complete_validated_stages(self):
+        first = progress("on_start")
+        incomplete = progress("automation_start", sequence=2).split(b"INSTRUMENTATION_STATUS_CODE")[0]
+        data = first + incomplete
+        diagnostics = stage_diagnostics(data, NONCE)
+        self.assertEqual([event["stage"] for event in diagnostics["stages"]], ["on_start"])
+        self.assertEqual(diagnostics["stageStreamStatus"], "incomplete_status")
+        self.assertEqual(diagnostics["bytes"], len(data))
+        with self.assertRaises(ObserverIntegrityFailure):
+            parse_snapshot(data, NONCE)
+        oversized = first + b"private-ui-payload" * MAX_OUTPUT_BYTES
+        bounded = stage_diagnostics(oversized, NONCE)
+        self.assertEqual(len(bounded["stages"]), 1)
+        self.assertEqual(bounded["stageStreamStatus"], "output_limit")
+        self.assertNotIn("private-ui-payload", str(bounded))
+        broken_tail = stage_diagnostics(first + b"private partial UTF-8 \xe7", NONCE)
+        self.assertEqual(len(broken_tail["stages"]), 1)
+        self.assertEqual(broken_tail["stageStreamStatus"], "invalid_encoding")
+        self.assertNotIn("private", str(broken_tail))
+        self.assertEqual(stage_diagnostics(None, NONCE)["stages"], [])
+
+    def test_stage_bound_does_not_reduce_the_existing_maximum_xml_capacity(self):
+        xml = "<hierarchy>" + node() + "</hierarchy>"
+        xml += " " * (MAX_XML_BYTES - len(xml.encode()))
+        stages = b"".join(progress("automation_start", sequence=index, pid=9999999999,
+                                    uptime=9999999999999999, attempt=4, nodes=MAX_NODES + 1)
+                          for index in range(1, MAX_STAGE_EVENTS + 1))
+        data = stages + response(xml)
+        self.assertLessEqual(len(data), MAX_OUTPUT_BYTES)
+        self.assertEqual(parse_snapshot(data, NONCE).xml, xml)
+
     def test_success_preserves_actual_accessibility_attributes(self):
         xml = "<hierarchy>" + node(node(text="0:12", **{"class": "android.widget.SeekBar"}), text="") + "</hierarchy>"
         parsed = parse_snapshot(response(xml), NONCE)
@@ -373,6 +448,45 @@ class NativeObserverTests(unittest.TestCase):
             capture_timeouts = [kwargs["timeout"] for args, kwargs in adb.commands
                                 if args[:3] == ("shell", "am", "instrument")]
             self.assertEqual(capture_timeouts, [10, 10])
+
+    def test_timeout_preserves_connected_stage_and_discards_partial_ui_output(self):
+        def partial(nonce):
+            return (progress("on_start", nonce=nonce)
+                    + progress("automation_start", nonce=nonce, sequence=2, uptime=1001)
+                    + progress("automation_ready", nonce=nonce, sequence=3, uptime=4500)
+                    + b"INSTRUMENTATION_RESULT: observer_xml=private partial UI payload")
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(first_timeout=True, timeout_output=partial)
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            with self.assertRaises(subprocess.TimeoutExpired):
+                observer.observe()
+            evidence = observer.observations[0]
+            self.assertEqual(evidence["failure"], "instrumentation_timeout")
+            stages = evidence["instrumentationProgress"]["stages"]
+            self.assertEqual(stages[-1]["stage"], "automation_ready")
+            self.assertEqual(stages[-1]["uptimeMs"] - stages[1]["uptimeMs"], 3499)
+            self.assertEqual({stage["nonce"] for stage in stages}, {adb.nonces[0]})
+            self.assertNotIn("private", str(evidence))
+            observer.observe()
+            self.assertEqual(len(set(adb.nonces)), 2)
+            self.assertEqual(observer.observations[-1]["status"], "success")
+            self.assertFalse(any(args == ("shell", "am", "force-stop", PACKAGE) for args, _ in adb.commands))
+            self.assertEqual([kwargs["timeout"] for args, kwargs in adb.commands
+                              if args[:3] == ("shell", "am", "instrument")], [10, 10])
+
+    def test_completed_capture_retains_stages_on_success_and_native_failure(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(capture_response=lambda nonce: progress(nonce=nonce) + response(nonce=nonce))
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            observer.observe()
+            self.assertEqual(observer.observations[0]["instrumentationProgress"]["stages"][0]["stage"], "on_start")
+            adb.capture_response = lambda nonce: progress(nonce=nonce) + failure_response(nonce=nonce, uptime=1235)
+            with self.assertRaises(ObserverCaptureFailure):
+                observer.observe()
+            self.assertEqual(observer.observations[-1]["failure"], "child_missing")
+            self.assertEqual(len(observer.observations[-1]["instrumentationProgress"]["stages"]), 1)
 
     def test_timeout_cannot_mask_an_application_restart(self):
         with tempfile.TemporaryDirectory() as directory:

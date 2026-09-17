@@ -122,6 +122,37 @@ The caller must still validate the actual returned window before accepting UI.
 This does not make the tree atomic: it is a bounded live accessibility read,
 so callers must still validate related timeline, source, controls and focus.
 
+## Stage timing diagnostics
+
+Each request emits at most 40 fixed stage records to the `MWNativeUiStage` Logcat
+tag and to instrumentation progress status code `2`. Records contain only
+`nonce:helperPid:sequence:stage:uptimeMs:attempt:visitedNodes`. The stages identify
+`on_create`, `on_start`, UiAutomation connection start/readiness, service readiness,
+each root read, root refresh, traversal, failed attempt and `finish`. There are no
+per-node log messages, UI strings, window titles, resource IDs or exception text.
+The sequence and native uptime distinguish cold process startup, connection
+setup and actual hierarchy work. An absent stage does not establish which later
+operation would have succeeded.
+
+Python accepts only complete progress records with the current nonce, one
+positive helper PID, consecutive sequence numbers, nondecreasing uptime, known
+stages and bounded attempt/node counts. `instrumentationProgress` records these
+stages plus output byte count and SHA-256 on success and failure. On the unchanged
+ten-second host timeout it retains the validated prefix available in
+`TimeoutExpired.output`, then stops only the helper as before. Incomplete or
+malformed trailing diagnostics are classified with fixed codes. Arbitrary
+partial XML and stderr text are never copied into diagnostics; stderr retains
+only the same bounded metadata. Logcat independently retains stages emitted
+before a watcher disappeared. No extra ADB observation or retry is added.
+
+Progress alone never satisfies capture. The final Protocol 2 response must still
+pass all nonce, freshness, complete hierarchy, attribute and structural checks;
+malformed progress also rejects a completed response. The 360,000-byte response
+limit still accommodates the maximum 256 KiB XML plus all 40 stage records.
+The four-second internal budget, four attempts, 100 ms retry interval and all
+caller acceptance deadlines are unchanged. Diagnostics do not authorize extending
+these limits or using a previous/partial tree after a failed capture.
+
 The local tests establish parsing, freshness, process and ownership rules.
 Compilation establishes Android API compatibility. A successful native lifecycle
 workflow is still required to establish actual playback and HOME behavior.

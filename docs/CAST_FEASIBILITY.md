@@ -1,10 +1,16 @@
-# Google Cast feasibility
+# Google Cast feasibility — historical research spike
 
-Research date: 2026-09-16
+Research date: 2026-09-16. This document preserves the preimplementation
+assessment and its primary sources. The Android sender has since been
+implemented; [Cast playback](CAST.md) describes its current behavior and
+[Delivery status](STATUS.md) records acceptance. Physical receiver behavior
+remains unverified.
 
-## Decision
+## Research decision
 
-Google Cast is technically feasible for the Android sender in this repository. It is a **go after the P0 playback and Nearby paths are stable**, with a deliberately narrow first slice:
+The research concluded that Google Cast was technically feasible and should
+follow P0 playback and Nearby stabilization. It selected this narrow first
+slice, which is now implemented:
 
 - Android sender only;
 - Google's Default Media Receiver;
@@ -13,30 +19,47 @@ Google Cast is technically feasible for the Android sender in this repository. I
 - load, play, pause, seek, disconnect and coherent remote status;
 - the phone remains the Syncplay participant and room controller.
 
-The first slice should not include local files, phone-hosted HTTP, DRM, authenticated streaming services, queues, subtitles, a custom receiver, or Android's Output Switcher. Those are separate features with different hosting, lifecycle and compliance requirements.
+The selected slice excluded local files, phone-hosted HTTP, DRM, authenticated streaming services, queues, subtitles, a custom receiver, and Android's Output Switcher. Those remain separate features with different hosting, lifecycle and compliance requirements.
 
 Lack of a physical sender and Cast receiver is a validation blocker, not an implementation blocker. Unit tests and an Android build can prove the bridge contract, but they cannot prove multicast discovery, receiver launch, media compatibility, TV playback, background controls or reconnection.
 
-## Why the current app can support it
+## Architecture assessment and resolved implementation gaps
 
-The product requirement is compatible with the existing architecture:
+At the research checkpoint, the existing architecture supported this approach:
 
 - `PlaybackTarget` already defines the required `load`, `play`, `pause`, `seek`, state stream and coherent `PlaybackSnapshot` boundary.
 - `PlaybackSyncBridge` already consumes a `PlaybackTarget`, so receiver position and play state can feed the existing synchronization logic without creating another Syncplay participant.
 - `MediaItem.fromUrl` already distinguishes direct HTTP(S) media from local `content:` and `file:` sources.
 - Android `MainActivity` already extends `FlutterFragmentActivity`, which is compatible with the Cast Application Framework's `FragmentActivity` integration.
-- Flutter 3.44 currently gives this project Android min SDK 24, compile/target SDK 36. Google's current Android sender guide requires min SDK 24 and targets API 35, so the project is not below the SDK floor.
+- The research recorded Flutter 3.44's project settings as Android min SDK 24, compile/target SDK 36. Google's sender guide then required min SDK 24 and targeted API 35, so the project was not below the documented SDK floor.
 
-There are two integration gaps that must be addressed explicitly:
+The following were preimplementation gaps, not current limitations:
 
-1. `AppController.target` is currently fixed to either Nearby desktop or phone, and `PlaybackSyncBridge.target` is final. Switching phone to Cast inside an existing room therefore needs a controlled target handoff that rebuilds or rebinds the bridge while retaining the same `SyncplayClient`.
-2. `RoomScreen` renders video only for `LocalMobileTarget` and otherwise has Nearby-specific copy. A Cast target needs a TV status surface and an official Cast connect/disconnect affordance.
+1. **Target handoff:** the controller originally selected only Nearby or phone.
+   [`AppController`](../lib/app/app_controller.dart) now selects
+   `_nearby ?? _cast ?? phone`; `castTo`, `returnFromCast` and `_bridgeForTarget`
+   handle acceptance, rollback and bridge rebinding with the existing
+   `SyncplayClient`. Returning to the phone is explicit and leaves it paused.
+2. **Receiver UI:** [`RoomScreen`](../lib/ui/room/room_screen.dart) now shows the
+   Cast receiver/status surface, and the
+   [playback-device sheet](../lib/ui/devices/playback_devices_sheet.dart) exposes
+   Cast selection and connection management. The native
+   [`CastBridge`](../android/app/src/main/kotlin/com/meowwatch/meowwatch_mobile/CastBridge.kt)
+   opens Google's configured MediaRouter chooser/controller dialogs.
 
-The current Android manifest has general network permissions, but no Cast `OptionsProvider` metadata or Cast media notification configuration. Those are implementation work, not evidence that Cast is unavailable.
+The previously missing platform configuration is also present:
+[`AndroidManifest.xml`](../android/app/src/main/AndroidManifest.xml) registers
+the Cast `OptionsProvider`, and
+[`CastOptionsProvider.kt`](../android/app/src/main/kotlin/com/meowwatch/meowwatch_mobile/CastOptionsProvider.kt)
+selects Google's Default Media Receiver and configures framework notification
+controls. [`CastPlaybackTarget`](../lib/core/cast/cast_playback_target.dart)
+implements the Dart playback boundary. These source-level integrations do not
+establish receiver discovery, TV playback or background controls on hardware;
+the current contract and remaining matrix are in [CAST.md](CAST.md).
 
-## Current Google platform requirements
+## Google platform requirements recorded on 2026-09-16
 
-The current official Android Sender SDK is `com.google.android.gms:play-services-cast-framework:22.3.1`. Google documents that the framework owns discovery, session recovery and receiver communication through `CastContext`; an `OptionsProvider` and its manifest metadata select the receiver application. `RemoteMediaClient` loads media and supplies command results and remote playback status. See the [Android sender integration guide](https://developers.google.com/cast/docs/android_sender/integrate), [Google Play services release notes](https://developers.google.com/android/guides/releases), and [RemoteMediaClient reference](https://developers.google.com/android/reference/com/google/android/gms/cast/framework/media/RemoteMediaClient).
+The research selected `com.google.android.gms:play-services-cast-framework:22.3.1`, now pinned in [the Android build](../android/app/build.gradle.kts). The referenced Google documentation describes framework-owned discovery, session recovery and receiver communication through `CastContext`; an `OptionsProvider` and its manifest metadata select the receiver application. `RemoteMediaClient` loads media and supplies command results and remote playback status. See the [Android sender integration guide](https://developers.google.com/cast/docs/android_sender/integrate), [Google Play services release notes](https://developers.google.com/android/guides/releases), and [RemoteMediaClient reference](https://developers.google.com/android/reference/com/google/android/gms/cast/framework/media/RemoteMediaClient).
 
 The first implementation does not need a custom receiver. Google's [receiver overview](https://developers.google.com/cast/docs/web_receiver) and [registration guide](https://developers.google.com/cast/docs/registration) state that the Default Media Receiver uses the provided application ID and does not require application or receiver registration. A Styled or Custom Web Receiver would require a Cast Developer Console application ID; unpublished receiver development would also require registering each physical receiver device.
 
@@ -46,18 +69,24 @@ Google's UX guidance requires the standard Cast button/dialog behavior and backg
 
 Real discovery requires a suitable sender and an official Cast-capable receiver on the same Wi-Fi network. Google's [discovery troubleshooting guide](https://developers.google.com/cast/docs/discovery) uses that setup, and its [Android sender UI-test guide](https://developers.google.com/cast/docs/android_sender/automate_ui_tests) describes the connection test on a physical device. An emulator-only pass must not be reported as Cast-device evidence.
 
-## API option assessment
+## Historical API option assessment
 
-| Option | Current evidence | Decision |
+| Option | Evidence at the research date | Research decision |
 | --- | --- | --- |
-| Official Android Cast Application Framework behind a small MeowWatch Method/EventChannel | Google-maintained SDK, current 22.3.1 release, standard MediaRouter UX, full `RemoteMediaClient` state and command results | **Recommended.** It keeps the production dependency and lifecycle contract explicit and fits the existing Android-only platform channel pattern. |
+| Official Android Cast Application Framework behind a small MeowWatch Method/EventChannel | Google-maintained SDK, recorded 22.3.1 release, standard MediaRouter UX, full `RemoteMediaClient` state and command results | **Selected and implemented.** It keeps the production dependency and lifecycle contract explicit and fits the existing Android-only platform channel pattern. |
 | [`flutter_chrome_cast` 1.4.8](https://pub.dev/packages/flutter_chrome_cast/versions) | Actively published, verified publisher, exposes discovery/session/media status and play/pause/seek. Its setup adds several Dart dependencies and native manifest/service behavior; its native guide still tells consumers to use `play-services-cast-framework:21.+` | Useful for an isolated comparison spike, but do not make it the production default until Flutter 3.44, AGP 9, SDK 22.3.1, official chooser UX, lifecycle and error propagation are verified on hardware. |
 | [`flutter_cast_framework` 0.0.1-alpha.1](https://pub.dev/packages/flutter_cast_framework/versions) | Describes itself as a proof of concept; one alpha release four years ago from an unverified uploader | Reject for production. |
 | [`googlecast` 1.0.0](https://pub.dev/packages/googlecast/versions) | Recently republished but explicitly audio-only, from an unverified uploader | Reject for MeowWatch video. |
 
-The recommended bridge is not a reimplementation of the Cast protocol. Kotlin should call Google's framework and expose only the small Dart contract MeowWatch needs.
+The selected bridge calls Google's framework and exposes the small Dart
+contract MeowWatch needs; it does not reimplement the Cast protocol.
 
-## Recommended first implementation slice
+## Original implementation proposal
+
+The proposal below is retained as design rationale, not a list of unfinished
+implementation tasks. Its sender, playback target, UI and handoff are now in
+the files linked above. [CAST.md](CAST.md) governs current behavior, including
+stricter source filtering, ownership checks and explicit paused return to phone.
 
 ### Native Android boundary
 
@@ -108,9 +137,9 @@ Returning to phone should use the last receiver position, pause the receiver bef
 - Keep Cast visible anywhere playable content is visible, following Google's Cast button guidance.
 - Local files and `content:` URIs should explain that the first Cast version needs a direct HTTPS MP4 link; do not start a hidden local HTTP server.
 
-## Validation gate
+## Validation gate — physical acceptance still open
 
-Automated tests should cover snapshot mapping, command acknowledgment, stale-session callbacks, handoff rollback, bridge rebinding, no duplicate Syncplay participant, disconnect behavior and URL redaction. An Android debug/release build must also pass.
+The research called for automated checks of snapshot mapping, command acknowledgment, stale-session callbacks, handoff rollback, bridge rebinding, no duplicate Syncplay participant, disconnect behavior and URL redaction, plus Android debug/release builds. Implemented contracts and build evidence are recorded in [CAST.md](CAST.md) and [Delivery status](STATUS.md); they do not close the hardware gate.
 
 Completion still requires a physical Android sender and a real Chromecast, Google TV/Android TV with Cast, or Cast-enabled TV on the same non-isolated Wi-Fi network. Record the actual sender model/API and receiver model. Verify:
 
@@ -123,4 +152,6 @@ Completion still requires a physical Android sender and a real Chromecast, Googl
 7. Wi-Fi interruption and Cast session reconnection;
 8. transfer back to phone without duplicate audio, duplicate Syncplay users, quota recounting or silent autoplay.
 
-Until that gate is run, the accurate status is: **sender implementation feasible; receiver-device behavior unverified because physical Cast hardware evidence is absent.**
+Until that gate is run, the accurate status is: **Android sender implemented;
+receiver-device behavior unverified because physical Cast hardware evidence is
+absent.**

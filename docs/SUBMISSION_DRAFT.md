@@ -2,8 +2,8 @@
 
 > **Draft status (2026-09-17): not ready to publish.** Product acceptance,
 > final recording, entrant eligibility, and submission-form details still have
-> open gates. Bracketed acceptance notes must be resolved before this copy is
-> pasted into Devpost.
+> open gates. Resolve the acceptance notes below before using this copy in
+> Devpost; no publication or submission is represented here.
 
 ## Project name
 
@@ -45,20 +45,30 @@ places.
 - Provides a playback-target model for watching on the phone or using the phone
   as a companion for a nearby MeowWatch desktop.
 
-The free product is designed around one real hosted Together Session per day;
-joining a room and reconnecting do not consume another session. **MeowWatch
-Plus** is designed to unlock unlimited hosted sessions, with entitlement state
-managed by RevenueCat.
+The free product includes one real hosted Together Session per local calendar
+day; joining a room and reconnecting do not consume another session.
+**MeowWatch Plus** unlocks unlimited hosting through RevenueCat's entitlement
+state. The accepted emulator purchase journey is described below.
 
-**Acceptance notes:** Two independent Android emulators have passed two-way
-native play, pause, seek, and reaction checks, but the complete production UI
-create/join recording is pending. Direct-link local playback and Continue
-Watching have passed the native product journey. Native file-picker selection,
-content-URI playback and retained grants/history after a process restart also pass. The integrated Plus-to-unlimited-hosting native funnel passes
-with two real decoders and TLS clients in one Android process; its final
-production UI purchase-and-hosting recording remains pending. Nearby desktop
-control is pending physical Android-to-Windows LAN acceptance. Cast is
-unverified and is not part of the current submission claim.
+**Acceptance notes:** Two independent Android emulators passed two-way native
+play, pause, seek and reaction checks at the earlier `f8fdd62` checkpoint.
+The current `feaeb77` production Together and two-AVD matrix jobs fail; complete
+production create/join/social footage remains unaccepted. Four current native
+viewports pass direct-link playback and Continue Watching; phone-landscape was
+rejected because it rendered portrait. File-picker selection, content-URI
+playback and retained grants/history after a process restart also pass.
+
+The production UI purchase-and-hosting journey and its native recording now
+pass at `feaeb77`: **one native Android player and a headless TLS peer in the
+same process**, not two recorded players. Nearby desktop control still needs
+physical Android-to-Windows LAN acceptance. Cast hardware and the full normal
+application lifecycle remain unaccepted. See [current evidence](STATUS.md).
+
+**Locally implemented, awaiting native proof:** a skippable three-step
+first-use guide with Settings replay, and **Try a short film**, which loads
+the attributed Sintel trailer through the ordinary media path. New native
+guide and exact-sample playback checks are prepared; earlier passing journeys
+do not validate these additions.
 
 ## How we built it
 
@@ -94,16 +104,21 @@ The paid benefit is easy to understand for people who host regularly:
 Plus removes the once-per-day limit for starting hosted Together Sessions.
 
 The development build uses RevenueCat Test Store through the official Flutter
-SDK. Native emulator tests have verified the real Offering, localized price,
-purchase cancellation, purchase failure, successful entitlement activation,
-customer refresh, and restore. This is sandbox purchase evidence, not a Google
-Play charge or store publication.
+SDK. [Production journey 35194003110](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35194003110)
+at `feaeb77` passes **all 10 recorded stages**: a clean free customer, one free
+hosted session, the next-host paywall, native cancellation, native failure,
+successful purchase, Settings restore, restore after customer-info cache
+invalidation, persisted Cinema Noir, and two distinct paid hosted sessions.
+The same run records the localized price, activates `meowwatch_plus` and
+observes real native playback with its TLS peer in all three sessions.
 
-**Pending acceptance:** the final demo must show the complete product chain in
-one production journey: a Free user reaches the second-host paywall, completes
-the RevenueCat Test Store purchase, receives `meowwatch_plus`, and immediately
-starts another hosted session. Until that journey passes, “unlimited hosting is
-unlocked” remains a planned product benefit rather than an accepted result.
+The native purchase-to-hosting recording is available; assembling and reviewing
+the final demo remains open. This acceptance uses one Android player and a
+headless protocol peer in one process. Restore retains the **same already-active
+customer**; it does not establish recovery after reinstall or lost identity.
+This is sandbox Test Store evidence, not a Google Play charge, store publication
+or physical-device billing. The [native screenshot provenance](../assets/submission/screenshot-provenance.json)
+retains the exact build, runtime, verified stages and original recording hashes.
 
 ## Relationship to the original desktop MeowWatch
 
@@ -151,10 +166,13 @@ Before submission:
 
 1. Complete and inspect the production phone-and-tablet create/join recording,
    including real chat and reaction UI.
-2. Pass the integrated RevenueCat entitlement-to-unlimited-hosting journey.
+2. Edit the accepted production purchase footage into the final demo, preserving
+   its sandbox and same-customer restore labels.
 3. Complete physical Android-to-Windows Nearby pairing and control acceptance,
    then include it only if the recording is stable.
-4. Run a clean-install rehearsal and final lifecycle/product review.
+4. Pass the new guide/Sintel native checks, repeat the corrected phone-landscape
+   gate, and complete lifecycle/product review and the full clean-install demo
+   rehearsal.
 5. Package the final icon, frame-free required screenshot, public source link,
    and a public video shorter than two minutes.
 
@@ -172,8 +190,10 @@ will be omitted rather than represented by a simulated or unstable screen.
 - [x] Final flat cat-and-play [app icon](../assets/brand/meowwatch-1024.png) is
   exactly **1024 × 1024 px**, opaque and unmasked; platform exports are in the
   [brand kit](BRAND.md).
-- [ ] At least one screenshot is exactly **1179 × 2556 px** with no device
-  frame.
+- [x] An original [native home screenshot](../assets/submission/meowwatch-android-1179x2556.png)
+  is exactly **1179 × 2556 px**, without a device frame, resizing or cropping.
+  Its provenance identifies the accepted `feaeb77` emulator capture; later UI
+  additions are not represented by that image.
 - [ ] Gallery thumbnail is readable at a 3:2 ratio.
 - [ ] RevenueCat project ID is copied from Project settings.
 - [ ] Entrant eligibility and the unresolved Next Gen/new-work interpretation

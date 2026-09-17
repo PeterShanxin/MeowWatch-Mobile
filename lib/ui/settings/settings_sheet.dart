@@ -12,15 +12,37 @@ Future<void> showSettingsSheet(
   required AppController app,
   required VoidCallback onUpgrade,
 }) async {
-  await showModalBottomSheet<void>(
+  final pageRoute = ModalRoute.of(context);
+  if (pageRoute?.isCurrent != true) return;
+  final navigator = Navigator.of(context);
+  ModalRoute<bool>? sheetRoute;
+  final upgradeRequested = await showModalBottomSheet<bool>(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
     showDragHandle: false,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.68),
-    builder: (_) => _SettingsSheet(app: app, onUpgrade: onUpgrade),
+    builder: (context) {
+      final route = ModalRoute.of<bool>(context)!;
+      sheetRoute = route;
+      return _SettingsSheet(
+        app: app,
+        onUpgrade: () {
+          if (route.isActive && route.isCurrent) navigator.pop(true);
+        },
+      );
+    },
   );
+  // Opening the paywall waits until this sheet releases its overlay entries.
+  await sheetRoute?.completed;
+  if (upgradeRequested == true &&
+      context.mounted &&
+      navigator.mounted &&
+      pageRoute?.isActive == true &&
+      pageRoute?.isCurrent == true) {
+    onUpgrade();
+  }
 }
 
 class _SettingsSheet extends StatefulWidget {
@@ -144,23 +166,21 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     }
   }
 
-  void _upgrade() {
-    Navigator.of(context).pop();
-    WidgetsBinding.instance.addPostFrameCallback((_) => widget.onUpgrade());
+  void _close() {
+    final route = ModalRoute.of(context);
+    if (route?.isActive == true && route?.isCurrent == true) {
+      Navigator.of(context).pop();
+    }
   }
 
   Future<void> _appearance() async {
-    var upgradeRequested = false;
     await showAppearanceSheet(
       context,
       currentTheme: widget.app.theme,
       isPlus: _billing.isPlus,
       onSelect: widget.app.selectTheme,
-      onUpgrade: () {
-        upgradeRequested = true;
-      },
+      onUpgrade: widget.onUpgrade,
     );
-    if (mounted && upgradeRequested) _upgrade();
   }
 
   @override
@@ -212,7 +232,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                           ),
                           onPressed: _working || _billing.isBusy
                               ? null
-                              : () => Navigator.of(context).pop(),
+                              : _close,
                           icon: Icon(Icons.close, color: colors.onSurface),
                         ),
                       ],
@@ -328,7 +348,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                               ),
                               onPressed: _working || _billing.isBusy
                                   ? null
-                                  : _upgrade,
+                                  : widget.onUpgrade,
                               child: const Text('See Plus'),
                             ),
                           ],

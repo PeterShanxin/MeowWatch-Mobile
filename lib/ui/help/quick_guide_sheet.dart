@@ -74,19 +74,25 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
     final colors = theme.colorScheme;
     final step = _steps[_page];
     final last = _page == _steps.length - 1;
+    final availableHeight = (media.size.height - media.viewInsets.bottom).clamp(
+      0,
+      double.infinity,
+    );
+    final compact = availableHeight < 500;
+    final inlineSkip = compact && media.size.width >= 600;
+    final skip = TextButton(
+      key: const Key('quick-guide-skip'),
+      onPressed: () => Navigator.of(context).pop(),
+      child: const Text('Skip guide'),
+    );
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
       child: Align(
         alignment: Alignment.bottomCenter,
         child: ConstrainedBox(
           constraints: BoxConstraints(
-            maxWidth: 560,
-            maxHeight:
-                (media.size.height - media.viewInsets.bottom).clamp(
-                  0,
-                  double.infinity,
-                ) *
-                0.94,
+            maxWidth: compact ? 720 : 560,
+            maxHeight: availableHeight * 0.94,
           ),
           child: Material(
             key: const Key('quick-guide-sheet'),
@@ -100,7 +106,10 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
                   child: SingleChildScrollView(
                     key: const Key('quick-guide-body'),
                     controller: _scroll,
-                    padding: const EdgeInsets.fromLTRB(24, 12, 24, 12),
+                    padding: EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: compact ? 8 : 12,
+                    ),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.stretch,
                       mainAxisSize: MainAxisSize.min,
@@ -121,7 +130,7 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
                             ),
                           ],
                         ),
-                        const SizedBox(height: 12),
+                        SizedBox(height: compact ? 4 : 12),
                         Row(
                           children: [
                             for (var i = 0; i < _steps.length; i++)
@@ -141,23 +150,25 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
                               ),
                           ],
                         ),
-                        const SizedBox(height: 24),
-                        Align(
-                          alignment: Alignment.centerLeft,
-                          child: Container(
-                            padding: const EdgeInsets.all(14),
-                            decoration: BoxDecoration(
-                              color: colors.surfaceContainer,
-                              borderRadius: BorderRadius.circular(18),
-                            ),
-                            child: Icon(
-                              step.icon,
-                              size: 34,
-                              color: colors.primary,
+                        SizedBox(height: compact ? 12 : 24),
+                        if (!compact) ...[
+                          Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: colors.surfaceContainer,
+                                borderRadius: BorderRadius.circular(18),
+                              ),
+                              child: Icon(
+                                step.icon,
+                                size: 34,
+                                color: colors.primary,
+                              ),
                             ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
+                          const SizedBox(height: 20),
+                        ],
                         Semantics(
                           liveRegion: true,
                           child: Text(
@@ -167,18 +178,18 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8),
+                        SizedBox(height: compact ? 4 : 8),
                         Text(step.title, style: theme.textTheme.headlineMedium),
-                        const SizedBox(height: 14),
+                        SizedBox(height: compact ? 8 : 14),
                         Text(
                           step.body,
                           style: theme.textTheme.bodyLarge?.copyWith(
                             height: 1.5,
                           ),
                         ),
-                        const SizedBox(height: 20),
+                        SizedBox(height: compact ? 12 : 20),
                         Container(
-                          padding: const EdgeInsets.all(16),
+                          padding: EdgeInsets.all(compact ? 12 : 16),
                           decoration: BoxDecoration(
                             color: colors.surfaceContainer,
                             borderRadius: BorderRadius.circular(16),
@@ -197,13 +208,22 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
                 ),
                 SafeArea(
                   top: false,
-                  minimum: const EdgeInsets.fromLTRB(24, 12, 24, 24),
+                  minimum: EdgeInsets.fromLTRB(
+                    24,
+                    compact ? 8 : 12,
+                    24,
+                    compact ? 12 : 24,
+                  ),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: [
                       Row(
                         children: [
+                          if (!last && inlineSkip) ...[
+                            Expanded(child: skip),
+                            const SizedBox(width: 12),
+                          ],
                           if (_page > 0) ...[
                             Expanded(
                               child: OutlinedButton(
@@ -225,12 +245,7 @@ class _QuickGuideSheetState extends State<QuickGuideSheet> {
                           ),
                         ],
                       ),
-                      if (!last)
-                        TextButton(
-                          key: const Key('quick-guide-skip'),
-                          onPressed: () => Navigator.of(context).pop(),
-                          child: const Text('Skip guide'),
-                        ),
+                      if (!last && !inlineSkip) skip,
                     ],
                   ),
                 ),

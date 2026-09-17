@@ -526,9 +526,8 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     }
   }
 
-  Future<void> _settings() async {
-    final context = _context;
-    if (context == null || _modalOpen) return;
+  Future<void> _settings(BuildContext context) async {
+    if (!context.mounted || _modalOpen) return;
     _modalOpen = true;
     try {
       await showSettingsSheet(context, app: _app!, onUpgrade: () => _upgrade());
@@ -683,44 +682,54 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
                       onSeek: (position) => _run(() => app.seek(position)),
                     )
                   else
-                    HomeScreen(
-                      app: app,
-                      onJoin: _join,
-                      onSettings: _settings,
-                      onUpgrade: () => _upgrade(),
-                      onStartRoom: _start,
-                      onLocalMode: () => _run(app.useLocalMode),
-                      onResume: (entry) => _run(() => app.resume(entry)),
-                      onWatchAgain: _watchAgain,
+                    Builder(
+                      builder: (pageContext) => HomeScreen(
+                        app: app,
+                        onJoin: _join,
+                        onSettings: () => _settings(pageContext),
+                        onUpgrade: () => _upgrade(),
+                        onStartRoom: _start,
+                        onLocalMode: () => _run(app.useLocalMode),
+                        onResume: (entry) => _run(() => app.resume(entry)),
+                        onWatchAgain: _watchAgain,
+                      ),
                     ),
                   if (app.busy)
                     Positioned.fill(
-                      child: ColoredBox(
-                        color: Colors.black.withValues(alpha: .82),
-                        child: SafeArea(
-                          child: Center(
-                            child: Padding(
-                              padding: const EdgeInsets.all(32),
-                              child: Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const CircularProgressIndicator(),
-                                  const SizedBox(height: 24),
-                                  Text(
-                                    app.busyLabel,
-                                    style: const TextStyle(fontSize: 22),
+                      child: BlockSemantics(
+                        child: Material(
+                          color: Colors.black.withValues(alpha: .82),
+                          child: SafeArea(
+                            child: Center(
+                              child: SingleChildScrollView(
+                                padding: const EdgeInsets.all(32),
+                                child: ConstrainedBox(
+                                  constraints: const BoxConstraints(
+                                    maxWidth: 440,
                                   ),
-                                  const SizedBox(height: 12),
-                                  const Text(
-                                    'Getting everything ready.',
-                                    textAlign: TextAlign.center,
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      const CircularProgressIndicator(),
+                                      const SizedBox(height: 24),
+                                      Text(
+                                        app.busyLabel,
+                                        style: const TextStyle(fontSize: 22),
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 12),
+                                      const Text(
+                                        'Getting everything ready.',
+                                        textAlign: TextAlign.center,
+                                      ),
+                                      const SizedBox(height: 20),
+                                      TextButton(
+                                        onPressed: () => _run(app.leavePlayer),
+                                        child: const Text('Cancel'),
+                                      ),
+                                    ],
                                   ),
-                                  const SizedBox(height: 20),
-                                  TextButton(
-                                    onPressed: () => _run(app.leavePlayer),
-                                    child: const Text('Cancel'),
-                                  ),
-                                ],
+                                ),
                               ),
                             ),
                           ),

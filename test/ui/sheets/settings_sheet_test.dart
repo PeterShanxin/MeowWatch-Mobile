@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meowwatch_mobile/app/app_controller.dart';
 import 'package:meowwatch_mobile/core/billing/billing_service.dart';
 import 'package:meowwatch_mobile/core/connect/room_config.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
@@ -9,6 +10,161 @@ import 'package:meowwatch_mobile/ui/settings/settings_sheet.dart';
 import 'sheet_test_support.dart';
 
 void main() {
+  testWidgets(
+    'upgrade waits for the owned settings route to finish exiting',
+    (tester) async {
+      final app = createTestApp(billing: TestBilling());
+      try {
+        var upgrades = 0;
+        var completed = false;
+        await _openSettings(
+          tester,
+          app: app,
+          onUpgrade: () {
+            expect(completed, isTrue);
+            expect(find.text('Settings', skipOffstage: false), findsNothing);
+            upgrades++;
+          },
+        );
+        final route = ModalRoute.of(tester.element(find.text('Settings')))!;
+        route.completed.then((_) => completed = true);
+        await tester.ensureVisible(find.text('See Plus'));
+        await tester.tap(find.text('See Plus'));
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(completed, isFalse);
+        expect(upgrades, 0);
+        await tester.pumpAndSettle();
+        expect(completed, isTrue);
+        expect(upgrades, 1);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await app.close();
+      }
+    },
+    semanticsEnabled: true,
+  );
+
+  testWidgets('closing settings does not request an upgrade', (tester) async {
+    final app = createTestApp(billing: TestBilling());
+    try {
+      var upgrades = 0;
+      await _openSettings(tester, app: app, onUpgrade: () => upgrades++);
+      await tester.tap(find.byTooltip('Close'));
+      await tester.pumpAndSettle();
+      expect(upgrades, 0);
+      expect(find.text('Settings'), findsNothing);
+      expect(find.text('Open settings'), findsOneWidget);
+    } finally {
+      await tester.pumpWidget(const SizedBox.shrink());
+      await app.close();
+    }
+  });
+
+  for (final interruption in ['new page', 'dialog', 'unmount']) {
+    testWidgets(
+      'settings upgrade stops after $interruption during its exit',
+      (tester) async {
+        final app = createTestApp(billing: TestBilling());
+        try {
+          final navigator = GlobalKey<NavigatorState>();
+          var upgrades = 0;
+          await _openSettings(
+            tester,
+            app: app,
+            navigatorKey: navigator,
+            onUpgrade: () => upgrades++,
+          );
+          await tester.ensureVisible(find.text('See Plus'));
+          final upgrade = tester
+              .widget<FilledButton>(
+                find.widgetWithText(FilledButton, 'See Plus'),
+              )
+              .onPressed!;
+          await tester.tap(find.text('See Plus'));
+          await tester.pump();
+          await tester.pump(const Duration(milliseconds: 50));
+          expect(upgrades, 0);
+          if (interruption == 'new page') {
+            navigator.currentState!.push<void>(
+              MaterialPageRoute<void>(
+                builder: (_) => const Scaffold(body: Text('Other page')),
+              ),
+            );
+          } else if (interruption == 'dialog') {
+            showDialog<void>(
+              context: navigator.currentContext!,
+              builder: (_) => const AlertDialog(title: Text('Other dialog')),
+            );
+          } else {
+            await tester.pumpWidget(const SizedBox.shrink());
+          }
+          // A queued tap on the retiring sheet must not dismiss a newer route.
+          upgrade();
+          await tester.pumpAndSettle();
+          expect(upgrades, 0);
+          expect(find.text('Settings', skipOffstage: false), findsNothing);
+          if (interruption != 'unmount') {
+            expect(
+              find.text(
+                interruption == 'new page' ? 'Other page' : 'Other dialog',
+              ),
+              findsOneWidget,
+            );
+          }
+          expect(tester.takeException(), isNull);
+        } finally {
+          await tester.pumpWidget(const SizedBox.shrink());
+          await app.close();
+        }
+      },
+      semanticsEnabled: true,
+    );
+  }
+
+  testWidgets(
+    'covered settings cannot pop a dialog or open appearance',
+    (tester) async {
+      final app = createTestApp(billing: TestBilling());
+      try {
+        final navigator = GlobalKey<NavigatorState>();
+        var upgrades = 0;
+        await _openSettings(
+          tester,
+          app: app,
+          navigatorKey: navigator,
+          onUpgrade: () => upgrades++,
+        );
+        final upgrade = tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'See Plus'))
+            .onPressed!;
+        final appearance = tester
+            .widget<OutlinedButton>(
+              find.byKey(const Key('choose-appearance-button')),
+            )
+            .onPressed!;
+        showDialog<void>(
+          context: navigator.currentContext!,
+          builder: (_) => const AlertDialog(title: Text('Other dialog')),
+        );
+        await tester.pumpAndSettle();
+        upgrade();
+        appearance();
+        await tester.pumpAndSettle();
+        expect(upgrades, 0);
+        expect(find.text('Other dialog'), findsOneWidget);
+        expect(find.text('Settings', skipOffstage: false), findsOneWidget);
+        expect(find.byKey(const Key('theme-choice-cozy')), findsNothing);
+        expect(tester.takeException(), isNull);
+      } finally {
+        await tester.pumpWidget(const SizedBox.shrink());
+        await app.close();
+      }
+    },
+    semanticsEnabled: true,
+  );
+
   testWidgets('replaying the guide leaves an active session and data alone', (
     tester,
   ) async {
@@ -298,4 +454,28 @@ void main() {
     );
     await app.close();
   });
+}
+
+Future<void> _openSettings(
+  WidgetTester tester, {
+  required AppController app,
+  required VoidCallback onUpgrade,
+  GlobalKey<NavigatorState>? navigatorKey,
+}) async {
+  await tester.pumpWidget(
+    MaterialApp(
+      navigatorKey: navigatorKey,
+      home: Builder(
+        builder: (context) => Scaffold(
+          body: TextButton(
+            onPressed: () =>
+                showSettingsSheet(context, app: app, onUpgrade: onUpgrade),
+            child: const Text('Open settings'),
+          ),
+        ),
+      ),
+    ),
+  );
+  await tester.tap(find.text('Open settings'));
+  await tester.pumpAndSettle();
 }

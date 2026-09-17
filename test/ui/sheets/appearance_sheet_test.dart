@@ -79,6 +79,8 @@ void main() {
     ) async {
       final app = createTestApp(billing: TestBilling());
       var upgrades = 0;
+      var appearanceCompleted = false;
+      var settingsCompleted = false;
       await tester.pumpWidget(
         MaterialApp(
           theme: meowWatchTheme(),
@@ -89,6 +91,16 @@ void main() {
                   context,
                   app: app,
                   onUpgrade: () {
+                    expect(appearanceCompleted, isTrue);
+                    expect(settingsCompleted, isTrue);
+                    expect(
+                      find.byType(AppearanceSheet, skipOffstage: false),
+                      findsNothing,
+                    );
+                    expect(
+                      find.text('Settings', skipOffstage: false),
+                      findsNothing,
+                    );
                     upgrades++;
                     showDialog<void>(
                       context: context,
@@ -105,13 +117,26 @@ void main() {
       );
       await tester.tap(find.text('Open settings'));
       await tester.pumpAndSettle();
+      final settingsRoute = ModalRoute.of(
+        tester.element(find.text('Settings')),
+      )!;
+      settingsRoute.completed.then((_) => settingsCompleted = true);
       final appearance = find.byKey(const Key('choose-appearance-button'));
       await tester.ensureVisible(appearance);
       await tester.tap(appearance);
       await tester.pumpAndSettle();
+      final appearanceRoute = ModalRoute.of(
+        tester.element(find.byType(AppearanceSheet)),
+      )!;
+      appearanceRoute.completed.then((_) => appearanceCompleted = true);
       final choice = find.byKey(Key('theme-choice-$id'));
       await tester.ensureVisible(choice);
       await tester.tap(choice);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(appearanceCompleted, isFalse);
+      expect(settingsRoute.isActive, isTrue);
+      expect(upgrades, 0);
       await tester.pumpAndSettle();
       expect(upgrades, 1);
       expect(find.text('Upgrade destination'), findsOneWidget);
@@ -122,7 +147,7 @@ void main() {
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());
       await app.close();
-    });
+    }, semanticsEnabled: true);
 
     testWidgets('free $id selection opens upgrade without persisting', (
       tester,
@@ -144,6 +169,94 @@ void main() {
       expect(find.byType(AppearanceSheet), findsNothing);
     });
   }
+
+  testWidgets('closing appearance cancels the upgrade handoff', (tester) async {
+    var upgrades = 0;
+    await _open(tester, onSelect: (_) async {}, onUpgrade: () => upgrades++);
+    await tester.tap(find.byTooltip('Close appearance'));
+    await tester.pumpAndSettle();
+    expect(upgrades, 0);
+    expect(find.byType(AppearanceSheet), findsNothing);
+    expect(find.text('Open appearance'), findsOneWidget);
+  });
+
+  for (final interruption in ['new page', 'dialog', 'unmount']) {
+    testWidgets(
+      'appearance upgrade stops after $interruption during its exit',
+      (tester) async {
+        final navigator = GlobalKey<NavigatorState>();
+        var upgrades = 0;
+        await _open(
+          tester,
+          navigatorKey: navigator,
+          onSelect: (_) async {},
+          onUpgrade: () => upgrades++,
+        );
+        final choice = find.byKey(const Key('theme-choice-cinemaNoir'));
+        await tester.ensureVisible(choice);
+        await tester.tap(choice);
+        await tester.pump();
+        await tester.pump(const Duration(milliseconds: 50));
+        expect(upgrades, 0);
+        if (interruption == 'new page') {
+          navigator.currentState!.push<void>(
+            MaterialPageRoute<void>(
+              builder: (_) => const Scaffold(body: Text('Other page')),
+            ),
+          );
+        } else if (interruption == 'dialog') {
+          showDialog<void>(
+            context: navigator.currentContext!,
+            builder: (_) => const AlertDialog(title: Text('Other dialog')),
+          );
+        } else {
+          await tester.pumpWidget(const SizedBox.shrink());
+        }
+        await tester.pumpAndSettle();
+        expect(upgrades, 0);
+        expect(find.byType(AppearanceSheet, skipOffstage: false), findsNothing);
+        if (interruption != 'unmount') {
+          expect(
+            find.text(
+              interruption == 'new page' ? 'Other page' : 'Other dialog',
+            ),
+            findsOneWidget,
+          );
+        }
+        expect(tester.takeException(), isNull);
+      },
+      semanticsEnabled: true,
+    );
+  }
+
+  testWidgets(
+    'covered appearance cannot pop another dialog for upgrade',
+    (tester) async {
+      final navigator = GlobalKey<NavigatorState>();
+      var upgrades = 0;
+      await _open(
+        tester,
+        navigatorKey: navigator,
+        onSelect: (_) async {},
+        onUpgrade: () => upgrades++,
+      );
+      final select = tester
+          .widget<InkWell>(find.byKey(const Key('theme-choice-cinemaNoir')))
+          .onTap!;
+      showDialog<void>(
+        context: navigator.currentContext!,
+        builder: (_) => const AlertDialog(title: Text('Other dialog')),
+      );
+      await tester.pumpAndSettle();
+      select();
+      await tester.pumpAndSettle();
+      expect(upgrades, 0);
+      expect(find.text('Other dialog'), findsOneWidget);
+      expect(find.byType(AppearanceSheet, skipOffstage: false), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    },
+    semanticsEnabled: true,
+  );
 
   testWidgets('Plus applies only after save and ignores overlapping choices', (
     tester,
@@ -244,11 +357,13 @@ Future<void> _open(
   required Future<void> Function(String) onSelect,
   VoidCallback? onUpgrade,
   GlobalKey? capture,
+  GlobalKey<NavigatorState>? navigatorKey,
 }) async {
   await tester.pumpWidget(
     RepaintBoundary(
       key: capture,
       child: MaterialApp(
+        navigatorKey: navigatorKey,
         debugShowCheckedModeBanner: false,
         theme: meowWatchTheme(theme: currentTheme),
         builder: (context, child) => MediaQuery(

@@ -8,19 +8,40 @@ Future<void> showAppearanceSheet(
   required bool isPlus,
   required Future<void> Function(String) onSelect,
   required VoidCallback onUpgrade,
-}) => showModalBottomSheet<void>(
-  context: context,
-  isScrollControlled: true,
-  useSafeArea: true,
-  showDragHandle: false,
-  backgroundColor: Colors.transparent,
-  builder: (_) => AppearanceSheet(
-    currentTheme: currentTheme,
-    isPlus: isPlus,
-    onSelect: onSelect,
-    onUpgrade: onUpgrade,
-  ),
-);
+}) async {
+  final pageRoute = ModalRoute.of(context);
+  if (pageRoute?.isCurrent != true) return;
+  final navigator = Navigator.of(context);
+  ModalRoute<bool>? sheetRoute;
+  final upgradeRequested = await showModalBottomSheet<bool>(
+    context: context,
+    isScrollControlled: true,
+    useSafeArea: true,
+    showDragHandle: false,
+    backgroundColor: Colors.transparent,
+    builder: (context) {
+      final route = ModalRoute.of<bool>(context)!;
+      sheetRoute = route;
+      return AppearanceSheet(
+        currentTheme: currentTheme,
+        isPlus: isPlus,
+        onSelect: onSelect,
+        onUpgrade: () {
+          if (route.isActive && route.isCurrent) navigator.pop(true);
+        },
+      );
+    },
+  );
+  // A pop result arrives before the sheet removes its overlay entries.
+  await sheetRoute?.completed;
+  if (upgradeRequested == true &&
+      context.mounted &&
+      navigator.mounted &&
+      pageRoute?.isActive == true &&
+      pageRoute?.isCurrent == true) {
+    onUpgrade();
+  }
+}
 
 class AppearanceSheet extends StatefulWidget {
   const AppearanceSheet({
@@ -63,7 +84,6 @@ class _AppearanceSheetState extends State<AppearanceSheet> {
     if (_saving) return;
     if (id != 'cozy' && !widget.isPlus) {
       widget.onUpgrade();
-      Navigator.of(context).pop();
       return;
     }
     if (id == _selected) return;
@@ -84,6 +104,13 @@ class _AppearanceSheetState extends State<AppearanceSheet> {
       }
     } finally {
       if (mounted) setState(() => _saving = false);
+    }
+  }
+
+  void _close() {
+    final route = ModalRoute.of(context);
+    if (route?.isActive == true && route?.isCurrent == true) {
+      Navigator.of(context).pop();
     }
   }
 
@@ -119,9 +146,7 @@ class _AppearanceSheetState extends State<AppearanceSheet> {
                     ),
                     IconButton(
                       tooltip: 'Close appearance',
-                      onPressed: _saving
-                          ? null
-                          : () => Navigator.of(context).pop(),
+                      onPressed: _saving ? null : _close,
                       icon: const Icon(Icons.close),
                     ),
                   ],

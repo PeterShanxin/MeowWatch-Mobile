@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/ui/app_theme.dart';
 import 'package:meowwatch_mobile/ui/help/quick_guide_sheet.dart';
@@ -32,6 +33,32 @@ Future<void> _tapKey(WidgetTester tester, String key) async {
   await tester.ensureVisible(button);
   await tester.tap(button);
   await tester.pumpAndSettle();
+}
+
+void _expectInside(Rect bounds, Rect viewport) {
+  expect(bounds.left, greaterThanOrEqualTo(viewport.left - 0.01));
+  expect(bounds.top, greaterThanOrEqualTo(viewport.top - 0.01));
+  expect(bounds.right, lessThanOrEqualTo(viewport.right + 0.01));
+  expect(bounds.bottom, lessThanOrEqualTo(viewport.bottom + 0.01));
+}
+
+void _expectTextEdgeVisible(
+  WidgetTester tester,
+  Finder text,
+  Finder viewport, {
+  required bool last,
+}) {
+  final paragraph = tester.renderObject<RenderParagraph>(text);
+  final offset = last ? paragraph.text.toPlainText().length - 1 : 0;
+  final box = paragraph
+      .getBoxesForSelection(
+        TextSelection(baseOffset: offset, extentOffset: offset + 1),
+      )
+      .single;
+  _expectInside(
+    box.toRect().shift(paragraph.localToGlobal(Offset.zero)),
+    tester.getRect(viewport),
+  );
 }
 
 void main() {
@@ -75,6 +102,42 @@ void main() {
     expect(find.byKey(const Key('quick-guide-sheet')), findsNothing);
     expect(find.text('Open guide'), findsOneWidget);
   });
+
+  for (final layout in [
+    (name: 'short landscape', size: const Size(800, 360)),
+    (name: 'portrait phone', size: const Size(390, 844)),
+  ]) {
+    testWidgets('${layout.name} initially shows each title and instruction', (
+      tester,
+    ) async {
+      tester.view.physicalSize = layout.size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+
+      await _openGuide(tester);
+      for (final step in [
+        (title: 'Pick your video', instruction: 'Open a video on this device'),
+        (title: 'Bring a friend', instruction: 'Start a room and share'),
+        (title: 'Press play together', instruction: 'Once everyone'),
+      ]) {
+        final viewport = tester.getRect(
+          find.byKey(const Key('quick-guide-body')),
+        );
+        _expectInside(tester.getRect(find.text(step.title)), viewport);
+        _expectInside(
+          tester.getRect(find.textContaining(step.instruction)),
+          viewport,
+        );
+        final next = find.byKey(const Key('quick-guide-next'));
+        expect(next.hitTestable(), findsOneWidget);
+        expect(tester.takeException(), isNull);
+        await tester.tap(next);
+        await tester.pumpAndSettle();
+      }
+      expect(find.byKey(const Key('quick-guide-sheet')), findsNothing);
+    });
+  }
 
   for (final layout in [
     (
@@ -131,6 +194,39 @@ void main() {
         );
         expect(tester.getRect(next), buttonBounds);
         expect(next.hitTestable(), findsOneWidget);
+        for (final paragraph in [
+          find.textContaining(
+            [
+              'Open a video on this device',
+              'Start a room and share',
+              'Once everyone',
+            ][step - 1],
+          ),
+          find.textContaining(
+            [
+              'Webpages and protected',
+              'everyone needs their own copy',
+              'one new hosted session per local day',
+            ][step - 1],
+          ),
+        ]) {
+          for (final last in [false, true]) {
+            await Scrollable.ensureVisible(
+              tester.element(paragraph),
+              alignment: last ? 1 : 0,
+            );
+            await tester.pumpAndSettle();
+            _expectTextEdgeVisible(tester, paragraph, body, last: last);
+            expect(tester.getRect(next), buttonBounds);
+            for (final key in [
+              'quick-guide-next',
+              if (step > 1) 'quick-guide-back',
+              if (step < 3) 'quick-guide-skip',
+            ]) {
+              expect(find.byKey(Key(key)).hitTestable(), findsOneWidget);
+            }
+          }
+        }
         await _tapKey(tester, 'quick-guide-next');
         expect(tester.takeException(), isNull);
       }

@@ -53,29 +53,33 @@ day; joining a room and reconnecting do not consume another session.
 **MeowWatch Plus** unlocks unlimited hosting through RevenueCat's entitlement
 state. The accepted emulator purchase journey is described below.
 
-**Acceptance notes:** Native results use Android emulators. The current
-`300ca2e` five-layout journey and recorded production purchase pass. Its
+**Acceptance notes:** Native results use Android emulators. At `2fc3831`,
+five-layout, normal install, lifecycle and production purchase workflows pass.
+The runtime matrix exposes a stale pause-position snapshot; its correction
+requires fresh native verification. The new Together attempt stops on Launcher
+ANR before app installation. The earlier `300ca2e`
 [paired Together run 35230867493, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867493)
 also passes, with independent audit of both complete drivers, native logs and
 the 216.667-second paired evidence film. The final under-two-minute submission
-film has not been assembled. Normal incoming-video and lifecycle
-follow-up gates, fresh proof for later fixes, and the complete clean-install
-demo rehearsal remain open. The [current evidence ledger](STATUS.md) records
+film has not been assembled. RevenueCat's new expiry/restore result is under
+investigation; it is not accepted as final expiration. Fresh proof for the
+playback fix and the complete clean-install demo rehearsal remain open.
+The [current evidence ledger](STATUS.md) records
 exact run outcomes and their boundaries.
 
 The guide, Settings replay, Local playback, Continue Watching and actual
 **Try a short film** button have 20 recorded steps and 16 screenshots per layout
-in [product journey 35230867480](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867480).
+in [product journey 35236920763](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920763).
 All five complete drivers pass, including teardown, on the official unpatched
-SDK. Short-landscape guide refinements made afterward need fresh native
-recapture. The sample uses the unmodified Sintel trailer, credited to Blender
+SDK. The compact landscape guide's main instructions and controls are visible;
+supplementary details remain scrollable. The sample uses the unmodified Sintel trailer, credited to Blender
 Foundation under CC BY 3.0, through the normal direct-media path. It does not
 imply playback of ordinary YouTube or other platform webpages.
 
-At `300ca2e`, normal debug API 29/35 and release API 35 builds install and start,
-but their incoming-video observer rejects the intentional repeated media title;
-its scoped correction awaits a complete rerun. Lifecycle stops during ADB
-readiness preparation before app samples. Physical Android-to-Windows Nearby
+At `2fc3831`, normal debug API 29/35 and release API 35 builds pass clean-install,
+launch and incoming-media acceptance. The normal release lifecycle journey
+passes background pause, explicit resume and saved-position process recovery.
+Physical Android-to-Windows Nearby
 control and Cast receiver acceptance remain open. Historical accepted checks
 do not replace these remaining gates.
 
@@ -121,17 +125,17 @@ The paid benefit is easy to understand for people who host regularly:
 Plus removes the once-per-day limit for starting hosted Together Sessions.
 
 The development build uses RevenueCat Test Store through the official Flutter
-SDK. [Production journey 35230867387, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867387)
-at `300ca2e` passes **all 12 stages**: a clean free customer, one free hosted
+SDK. [Production journey 35236920484](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920484)
+at `2fc3831` passes **all 12 stages**: a clean free customer, one free hosted
 session, the next-host paywall, native cancellation/failure/success, Settings
 restore and cache-invalidated restore, persisted Glass Aurora, a premium Movie
 night reaction received by the TLS peer, persisted Cinema Noir, and two
 distinct paid hosted sessions. Native playback advances in all three rooms.
-The retained recording covers 98.46% of the journey under unchanged coverage
+The retained recording covers 98.8717% of the journey under unchanged coverage
 limits. This newer acceptance does not change the older preview's source head.
 
 [RevenueCat relaunch and expiry 35230867563](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867563)
-at `300ca2e` also passes and has been audited. The same persisted customer
+at the earlier `300ca2e` passes and has been audited. The same persisted customer
 retains Plus across actual process IDs 2964 → 4960, with the old process absent
 before relaunch and no uninstall or data clear. Its real Test Store purchase
 at 14:11:44 UTC renews through 14:31:44, then expires at 14:36:44. Seven bounded
@@ -140,7 +144,10 @@ inactive Plus, and cache-invalidated restore at 14:36:56.001 stays inactive for
 the same customer, product and original purchase. No clock change or dashboard
 entitlement override supplies the result. Only native Test Store
 cancel/failure/success dialogs have video; there is no continuous recording of
-the relaunch or expiry wait. The retained SDK evidence establishes those phases.
+the relaunch or expiry wait. The retained SDK evidence establishes those phases
+for that head. The new `2fc3831` expiry run receives active Restore after a fresh
+inactive sample. Its cause is under investigation; the older pass does not
+resolve this new failure.
 
 The purchase journey uses **one native Android player and an independent
 headless TLS peer**. Its restore checks retain the same customer; they do not
@@ -148,36 +155,26 @@ establish recovery after reinstall or lost identity. All billing evidence is
 sandbox Test Store evidence, not a Google Play charge, store publication or
 physical-device billing.
 
-The current local purchase chapter is a **40.2-second v2 review preview**, using
-the same original `9b7e9ed` footage; the older 43-second v1 is historical. The
-phone is about 25% larger, scope disclosures are more readable, and all footage
-remains at 1× with direct cuts and full uncropped app frames. Complete decoding
-and 52 sampled visual time points were checked; continuous viewing and final
-film acceptance are still required. The [demo script](DEMO_SCRIPT.md) records
-its source points and local package provenance.
+The current local purchase chapter is a **42-second review preview** from the
+accepted `2fc3831` recording. Five original-speed shots show the paywall and
+cancellation, failed-purchase message and retry, native successful purchase,
+Settings restore, themes, a reaction and a second paid room. The full phone
+capture fits a 450 × 975 area; captions remain outside the app pixels.
 
-The actual purchase-success heading is brief: v2 retains 0.4667 seconds with a
-spinner still visible, followed by an explicit cut to real Settings showing
-Plus active and the same-customer restore result. The original has no clean
-2–3-second settled-success hold; its first enabled Done frame already contains
-anomalous red/yellow room-loading text behind the sheet. Selecting a different
-window does not fix that app appearance defect. Its correction and a clean
-native recapture remain separate from editing. No confirmation is frozen,
-slowed or generated to suggest a longer success state.
+The 1,260-frame export fully decodes, retains pinned source hashes and passes
+source-clock correspondence checks. Fifty-three output samples were visually
+inspected; the browser also displays the actual restore confirmation. This is
+still a review preview, not the final whole-app film. Its success heading remains
+brief (one second in the edit, initially with a spinner), followed by a clear cut
+to the real Settings confirmation. No successful state is frozen or extended.
 
-The three source files have approximately **3.384/2.623-second playable gaps**,
-distinct from the recorder's 1.281/1.705-second coverage gaps. Final editing
-must use explicit cuts rather than imply uninterrupted actions across those
-boundaries. The preview retains Test Store/no-charge, same-customer restore and
-one-native-player/headless-peer disclosures; it is not a finished submission
-film or a filmed two-native-player purchase session.
-
-The [native screenshot provenance](../assets/submission/screenshot-provenance.json)
-identifies `9b7e9ed` and its original recording hashes. The later d946 purchase
-run also passes 12 stages; ec856 fails recording coverage. Most recently,
-[300ca2e purchase 35230867387, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867387)
-passes all 12 stages. These later results do not replace the pinned source of
-the screenshot or edited purchase chapter.
+The three native sources have 1.068- and 0.738-second recording gaps. The edit
+uses explicit cuts, preserves Test Store and same-customer restore disclosures,
+and identifies the single native player with its independent headless peer.
+The [demo script](DEMO_SCRIPT.md) records exact source intervals and hashes.
+Earlier 43-second and 40.2-second `9b7e9ed` previews remain historical. The
+[required screenshot](../assets/submission/screenshot-provenance.json) also
+retains its original `9b7e9ed` source; it is not relabeled as a newer capture.
 
 ## Relationship to the original desktop MeowWatch
 
@@ -226,14 +223,14 @@ Before submission:
 1. Select and frame shots from the audited `300ca2e` paired Together recordings,
    or a freshly validated presentation take, preserving real chat, reactions,
    source details and shared-video behavior. Review the complete final edit.
-2. Integrate the 40.2-second purchase review chapter after continuous playback
+2. Integrate the 42-second purchase review chapter after continuous playback
    review, or select a fresh clean purchase take. Preserve Test Store,
    same-customer restore and headless-peer labels, and the actual source gaps.
 3. Complete physical Android-to-Windows Nearby pairing and control acceptance,
    then include it only if the recording is stable.
-4. Finish extended recovery/repeated-room acceptance, incoming-media and
-   lifecycle follow-up checks, and fresh native proof for the latest guide
-   and loading-overlay fixes. Inspect the chosen guide/sample recordings and
+4. Verify the pause-position correction on native clients, resolve the new
+   expiry/restore discrepancy, and finish repeated-room acceptance on the
+   final head. Inspect the chosen guide/sample recordings and
    complete the full clean-install demo rehearsal. Keep QR image-decoding and
    camera evidence clearly distinguished.
 5. Package the final icon, frame-free required screenshot, public source link,

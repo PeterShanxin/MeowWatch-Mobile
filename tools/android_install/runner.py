@@ -468,12 +468,12 @@ class Runner:
         self.installed_pid: int | None = None
         self.cleanup_authorized = False
 
-    def recover_setup_anr(self) -> bool:
+    def recover_setup_anr(self, observed: tuple[str, str] | None = None) -> bool:
         # This fixture owns a disposable emulator, never a user's phone. An
         # application ANR or any other system dialog must still fail the gate.
         if self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.decode().strip() != "1":
             raise RuntimeFailure("setup ANR recovery is emulator-only")
-        xml, window = self.adb.observe()
+        xml, window = self.adb.observe() if observed is None else observed
         if setup_anr_close(xml, window) is None:
             return False
         (ARTIFACT_ROOT / "setup-anr.xml").write_text(xml, encoding="utf-8")
@@ -481,7 +481,8 @@ class Runner:
         (ARTIFACT_ROOT / "setup-anr.png").write_bytes(self.adb.screenshot())
         fresh_xml, fresh_window = self.adb.observe()
         point = setup_anr_close(fresh_xml, fresh_window)
-        if point is None:
+        if (point is None or re.findall(r"mCurrentFocus=([^\r\n]+)", window)
+                != re.findall(r"mCurrentFocus=([^\r\n]+)", fresh_window)):
             raise RuntimeFailure("setup ANR changed before the close action")
         self.adb.run("shell", "input", "tap", str(point[0]), str(point[1]))
         return True
@@ -584,6 +585,7 @@ class Runner:
             launch_evidence = self.launch()
             deadline = time.monotonic() + 55
             last_error = "normal first-run UI was not observed"
+            setup_recovery_pid: str | None = None
             while time.monotonic() < deadline:
                 try:
                     pid_text = self.adb.run(
@@ -593,6 +595,23 @@ class Runner:
                     if len(pids) != 1 or not pids[0].isdigit():
                         raise RuntimeFailure("expected one live MeowWatch process")
                     xml, window = self.adb.observe()
+                except RuntimeFailure as error:
+                    last_error = str(error)
+                    time.sleep(0.4)
+                    continue
+                if setup_recovery_pid is not None and pid_text.strip() != setup_recovery_pid:
+                    raise RuntimeFailure("MeowWatch process changed during setup ANR recovery")
+                # A successful am start can still be covered by a delayed SDK
+                # setup ANR. Share the launch recovery budget and the original
+                # readiness deadline; closing this dialog is not UI acceptance.
+                if (not launch_evidence["googleSetupAnrRecovered"]
+                        and setup_anr_close(xml, window) is not None
+                        and self.recover_setup_anr((xml, window))):
+                    launch_evidence["googleSetupAnrRecovered"] = True
+                    launch_evidence["googleSetupAnrRecoveryPhase"] = "first-run-ui"
+                    setup_recovery_pid = pid_text.strip()
+                    continue
+                try:
                     focus = focused_component(window)
                     semantics = verify_onboarding_semantics(xml)
                     self.installed_pid = int(pids[0])

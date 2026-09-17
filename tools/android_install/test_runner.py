@@ -3,6 +3,8 @@ import json
 import subprocess
 import sys
 import tempfile
+from contextlib import contextmanager
+from itertools import count
 from pathlib import Path
 import unittest
 from unittest.mock import Mock, patch
@@ -184,6 +186,156 @@ class SetupRecoveryTests(unittest.TestCase):
                 adb.run = run
                 with self.assertRaises(RuntimeFailure):
                     self.runner(adb).launch()
+
+
+class FirstRunAdb(SetupAdb):
+    def __init__(self, *, persist=False, bad_ui=False, changed_pid=False, **kwargs):
+        super().__init__(outcomes=(True,), **kwargs)
+        self.persist, self.bad_ui, self.changed_pid = persist, bad_ui, changed_pid
+        self.closed = False
+
+    def run(self, *args, **kwargs):
+        result = super().run(*args, **kwargs)
+        if args[:3] == ('shell', 'input', 'tap'):
+            self.closed = True
+        elif args == ('shell', 'pidof', PACKAGE):
+            result.stdout = b'43' if self.closed and self.changed_pid else b'42'
+        elif args == ('shell', 'dumpsys', 'package', PACKAGE):
+            result.stdout = (f'Package [{PACKAGE}]\nversionCode=1 versionName=0.1.0 '
+                             'targetSdk=36 primaryCpuAbi=x86_64\nflags=[ HAS_CODE ]\n').encode()
+        elif args == ('shell', 'getprop', 'ro.product.cpu.abi'):
+            result.stdout = b'x86_64'
+        elif args == ('shell', 'getprop', 'ro.build.version.sdk'):
+            result.stdout = b'35'
+        elif args == ('shell', 'getprop', 'ro.product.model'):
+            result.stdout = b'sdk_gphone64_x86_64'
+        return result
+
+    def observe(self):
+        if self.closed and not self.persist:
+            self.observations += 1
+            return (hierarchy() if self.bad_ui else hierarchy(
+                node('Close the distance.&#10;Keep the movie night.'),
+                node('No account needed. Change your name anytime.'),
+                node('Continue', clickable='true'),
+            )), FOCUS
+        return super().observe()
+
+
+class FirstRunSetupRecoveryTests(unittest.TestCase):
+    @contextmanager
+    def fixture(self, adb):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            apk = root / 'app.apk'
+            apk.write_bytes(b'test-apk')
+            artifacts = root / 'artifacts'
+            artifacts.mkdir()
+            runner = Runner('emulator-5554', apk, 'release')
+            runner.adb = adb
+            with patch('tools.android_install.runner.ARTIFACT_ROOT', artifacts), patch.object(
+                runner, 'prepare', return_value={'installSucceeded': True}
+            ), patch.object(runner, 'cleanup'), patch(
+                'tools.android_install.runner.NativeRecording'
+            ) as recorder, patch('tools.android_install.runner.time.sleep'), patch(
+                'tools.android_install.runner.time.monotonic', side_effect=count()
+            ):
+                yield runner, artifacts, recorder.return_value
+
+    def test_successful_launch_recovers_late_setup_without_relaunch_and_rechecks_ui(self):
+        adb = FirstRunAdb()
+        with self.fixture(adb) as (runner, artifacts, recorder):
+            runner.run()
+            summary = json.loads((artifacts / 'summary.json').read_text())
+            self.assertTrue(summary['launch']['googleSetupAnrRecovered'])
+            self.assertEqual(summary['launch']['googleSetupAnrRecoveryPhase'], 'first-run-ui')
+            self.assertEqual(summary['launch']['attempts'], 1)
+            self.assertEqual(summary['application']['pid'], 42)
+            self.assertTrue(all(summary['firstRun']['uiautomatorOnboardingSemantics'].values()))
+            self.assertTrue((artifacts / 'setup-anr.png').is_file())
+            self.assertTrue((artifacts / 'setup-anr-window.txt').is_file())
+            self.assertGreaterEqual(adb.observations, 4)
+            recorder.finish.assert_called_once()
+        self.assertEqual(adb.commands.count(('shell', 'input', 'tap', '70', '130')), 1)
+        self.assertEqual(sum(command[:3] == ('shell', 'am', 'start') for command in adb.commands), 1)
+
+    def test_persistent_setup_or_invalid_ui_never_pass_and_use_only_one_close(self):
+        for options, message in (
+            ({'persist': True}, 'not the focused Android package'),
+            ({'bad_ui': True}, 'Exact first-run onboarding'),
+            ({'changed_pid': True}, 'process changed during setup ANR recovery'),
+        ):
+            with self.subTest(options=options):
+                adb = FirstRunAdb(**options)
+                with self.fixture(adb) as (runner, artifacts, recorder):
+                    with self.assertRaisesRegex(RuntimeFailure, message):
+                        runner.run()
+                    self.assertFalse((artifacts / 'summary.json').exists())
+                    recorder.finish.assert_called_once()
+                self.assertEqual(adb.commands.count(('shell', 'input', 'tap', '70', '130')), 1)
+
+    def test_first_run_reuses_the_launch_recovery_budget(self):
+        adb = FirstRunAdb(persist=True)
+        adb.outcomes = [False, True]
+        with self.fixture(adb) as (runner, artifacts, _):
+            with self.assertRaisesRegex(RuntimeFailure, 'not the focused Android package'):
+                runner.run()
+            self.assertFalse((artifacts / 'summary.json').exists())
+        self.assertEqual(adb.commands.count(('shell', 'input', 'tap', '70', '130')), 1)
+
+    def test_late_foreign_anr_or_physical_device_is_never_closed(self):
+        for options in (
+            {'window': SETUP_WINDOW.replace(SETUP_PACKAGE, PACKAGE)},
+            {'window': SETUP_WINDOW.replace(SETUP_PACKAGE, 'com.google.android.gms')},
+            {'qemu': '0'},
+        ):
+            with self.subTest(options=options):
+                adb = FirstRunAdb(**options)
+                with self.fixture(adb) as (runner, artifacts, _):
+                    with self.assertRaises(RuntimeFailure):
+                        runner.run()
+                    self.assertFalse((artifacts / 'summary.json').exists())
+                self.assertFalse(any(command[:3] == ('shell', 'input', 'tap') for command in adb.commands))
+
+    def test_replaced_setup_window_before_action_is_not_closed(self):
+        adb = FirstRunAdb()
+        original = adb.observe
+        def observe():
+            xml, window = original()
+            if adb.observations > 1:
+                window = window.replace('Window{123 ', 'Window{456 ')
+            return xml, window
+        adb.observe = observe
+        with self.fixture(adb) as (runner, artifacts, _):
+            with self.assertRaisesRegex(RuntimeFailure, 'setup ANR changed'):
+                runner.run()
+            self.assertFalse((artifacts / 'summary.json').exists())
+        self.assertFalse(any(command[:3] == ('shell', 'input', 'tap') for command in adb.commands))
+
+    def test_failed_close_action_is_not_retried_as_a_ui_observation(self):
+        adb = FirstRunAdb()
+        original = adb.run
+        def run(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if args[:3] == ('shell', 'input', 'tap'):
+                raise RuntimeFailure('close action failed')
+            return result
+        adb.run = run
+        with self.fixture(adb) as (runner, artifacts, _):
+            with self.assertRaisesRegex(RuntimeFailure, 'close action failed'):
+                runner.run()
+            self.assertFalse((artifacts / 'summary.json').exists())
+        self.assertEqual(adb.commands.count(('shell', 'input', 'tap', '70', '130')), 1)
+
+    def test_late_recovery_does_not_extend_the_original_ui_deadline(self):
+        adb = FirstRunAdb()
+        with self.fixture(adb) as (runner, artifacts, _), patch(
+            'tools.android_install.runner.time.monotonic', side_effect=[0, 0, 56]
+        ):
+            with self.assertRaisesRegex(RuntimeFailure, 'timed out waiting for first Flutter UI'):
+                runner.run()
+            self.assertFalse((artifacts / 'summary.json').exists())
+        self.assertEqual(adb.commands.count(('shell', 'input', 'tap', '70', '130')), 1)
 
 
 class StorageReadinessTests(unittest.TestCase):

@@ -45,7 +45,11 @@ The release matrix job uses `--build-mode release` and
 If Google's SDK setup package shows its exact system ANR dialog during launch,
 the runner retains the dialog XML, focused window and screenshot, confirms the
 device is an emulator, then closes only that setup dialog and retries launch
-once. It rechecks the dialog immediately before tapping. App ANRs, unrelated
+once. A successful launch followed by the same delayed system dialog shares
+that one recovery allowance during first-screen observation, without relaunching
+the app or extending the original 55-second deadline. That path also requires
+the original app PID to remain unchanged. It rechecks the dialog and exact
+focused window immediately before tapping. App ANRs, unrelated
 dialogs and a second setup failure remain failures; original launch diagnostics
 are retained alongside the successful attempt.
 

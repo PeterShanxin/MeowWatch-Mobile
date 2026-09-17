@@ -13,6 +13,7 @@ from pathlib import Path
 import queue
 import re
 import signal
+import struct
 import subprocess
 import threading
 import time
@@ -36,6 +37,8 @@ FIXTURE_NAME = "sync-fixture.mp4"
 FIXTURE_URL = "http://10.0.2.2:18765/sync-fixture.mp4"
 MAX_OBSERVATION_TIMEOUTS = 3
 MAX_PREPARATION_ANR_RECOVERIES = 2
+POST_ROLL_SECONDS = 8
+MAX_RECORDING_BYTES = 64 * 1024 * 1024
 T = TypeVar("T")
 
 
@@ -97,6 +100,100 @@ def recording_device_elapsed(data: bytes) -> float:
     if not math.isfinite(value) or value <= 0:
         raise RuntimeFailure("native recording device elapsed clock is invalid")
     return value
+
+
+def recording_frame_clock(data: bytes, presentation_times: list[float]) -> list[float]:
+    """Read Android 15 screenrecord's original Winscope v2 elapsed timestamps."""
+    magic = b"#VV1NSC0PET1ME2#"
+    found = []
+    offset = 0
+    while offset + 8 <= len(data):
+        size = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        header = 16 if size == 1 else 8
+        if size == 1:
+            size = int.from_bytes(data[offset + 8:offset + 16], "big")
+        elif size == 0:
+            size = len(data) - offset
+        if size < header or offset + size > len(data):
+            raise RuntimeFailure("native recording has an invalid MP4 box")
+        if kind == b"mdat":
+            payload = data[offset + header:offset + size]
+            location = payload.find(magic)
+            while location >= 0:
+                found.append(payload[location + len(magic):])
+                location = payload.find(magic, location + len(magic))
+        offset += size
+    if offset != len(data) or len(found) != 1 or len(found[0]) < 16:
+        raise RuntimeFailure("native recording requires unique Winscope v2 frame-clock metadata")
+    version, _realtime_offset, count = struct.unpack_from("<IqI", found[0])
+    if version != 2 or not 1 <= count <= 20000 or count != len(presentation_times) or len(found[0]) < 16 + count * 8:
+        raise RuntimeFailure("native recording frame-clock version or count is invalid")
+    elapsed = [value / 1e9 for value in struct.unpack_from(f"<{count}Q", found[0], 16)]
+    if (any(value <= 0 for value in elapsed)
+            or any(b < a for a, b in zip(elapsed, elapsed[1:]))
+            or any(not math.isfinite(value) or value < 0 for value in presentation_times)
+            or any(abs((value - elapsed[0]) - (pts - presentation_times[0])) > 0.0001
+                   for value, pts in zip(elapsed, presentation_times))):
+        raise RuntimeFailure("native recording frame clock does not match its actual video PTS")
+    return elapsed
+
+
+def require_recorded_observation(elapsed: list[float], required: float, stopped: float) -> None:
+    if (not math.isfinite(required) or not math.isfinite(stopped) or required <= 0
+            or not elapsed or elapsed[0] > required or elapsed[-1] < required
+            or required > stopped):
+        raise RuntimeFailure("native recording does not cover its final required device observation")
+
+
+class RecordingPictures:
+    """Incrementally count complete picture NALs without rereading the MP4."""
+    def __init__(self) -> None:
+        self.buffer = b""
+        self.read_bytes = 0
+        self.consumed_bytes = 0
+        self.in_media = False
+        self.picture_ends: list[int] = []
+
+    def feed(self, chunk: bytes) -> None:
+        self.read_bytes += len(chunk)
+        if self.read_bytes > MAX_RECORDING_BYTES:
+            raise RuntimeFailure("native recording progress exceeds its byte bound")
+        self.buffer += chunk
+        while True:
+            if not self.in_media:
+                if len(self.buffer) < 8:
+                    return
+                size = int.from_bytes(self.buffer[:4], "big")
+                header = 16 if size == 1 else 8
+                if len(self.buffer) < header:
+                    return
+                if self.buffer[4:8] == b"mdat":
+                    consumed = header
+                    self.in_media = True
+                else:
+                    if size == 1:
+                        size = int.from_bytes(self.buffer[8:16], "big")
+                    if not header <= size <= 1024 * 1024:
+                        raise RuntimeFailure("native recording progress has an invalid MP4 header")
+                    if len(self.buffer) < size:
+                        return
+                    consumed = size
+            else:
+                if len(self.buffer) < 4:
+                    return
+                size = int.from_bytes(self.buffer[:4], "big")
+                if not 1 <= size <= 8 * 1024 * 1024:
+                    raise RuntimeFailure("native recording progress has an invalid NAL length")
+                if len(self.buffer) < 4 + size:
+                    return
+                consumed = 4 + size
+                if self.buffer[4] & 0x1f in (1, 5):
+                    self.picture_ends.append(self.consumed_bytes + consumed)
+                    if len(self.picture_ends) > 20000:
+                        raise RuntimeFailure("native recording progress exceeds its picture bound")
+            self.consumed_bytes += consumed
+            self.buffer = self.buffer[consumed:]
 
 
 class LifecycleRecording:
@@ -169,10 +266,58 @@ class LifecycleRecording:
             self.metadata.update({"status": "failed", "error": str(error)})
             raise
 
-    def finish(self) -> None:
+    def post_roll(self, phase: str) -> None:
+        # Winscope timestamps are written only when screenrecord stops. Live
+        # NAL progress is a drain hint; the finalized timestamps decide coverage.
+        required = recording_device_elapsed(
+            self.adb.run("exec-out", "cat", "/proc/uptime", timeout=3).stdout)
+        self.metadata.update({"requiredThroughDeviceElapsedSeconds": required,
+                              "requiredThroughPhase": phase,
+                              "requiredThroughSource": "Android /proc/uptime after final native observation and screenshot"})
+        deadline = time.monotonic() + POST_ROLL_SECONDS
+        progress = RecordingPictures()
+        observations: list[dict[str, object]] = []
+        self.metadata["postRoll"] = {"limitSeconds": POST_ROLL_SECONDS,
+                                     "startedAtMonotonic": deadline - POST_ROLL_SECONDS,
+                                     "observations": observations}
+        size = self.adb.run("shell", "stat", "-c", "%s", self.remote, timeout=2).stdout.strip()
+        if re.fullmatch(rb"[0-9]+", size) is None or not 0 < int(size) <= MAX_RECORDING_BYTES:
+            raise RuntimeFailure("native recording post-roll cannot establish its original file size")
+        initial_bytes = int(size)
+        self.metadata["postRoll"]["initialBytes"] = initial_bytes
+        while time.monotonic() < deadline:
+            if self.process is None or self.process.poll() is not None:
+                raise RuntimeFailure("native recording exited during post-roll")
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            # The path was generated and verified by start(); the integer byte
+            # cursor avoids repeatedly transferring already observed footage.
+            command = f"tail -c +{progress.read_bytes + 1} {self.remote} | head -c 1048576"
+            chunk = self.adb.run("exec-out", "sh", "-c", command, timeout=min(2, remaining)).stdout
+            progress.feed(chunk)
+            observations.append({"hostMonotonic": time.monotonic(), "bytesRead": progress.read_bytes,
+                                 "completePictureNals": len(progress.picture_ends)})
+            remaining = deadline - time.monotonic()
+            if remaining > 0 and len(chunk) < 1048576:
+                time.sleep(min(1, remaining))
+        advanced = sum(end > initial_bytes for end in progress.picture_ends)
+        self.metadata["postRoll"]["newCompletePictureNals"] = advanced
+        self.metadata["postRoll"]["finishedAtMonotonic"] = time.monotonic()
+        if not advanced:
+            raise RuntimeFailure("native recording produced no new complete picture during bounded post-roll")
+
+    def finish(self, *, required_phase: str | None = None) -> None:
         if self.finished or self.process is None:
             return
         self.finished = True
+        post_roll_error: Exception | None = None
+        if required_phase is not None:
+            try:
+                self.post_roll(required_phase)
+            except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
+                post_roll_error = error
+                self.metadata["postRollError"] = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
         stopped = time.monotonic()
         self.metadata["stopRequestedAtMonotonic"] = stopped
         exited_early = self.process.poll() is not None
@@ -210,7 +355,8 @@ class LifecycleRecording:
             if clock_error is not None:
                 raise RuntimeFailure("native recording device elapsed clock is unavailable") from clock_error
             probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
-                                    "stream=codec_type,width,height,duration", "-of", "json", str(self.output)],
+                                    "stream=codec_type,width,height,duration:frame=media_type,pts_time",
+                                    "-show_frames", "-of", "json", str(self.output)],
                                    capture_output=True, check=False, timeout=15)
             if probe.returncode:
                 raise RuntimeFailure("native lifecycle recording could not be decoded by ffprobe")
@@ -231,6 +377,20 @@ class LifecycleRecording:
             self.metadata.update({"videoDurationSeconds": duration, "measuredSegmentSeconds": elapsed,
                                   "measurementClock": "Android /proc/uptime elapsed seconds",
                                   "hostSegmentSeconds": stopped - float(self.metadata["startedAtMonotonic"])})
+            frame_clock_error: Exception | None = None
+            try:
+                pts = [float(frame["pts_time"]) for frame in metadata["frames"] if frame["media_type"] == "video"]
+                frame_clock = recording_frame_clock(data, pts)
+                self.metadata.update({"frameClockSource": "Android screenrecord Winscope v2 elapsedRealtime nanoseconds",
+                                      "frameCount": len(frame_clock),
+                                      "firstFrameDeviceElapsedSeconds": frame_clock[0],
+                                      "lastFrameDeviceElapsedSeconds": frame_clock[-1]})
+                self.output.with_suffix(".frame-clock.json").write_text(json.dumps({
+                    "deviceElapsedSeconds": frame_clock, "videoPresentationSeconds": pts,
+                }, indent=2), encoding="utf-8")
+            except (RuntimeFailure, KeyError, TypeError, ValueError) as error:
+                frame_clock_error = error
+                self.metadata["frameClockError"] = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
             validate_recording_duration(duration, elapsed, exited_early)
             decoded = subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(self.output),
                                       "-map", "0:v:0", "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
@@ -239,6 +399,16 @@ class LifecycleRecording:
             self.metadata["decodeExitCode"] = decoded.returncode
             if decoded.returncode != 0 or decoded.stderr.strip():
                 raise RuntimeFailure("native lifecycle recording could not be decoded completely")
+            if frame_clock_error is not None:
+                raise RuntimeFailure("native recording frame-clock evidence is unavailable or invalid") from frame_clock_error
+            if required_phase is not None:
+                required = self.metadata.get("requiredThroughDeviceElapsedSeconds")
+                if required is None:
+                    raise RuntimeFailure("native recording final required device clock is unavailable")
+                require_recorded_observation(frame_clock, float(required),
+                                             float(self.metadata["stopRequestedAtDeviceElapsedSeconds"]))
+            if post_roll_error is not None:
+                raise RuntimeFailure("native recording bounded post-roll failed") from post_roll_error
             self.metadata["status"] = "verified"
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
             self.metadata["status"] = "failed"
@@ -656,7 +826,7 @@ class Runner:
         time.sleep(4)
         _, advanced = self.sample("04-advanced", playing=True)
         first_advance = require_playing_advance(initial, advanced)
-        self.finish_recording()
+        self.finish_recording(required_phase=self.phase)
         self.start_recording()
         before_home_pid = self.pid()
         if not before_home_pid:
@@ -702,9 +872,18 @@ class Runner:
         _, restored = self.sample("11-resumed-paused", playing=False)
         require_restored_position(saved, restored)
         time.sleep(4)
-        _, restored_stable = self.sample("12-restored-no-autoplay", playing=False)
+        xml, restored_stable = self.sample("12-restored-no-autoplay", playing=False)
         require_paused_stability(restored, restored_stable)
-        self.finish_recording()
+        # Prove manual continuation only after the independent no-autoplay
+        # checks pass. A playing tail also avoids requiring VFR static repeats.
+        self.tap(button(xml, "Play", "Play together"))
+        _, resumed_playing = self.sample("13-restored-explicit-play", playing=True)
+        time.sleep(4)
+        _, resumed_advanced = self.sample("14-restored-play-advanced", playing=True)
+        resumed_advance = require_playing_advance(resumed_playing, resumed_advanced)
+        if self.pid() != new_pid:
+            raise RuntimeFailure("the restored application process changed during explicit playback")
+        self.finish_recording(required_phase=self.phase)
         report.update({
             "completed": True,
             "initialPlayAdvanceSeconds": first_advance,
@@ -721,6 +900,7 @@ class Runner:
             "historyPositionSeconds": history_position,
             "restoredPositionSeconds": restored.position_seconds,
             "noAutoplayAfterRestart": True,
+            "explicitReplayAfterRestartAdvanceSeconds": resumed_advance,
             "samples": self.samples,
             "observationTimeouts": self.observation_timeouts,
             "preparationAnrRecoveries": self.preparation_recoveries,
@@ -740,10 +920,10 @@ class Runner:
                 float(self.recording.metadata["startedAtMonotonic"])
                 - float(self.recordings[-2]["stopRequestedAtMonotonic"]))
 
-    def finish_recording(self) -> None:
+    def finish_recording(self, *, required_phase: str | None = None) -> None:
         if self.recording is not None:
             try:
-                self.recording.finish()
+                self.recording.finish(required_phase=required_phase)
             finally:
                 self.recording = None
 

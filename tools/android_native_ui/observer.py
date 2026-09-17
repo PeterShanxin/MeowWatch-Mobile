@@ -25,10 +25,32 @@ MAX_OUTPUT_BYTES = 360000
 MAX_NODES = 2048
 MAX_DEPTH = 48
 MAX_ATTRIBUTE = 4096
+MAX_CAPTURE_ATTEMPTS = 4
+RETRYABLE_CAPTURE_ERRORS = frozenset({
+    "root_missing", "root_refresh_failed", "root_invisible", "child_missing", "capture_deadline",
+})
+CAPTURE_ERRORS = RETRYABLE_CAPTURE_ERRORS | {
+    "node_limit", "depth_limit", "attribute_limit", "byte_limit", "child_count_limit",
+    "native_security_exception", "native_state_exception",
+    "native_argument_exception", "serialization_io_exception", "native_exception",
+}
 
 
 class ObserverIntegrityFailure(RuntimeFailure):
     """An invalid capture or a changed production process cannot be retried away."""
+
+
+class ObserverCaptureFailure(RuntimeFailure):
+    """A validated native failure with bounded, content-free structural evidence."""
+
+    def __init__(self, reason: str, uptime_ms: int, attempts: tuple[dict[str, object], ...]) -> None:
+        super().__init__("native observer could not capture a complete active-window hierarchy "
+                         f"({reason})")
+        self.reason, self.uptime_ms, self.attempts = reason, uptime_ms, attempts
+
+
+class ObserverNativeFailure(ObserverCaptureFailure, ObserverIntegrityFailure):
+    """A native exception or exceeded structural limit must fail the gate immediately."""
 
 
 @dataclass(frozen=True)
@@ -36,6 +58,29 @@ class Snapshot:
     xml: str
     uptime_ms: int
     node_count: int
+    attempts: tuple[dict[str, object], ...]
+
+
+def parse_attempts(value: str) -> tuple[dict[str, object], ...]:
+    """Only fixed reason codes and bounded integers may reach evidence or logs."""
+    entries = value.split(";")
+    if not 1 <= len(entries) <= MAX_CAPTURE_ATTEMPTS:
+        raise ObserverIntegrityFailure("native observer attempt count is invalid")
+    attempts = []
+    for entry in entries:
+        match = re.fullmatch(r"([a-z_]+):([0-9]{1,4}):(-?[0-9]{1,2}):(-?[0-9]{1,4}):(-?[0-9]{1,4})", entry)
+        if match is None or match[1] not in CAPTURE_ERRORS | {"ok"}:
+            raise ObserverIntegrityFailure("native observer attempt diagnostics are invalid")
+        nodes, depth, index, children = map(int, match.groups()[1:])
+        if (not 0 <= nodes <= MAX_NODES + 1 or not -1 <= depth <= MAX_DEPTH + 1
+                or not -1 <= index <= MAX_NODES or not -1 <= children <= MAX_NODES + 1):
+            raise ObserverIntegrityFailure("native observer attempt diagnostics exceed their bounds")
+        attempts.append({"reason": match[1], "visitedNodes": nodes, "depth": depth,
+                         "childIndex": index, "childCount": children})
+    if any(attempt["reason"] not in RETRYABLE_CAPTURE_ERRORS - {"capture_deadline"}
+           for attempt in attempts[:-1]):
+        raise ObserverIntegrityFailure("native observer retried a terminal capture failure")
+    return tuple(attempts)
 
 
 def installation_diagnostics(result: subprocess.CompletedProcess[bytes]) -> dict[str, object]:
@@ -77,21 +122,30 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
             code = line.removeprefix("INSTRUMENTATION_CODE: ")
         else:
             raise ObserverIntegrityFailure("native observer returned an unexpected response")
-    if code == "0" and set(fields) == {"observer_error"} and fields["observer_error"] in {
-        "root_unavailable", "snapshot_failed",
-    }:
-        raise RuntimeFailure("native observer could not capture a complete active-window hierarchy")
-    expected = {"observer_protocol", "observer_nonce", "observer_uptime_ms", "observer_nodes", "observer_xml"}
-    if code != "-1" or set(fields) != expected or fields["observer_protocol"] != "1":
-        raise ObserverIntegrityFailure("native observer did not return a successful snapshot")
+    common = {"observer_protocol", "observer_nonce", "observer_uptime_ms", "observer_attempts"}
+    expected = common | ({"observer_nodes", "observer_xml"} if code == "-1" else {"observer_error"})
+    if code not in {"0", "-1"} or set(fields) != expected or fields["observer_protocol"] != "2":
+        raise ObserverIntegrityFailure("native observer response protocol is invalid")
     if (re.fullmatch(r"[a-f0-9]{32}", fields["observer_nonce"]) is None
             or not secrets.compare_digest(fields["observer_nonce"], nonce)):
         raise ObserverIntegrityFailure("native observer response is not from this capture request")
-    if (re.fullmatch(r"[0-9]{1,16}", fields["observer_uptime_ms"]) is None
-            or re.fullmatch(r"[0-9]{1,4}", fields["observer_nodes"]) is None):
+    if re.fullmatch(r"[0-9]{1,16}", fields["observer_uptime_ms"]) is None:
         raise ObserverIntegrityFailure("native observer snapshot metadata is invalid")
-    uptime, node_count = int(fields["observer_uptime_ms"]), int(fields["observer_nodes"])
-    if uptime <= previous_uptime_ms or not 1 <= node_count <= MAX_NODES:
+    uptime = int(fields["observer_uptime_ms"])
+    if uptime <= previous_uptime_ms:
+        raise ObserverIntegrityFailure("native observer snapshot is stale or exceeds the node limit")
+    attempts = parse_attempts(fields["observer_attempts"])
+    if code == "0":
+        reason = fields["observer_error"]
+        if reason not in CAPTURE_ERRORS or attempts[-1]["reason"] != reason:
+            raise ObserverIntegrityFailure("native observer failure diagnostics do not match")
+        failure_type = ObserverCaptureFailure if reason in RETRYABLE_CAPTURE_ERRORS else ObserverNativeFailure
+        raise failure_type(reason, uptime, attempts)
+    if (re.fullmatch(r"[0-9]{1,4}", fields["observer_nodes"]) is None
+            or attempts[-1]["reason"] != "ok"):
+        raise ObserverIntegrityFailure("native observer snapshot metadata is invalid")
+    node_count = int(fields["observer_nodes"])
+    if not 1 <= node_count <= MAX_NODES or attempts[-1]["visitedNodes"] != node_count:
         raise ObserverIntegrityFailure("native observer snapshot is stale or exceeds the node limit")
     try:
         xml_bytes = base64.b64decode(fields["observer_xml"], validate=True)
@@ -121,7 +175,7 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
         stack.extend((child, depth + 1) for child in node)
     if count != node_count:
         raise ObserverIntegrityFailure("native observer hierarchy node count does not match")
-    return Snapshot(xml, uptime, count)
+    return Snapshot(xml, uptime, count, attempts)
 
 
 class NativeUiObserver:
@@ -180,30 +234,62 @@ class NativeUiObserver:
             raise ObserverIntegrityFailure("native UI observer has not been installed and verified")
         nonce = secrets.token_hex(16)
         started = time.monotonic()
-        before_pid = self.production_pid()
+        evidence: dict[str, object] = {"status": "failure", "requestNonce": nonce,
+                                      "startedAtMonotonic": started}
+        stage = "application_pid_before"
         try:
-            result = self.adb.run("shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
-                                  COMPONENT, timeout=10)
-        except subprocess.TimeoutExpired:
-            # A timed-out host command may leave our helper running on Android.
-            # Stop only the independently installed package, never the app.
-            self.adb.run("shell", "am", "force-stop", OBSERVER_PACKAGE, timeout=10)
-            if self.production_pid() != before_pid:
-                raise ObserverIntegrityFailure("application process changed during timed-out native UI capture")
+            before_pid = self.production_pid()
+            evidence["applicationPid"] = int(before_pid)
+            stage = "instrumentation"
+            try:
+                result = self.adb.run("shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
+                                      COMPONENT, timeout=10)
+            except subprocess.TimeoutExpired:
+                # Stop only our independently installed helper, never the app.
+                self.adb.run("shell", "am", "force-stop", OBSERVER_PACKAGE, timeout=10)
+                if self.production_pid() != before_pid:
+                    raise ObserverIntegrityFailure("application process changed during timed-out native UI capture")
+                raise
+            evidence["stdoutBytes"] = len(result.stdout)
+            evidence["stdoutSha256"] = hashlib.sha256(result.stdout).hexdigest()
+            stage = "window"
+            window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode(
+                "utf-8", errors="replace")
+            focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window)
+            evidence["window"] = {
+                "bytes": len(window.encode("utf-8")), "sha256": hashlib.sha256(window.encode()).hexdigest(),
+                "focusedWindowCount": len(focuses),
+                "applicationFocused": len(focuses) == 1 and re.search(
+                    rf"\b{re.escape(PACKAGE)}/[^\s}}]+", focuses[0]) is not None,
+            }
+            stage = "application_pid_after"
+            after_pid = self.production_pid()
+            evidence["applicationPidAfter"] = int(after_pid)
+            if after_pid != before_pid:
+                raise ObserverIntegrityFailure("application process changed during native UI capture")
+            stage = "response"
+            snapshot = parse_snapshot(result.stdout, nonce, previous_uptime_ms=self.previous_uptime_ms)
+            self.previous_uptime_ms = snapshot.uptime_ms
+            evidence.update({"status": "success", "capturedAtUptimeMs": snapshot.uptime_ms,
+                             "nodeCount": snapshot.node_count, "attempts": list(snapshot.attempts),
+                             "xmlSha256": hashlib.sha256(snapshot.xml.encode()).hexdigest()})
+            return snapshot.xml, window
+        except ObserverCaptureFailure as error:
+            self.previous_uptime_ms = error.uptime_ms
+            evidence.update({"failure": error.reason, "capturedAtUptimeMs": error.uptime_ms,
+                             "attempts": list(error.attempts),
+                             "integrityFailure": isinstance(error, ObserverIntegrityFailure)})
             raise
-        window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode(
-            "utf-8", errors="replace")
-        if self.production_pid() != before_pid:
-            raise ObserverIntegrityFailure("application process changed during native UI capture")
-        snapshot = parse_snapshot(result.stdout, nonce, previous_uptime_ms=self.previous_uptime_ms)
-        self.previous_uptime_ms = snapshot.uptime_ms
-        self.observations.append({
-            "requestNonce": nonce, "capturedAtUptimeMs": snapshot.uptime_ms,
-            "startedAtMonotonic": started, "completedAtMonotonic": time.monotonic(),
-            "applicationPid": int(before_pid), "nodeCount": snapshot.node_count,
-            "xmlSha256": hashlib.sha256(snapshot.xml.encode()).hexdigest(),
-        })
-        return snapshot.xml, window
+        except subprocess.TimeoutExpired:
+            evidence["failure"] = stage + "_timeout"
+            raise
+        except RuntimeFailure as error:
+            evidence.update({"failure": stage + "_failed",
+                             "integrityFailure": isinstance(error, ObserverIntegrityFailure)})
+            raise
+        finally:
+            evidence["completedAtMonotonic"] = time.monotonic()
+            self.observations.append(evidence)
 
     def cleanup(self) -> None:
         if self.owns_package:

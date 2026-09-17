@@ -20,8 +20,15 @@ public final class SnapshotInstrumentation extends Instrumentation {
     private static final int MAX_DEPTH = 48;
     private static final int MAX_BYTES = 262144;
     private static final int MAX_ATTRIBUTE = 4096;
+    private static final int MAX_ATTEMPTS = 4;
+    private static final long CAPTURE_BUDGET_MS = 4000;
+    private static final long RETRY_DELAY_MS = 100;
     private String nonce;
     private int nodes;
+    private int currentDepth = -1;
+    private int currentIndex = -1;
+    private int currentChildren = -1;
+    private long deadline;
 
     @Override
     public void onCreate(Bundle arguments) {
@@ -32,8 +39,8 @@ public final class SnapshotInstrumentation extends Instrumentation {
 
     @Override
     public void onStart() {
-        Bundle result = new Bundle();
-        AccessibilityNodeInfo root = null;
+        deadline = SystemClock.uptimeMillis() + CAPTURE_BUDGET_MS;
+        StringBuilder attempts = new StringBuilder();
         try {
             if (nonce == null || !nonce.matches("[a-f0-9]{32}")) {
                 throw new IllegalArgumentException();
@@ -44,14 +51,60 @@ public final class SnapshotInstrumentation extends Instrumentation {
             service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
             service.flags &= ~AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
             automation.setServiceInfo(service);
-            // Playback changes accessibility values every 100 ms. A quiet-window
-            // wait would starve. Read the active window directly and fail closed
-            // if a complete, refreshed tree cannot be captured.
+            for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+                nodes = 0;
+                currentDepth = currentIndex = currentChildren = -1;
+                try {
+                    Bundle result = snapshot(automation);
+                    appendAttempt(attempts, "ok");
+                    metadata(result, attempts);
+                    finish(Activity.RESULT_OK, result);
+                    return;
+                } catch (CaptureFailure error) {
+                    appendAttempt(attempts, error.reason);
+                    if (!error.retryable() || attempt == MAX_ATTEMPTS
+                            || SystemClock.uptimeMillis() + RETRY_DELAY_MS >= deadline) {
+                        fail(error.reason, attempts);
+                        return;
+                    }
+                    // Keep this connection alive while Android publishes its new
+                    // tree. Never await UI idleness or reuse any partial traversal.
+                    SystemClock.sleep(RETRY_DELAY_MS);
+                }
+            }
+        } catch (Exception error) {
+            // Fixed classifications retain the kind of failure, never exception
+            // messages, view text, resource IDs or arbitrary class names.
+            String reason;
+            if (error instanceof SecurityException) {
+                reason = "native_security_exception";
+            } else if (error instanceof IllegalStateException) {
+                reason = "native_state_exception";
+            } else if (error instanceof IllegalArgumentException) {
+                reason = "native_argument_exception";
+            } else if (error instanceof IOException) {
+                reason = "serialization_io_exception";
+            } else {
+                reason = "native_exception";
+            }
+            appendAttempt(attempts, reason);
+            fail(reason, attempts);
+        }
+    }
+
+    private Bundle snapshot(UiAutomation automation) throws IOException {
+        AccessibilityNodeInfo root = null;
+        try {
+            checkDeadline();
             root = automation.getRootInActiveWindow();
-            if (root == null || !root.refresh() || !root.isVisibleToUser()) {
-                result.putString("observer_error", "root_unavailable");
-                finish(Activity.RESULT_CANCELED, result);
-                return;
+            if (root == null) {
+                throw new CaptureFailure("root_missing");
+            }
+            if (!root.refresh()) {
+                throw new CaptureFailure("root_refresh_failed");
+            }
+            if (!root.isVisibleToUser()) {
+                throw new CaptureFailure("root_invisible");
             }
             long capturedAt = SystemClock.uptimeMillis();
             BoundedOutput output = new BoundedOutput();
@@ -63,17 +116,12 @@ public final class SnapshotInstrumentation extends Instrumentation {
             serializer.endTag(null, "hierarchy");
             serializer.endDocument();
             serializer.flush();
-            result.putString("observer_protocol", "1");
-            result.putString("observer_nonce", nonce);
+            checkDeadline();
+            Bundle result = new Bundle();
             result.putString("observer_uptime_ms", Long.toString(capturedAt));
             result.putString("observer_nodes", Integer.toString(nodes));
             result.putString("observer_xml", Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
-            finish(Activity.RESULT_OK, result);
-        } catch (Exception error) {
-            // Exception text can contain visible UI data. Return only a fixed code.
-            result.clear();
-            result.putString("observer_error", "snapshot_failed");
-            finish(Activity.RESULT_CANCELED, result);
+            return result;
         } finally {
             if (root != null) {
                 root.recycle();
@@ -81,10 +129,45 @@ public final class SnapshotInstrumentation extends Instrumentation {
         }
     }
 
+    private void metadata(Bundle result, StringBuilder attempts) {
+        result.putString("observer_protocol", "2");
+        result.putString("observer_nonce", nonce);
+        result.putString("observer_attempts", attempts.toString());
+    }
+
+    private void fail(String reason, StringBuilder attempts) {
+        Bundle result = new Bundle();
+        metadata(result, attempts);
+        result.putString("observer_uptime_ms", Long.toString(SystemClock.uptimeMillis()));
+        result.putString("observer_error", reason);
+        finish(Activity.RESULT_CANCELED, result);
+    }
+
+    private void appendAttempt(StringBuilder attempts, String reason) {
+        if (attempts.length() > 0) {
+            attempts.append(';');
+        }
+        attempts.append(reason).append(':').append(nodes).append(':').append(currentDepth)
+            .append(':').append(currentIndex).append(':').append(currentChildren);
+    }
+
+    private void checkDeadline() {
+        if (SystemClock.uptimeMillis() >= deadline) {
+            throw new CaptureFailure("capture_deadline");
+        }
+    }
+
     private void writeNode(XmlSerializer xml, AccessibilityNodeInfo node, int index, int depth)
             throws IOException {
-        if (++nodes > MAX_NODES || depth > MAX_DEPTH) {
-            throw new IllegalStateException();
+        currentDepth = depth;
+        currentIndex = index;
+        currentChildren = -1;
+        checkDeadline();
+        if (++nodes > MAX_NODES) {
+            throw new CaptureFailure("node_limit");
+        }
+        if (depth > MAX_DEPTH) {
+            throw new CaptureFailure("depth_limit");
         }
         xml.startTag(null, "node");
         attribute(xml, "index", Integer.toString(index));
@@ -109,13 +192,18 @@ public final class SnapshotInstrumentation extends Instrumentation {
         attribute(xml, "bounds", "[" + bounds.left + "," + bounds.top + "]["
             + bounds.right + "," + bounds.bottom + "]");
         int children = node.getChildCount();
+        currentChildren = Math.min(children, MAX_NODES + 1);
         if (children > MAX_NODES - nodes) {
-            throw new IllegalStateException();
+            throw new CaptureFailure("child_count_limit");
         }
         for (int i = 0; i < children; i++) {
+            currentDepth = depth + 1;
+            currentIndex = i;
+            currentChildren = children;
+            checkDeadline();
             AccessibilityNodeInfo child = node.getChild(i);
             if (child == null) {
-                throw new IllegalStateException();
+                throw new CaptureFailure("child_missing");
             }
             try {
                 if (child.isVisibleToUser()) {
@@ -132,16 +220,29 @@ public final class SnapshotInstrumentation extends Instrumentation {
             throws IOException {
         String text = value == null ? "" : value.toString();
         if (text.length() > MAX_ATTRIBUTE) {
-            throw new IllegalStateException();
+            throw new CaptureFailure("attribute_limit");
         }
         xml.attribute(null, name, text);
+    }
+
+    private static final class CaptureFailure extends RuntimeException {
+        final String reason;
+
+        CaptureFailure(String reason) {
+            this.reason = reason;
+        }
+
+        boolean retryable() {
+            return reason.equals("root_missing") || reason.equals("root_refresh_failed")
+                || reason.equals("root_invisible") || reason.equals("child_missing");
+        }
     }
 
     private static final class BoundedOutput extends ByteArrayOutputStream {
         @Override
         public synchronized void write(int value) {
             if (count >= MAX_BYTES) {
-                throw new IllegalStateException();
+                throw new CaptureFailure("byte_limit");
             }
             super.write(value);
         }
@@ -149,7 +250,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
         @Override
         public synchronized void write(byte[] buffer, int offset, int length) {
             if (length > MAX_BYTES - count) {
-                throw new IllegalStateException();
+                throw new CaptureFailure("byte_limit");
             }
             super.write(buffer, offset, length);
         }

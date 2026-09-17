@@ -54,9 +54,12 @@ The installed component check matches Android PackageManager's shortened
 `package/.SnapshotInstrumentation` output and requires the exact self-target.
 Missing, duplicate, additional or differently targeted instrumentation fails.
 
-Each `am instrument -w -r` request carries a new random 128-bit nonce. The helper
+Each `am instrument -w -r` request carries a new random 128-bit nonce. Protocol 2
 returns one XML snapshot as Base64 in its instrumentation result, together with
-the nonce, device uptime, protocol version and node count. There is no shared
+the nonce, device uptime, node count and bounded capture-attempt diagnostics.
+Failed responses must also carry the matching nonce and a fresh device timestamp;
+old protocol responses fail validation, so rebuild the helper when updating the
+host. There is no shared
 snapshot file to become stale. The host validates every field and requires
 increasing device timestamps. It independently queries window focus and checks
 the MeowWatch PID before and after capture. A PID change, malformed response or
@@ -67,12 +70,41 @@ The Java serializer and Python parser both enforce limits: 2,048 nodes, depth 48
 to 360,000 bytes. Missing roots, partial trees, malformed data and exceeded
 limits fail instead of silently truncating or reusing a previous snapshot.
 There is no UI-idle wait, input action or app lifecycle operation in the helper.
-Errors expose fixed descriptions, never raw command/response payloads.
+Errors expose fixed descriptions, never raw command/response payloads. Native
+failure codes distinguish missing roots, failed refreshes, invisible roots,
+missing children, structural limits and recognized exception categories. An
+unknown exception is an immediate integrity failure; its message is never emitted.
+
+Android can temporarily return a missing root or child while a new accessibility
+connection or updated tree is being published. For these four transient reasons,
+the helper permits at most four attempts in the **same** `UiAutomation` connection,
+100 ms apart, under a four-second capture budget checked during traversal. Each
+attempt obtains and refreshes a new active root, resets its node count and XML
+buffer, and recycles the entire previous traversal. It never returns partial XML.
+The ten-second host watchdog still bounds a blocked Android framework call.
+Exceeding the internal time budget produces `capture_deadline`; structural limits
+and native exceptions are never retried inside the connection or by callers that
+honor `ObserverIntegrityFailure`. No acceptance deadline or timeline requirement
+is extended.
+
+`observer_attempts` is a bounded, content-free sequence of
+`reason:visitedNodes:depth:childIndex:childCount` records. Unknown numeric locations
+are `-1`; an excessive child count is capped at 2,049 for diagnostics only and
+still fails capture. The host validates reason codes, numeric bounds, attempt
+count and terminal success/failure consistency before retaining any diagnostics.
+Only transient failures may precede another attempt. A successful final tree
+must independently satisfy the existing node-count and XML checks.
 
 Each capture has a ten-second instrumentation timeout. If it expires, the host
 stops only the owned helper package, confirms that the app PID stayed unchanged,
-and lets the caller retry within its original deadline. Successful evidence
-records the nonce, device and host timestamps, app PID, node count and XML hash.
+and lets the caller retry within its original deadline. `observations` now records
+both `status: success` and `status: failure`. Successful evidence retains the
+nonce, device and host timestamps, app PID, node count and XML hash. Failed
+captures retain fixed failure codes, validated attempt diagnostics when available,
+host timing, process IDs and window-focus evidence. Window evidence contains only
+its byte count/hash, focused-window count and whether MeowWatch was focused;
+raw window titles and arbitrary response payloads are not copied into diagnostics.
+The caller must still validate the actual returned window before accepting UI.
 This does not make the tree atomic: it is a bounded live accessibility read,
 so callers must still validate related timeline, source, controls and focus.
 

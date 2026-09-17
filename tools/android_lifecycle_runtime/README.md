@@ -37,6 +37,10 @@ whose ownership the existing server helper verifies.
 7. Tap that card. Require the same filename and 90-second timeline, restored paused
    position within one second, and another four-second observation with no
    autoplay or progress.
+8. Only after those restored-pause checks pass, explicitly tap the native **Play**
+   control. Observe playback, wait four seconds, and require at least two displayed
+   seconds of further progress in the same new application PID. This proves that
+   the user can manually continue watching after process restart.
 
 The fixture is the existing reviewed, SHA-256-checked CC0 Flutter bee video,
 repeated by packet copy using `tools/android_multi_device/prepare_fixture.sh`.
@@ -88,7 +92,8 @@ The workflow retains the helper build/signature/manifest evidence as well.
 
 Two original native `screenrecord` MP4 segments supplement the XML assertions:
 initial fixture review/playback, then the immediate pre-HOME sample through
-foreground, explicit replay and new-process restoration. Each is limited to
+foreground, explicit replay, new-process restoration and manual continuation.
+Each is limited to
 180 seconds and uses an even, proportional size within 720 x 1600 at 2 Mbps.
 The runner waits for a complete H.264 picture in the MP4 media payload before
 starting UI actions. It checks the exact recorder PID and output path before
@@ -100,6 +105,56 @@ missing. Both endpoints use Android `/proc/uptime`; host times are retained
 separately. Early exits, truncated footage, a failed full `ffmpeg` decode, missing
 device clock observations or cleanup failures cannot leave a passing result.
 No recording is padded.
+
+After the final successful native observation and its screenshot in each segment,
+the runner samples `/proc/uptime` as `requiredThroughDeviceElapsedSeconds` and
+keeps recording during an eight-second bounded post-roll window. It reads only
+new bytes from the original recording, counts complete H.264 picture NALs, and
+requires at least one new picture beyond the file size observed at the start of
+that window. Partial NALs, container/header growth, or a running process are not
+picture progress. This is a recording-progress hint, not proof that the final
+observation was captured. A post-roll failure still stops the owned recorder
+and preserves the original file and failure metadata.
+
+Both segments end in independently observed **playing** advancement (`04-advanced`
+and `14-restored-play-advanced`). The restored paused state and four-second
+no-autoplay interval (`11` and `12`) must pass before the final native Play tap.
+A static VFR screen is not required to generate new frames during that paused
+interval; subsequent manual playback supplies an actual changing tail. Android's
+[buffer-source implementation](https://android.googlesource.com/platform/frameworks/av/+/refs/tags/android-15.0.0_r1/media/module/bqhelper/GraphicBufferSource.cpp#336)
+does not enable frame repetition by default, so continued recording alone is
+not evidence that a static scene will produce another picture. The final manual
+Play never substitutes for or resets the earlier no-autoplay assertions.
+
+The finalized original MP4 must contain one valid Android Winscope v2 frame-clock
+metadata record. Its frame count and relative timestamps must agree with the
+actual video frames reported by `ffprobe` (within 0.1 ms for muxer quantization).
+The first frame must precede, and the last frame must reach or follow, the final
+required device observation. Missing, ambiguous, malformed or mismatched clock
+metadata fails acceptance. The original three-second duration rule still covers
+the entire ready-to-SIGINT interval **including post-roll**; it is not shortened
+to the final observation. Continued encoder lag can therefore still fail this
+gate even when the key observation is present. Full decoding, recorder ownership
+and all playback/HOME/restart assertions remain required.
+
+This clock is defined by Android's own
+[screenrecord implementation](https://android.googlesource.com/platform/frameworks/av/+/refs/tags/android-15.0.0_r1/cmds/screenrecord/screenrecord.cpp#444):
+Winscope v2 stores each encoded frame's presentation time in the
+`elapsedRealtime` clock. It is written only after the encoder output loop ends,
+so live file growth cannot establish that timestamp coverage before stopping.
+`native/lifecycle-XX.frame-clock.json` retains every parsed device timestamp
+alongside its video PTS. The recordings manifest records the required phase,
+clock source, first/last frame times, post-roll byte/picture observations, and
+any failed post-roll or frame-clock validation.
+
+Run `35219098578` demonstrates why the final observation needs its own gate:
+its first segment decoded completely, but its last actual frame was at device
+elapsed 123.391883899 seconds, before the final native observation at 125.929
+seconds and the stop request at 130.79 seconds. The final video picture displayed
+26 seconds while the subsequent original screenshot displayed 29 seconds.
+The original duration guard correctly failed it; it provides no HOME or
+process-restart acceptance. A fresh native run is needed to establish the
+post-roll behavior, and synthetic clock tests do not establish capture quality.
 
 `recordings.json` and `result.json` retain host launch/PID/start/stop/pull times,
 device ready/stop times, the original MP4 SHA-256, measured/decoded durations

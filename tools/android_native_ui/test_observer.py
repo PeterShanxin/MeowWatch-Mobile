@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_native_ui.observer import (
     COMPONENT, SHORT_COMPONENT, MAX_ATTRIBUTE, MAX_DEPTH, MAX_NODES, MAX_OUTPUT_BYTES, MAX_XML_BYTES,
-    NativeUiObserver, OBSERVER_PACKAGE, ObserverIntegrityFailure, parse_snapshot,
+    NativeUiObserver, OBSERVER_PACKAGE, ObserverCaptureFailure, ObserverIntegrityFailure, parse_snapshot,
     installation_diagnostics,
 )
 
@@ -26,20 +26,28 @@ def node(children="", **attributes):
     return ET.tostring(element, encoding="unicode")
 
 
-def response(xml=None, *, nonce=NONCE, uptime=1234, node_count=None):
+def response(xml=None, *, nonce=NONCE, uptime=1234, node_count=None, attempts=None):
     xml = "<hierarchy>" + node() + "</hierarchy>" if xml is None else xml
     if node_count is None:
         node_count = len(list(ET.fromstring(xml).iter("node")))
-    fields = {"observer_protocol": "1", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+    fields = {"observer_protocol": "2", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+              "observer_attempts": attempts or f"ok:{node_count}:0:0:0",
               "observer_nodes": str(node_count), "observer_xml": base64.b64encode(xml.encode()).decode()}
     return ("\n".join(f"INSTRUMENTATION_RESULT: {key}={value}" for key, value in fields.items())
             + "\nINSTRUMENTATION_CODE: -1\n").encode()
 
 
+def failure_response(reason="child_missing", *, nonce=NONCE, uptime=1234, attempts=None):
+    fields = {"observer_protocol": "2", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+              "observer_attempts": attempts or f"{reason}:18:5:2:3", "observer_error": reason}
+    return ("\n".join(f"INSTRUMENTATION_RESULT: {key}={value}" for key, value in fields.items())
+            + "\nINSTRUMENTATION_CODE: 0\n").encode()
+
+
 class FakeAdb:
     def __init__(self, *, serial="emulator-5554", qemu=b"1", already_installed=False,
                  target=OBSERVER_PACKAGE, pids=None, first_timeout=False, stale=False,
-                 instrumentation_output=None):
+                 instrumentation_output=None, capture_response=None, window_output=None):
         self.serial, self.qemu = serial, qemu
         self.already_installed, self.target = already_installed, target
         self.pids = iter(pids or [b"123"] * 50)
@@ -47,6 +55,7 @@ class FakeAdb:
         self.commands = []
         self.nonces = []
         self.instrumentation_output = instrumentation_output
+        self.capture_response, self.window_output = capture_response, window_output
 
     def run(self, *arguments, **kwargs):
         self.commands.append((arguments, kwargs))
@@ -71,9 +80,11 @@ class FakeAdb:
                 raise subprocess.TimeoutExpired(["adb", "-s", self.serial, *arguments], 10,
                                                 output=b"private stale snapshot payload")
             nonce = self.nonces[0] if self.stale else arguments[7]
-            output = response(nonce=nonce, uptime=1234 + len(self.nonces))
+            output = (response(nonce=nonce, uptime=1234 + len(self.nonces))
+                      if self.capture_response is None else self.capture_response(nonce))
         elif arguments == ("shell", "dumpsys", "window", "displays"):
-            output = f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}".encode()
+            output = (f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}".encode()
+                      if self.window_output is None else self.window_output)
         elif arguments == ("shell", "am", "force-stop", OBSERVER_PACKAGE):
             pass
         elif arguments == ("uninstall", OBSERVER_PACKAGE):
@@ -110,21 +121,61 @@ class SnapshotParserTests(unittest.TestCase):
     def test_duplicate_and_missing_protocol_fields_are_rejected(self):
         good = response()
         for data in [good + f"INSTRUMENTATION_RESULT: observer_nonce={NONCE}\n".encode(),
-                     good.replace(b"INSTRUMENTATION_RESULT: observer_protocol=1\n", b""),
-                     good.replace(b"observer_protocol=1", b"observer_protocol=2"),
+                     good.replace(b"INSTRUMENTATION_RESULT: observer_protocol=2\n", b""),
+                     good.replace(b"observer_protocol=2", b"observer_protocol=1"),
                      good.replace(b"observer_nodes=1", b"observer_nodes=2")]:
             with self.assertRaises(ObserverIntegrityFailure):
                 parse_snapshot(data, NONCE)
 
     def test_complete_snapshot_is_required_no_partial_root_fallback(self):
-        for code in ("root_unavailable", "snapshot_failed"):
-            data = f"INSTRUMENTATION_RESULT: observer_error={code}\nINSTRUMENTATION_CODE: 0\n".encode()
-            with self.assertRaisesRegex(RuntimeFailure, "complete active-window"):
-                parse_snapshot(data, NONCE)
+        for code in ("root_missing", "root_refresh_failed", "root_invisible", "child_missing", "capture_deadline"):
+            with self.assertRaisesRegex(ObserverCaptureFailure, "complete active-window") as caught:
+                parse_snapshot(failure_response(code), NONCE)
+            self.assertNotIsInstance(caught.exception, ObserverIntegrityFailure)
+            self.assertEqual(caught.exception.reason, code)
         for xml in ("<hierarchy/>", "<hierarchy>" + node() * 2 + "</hierarchy>",
                     "<wrong>" + node() + "</wrong>"):
             with self.assertRaises(ObserverIntegrityFailure):
                 parse_snapshot(response(xml), NONCE)
+
+    def test_native_exceptions_and_structural_limits_are_not_retryable(self):
+        for reason in ("node_limit", "depth_limit", "child_count_limit", "attribute_limit", "byte_limit",
+                       "native_security_exception", "native_state_exception",
+                       "native_argument_exception", "serialization_io_exception", "native_exception"):
+            with self.subTest(reason=reason), self.assertRaises(ObserverIntegrityFailure) as caught:
+                parse_snapshot(failure_response(reason), NONCE)
+            self.assertEqual(caught.exception.reason, reason)
+
+    def test_native_failure_nonce_and_time_are_verified_before_retry_is_allowed(self):
+        for data, previous in ((failure_response(nonce="b" * 32), -1), (failure_response(), 1234),
+                               (b"INSTRUMENTATION_RESULT: observer_error=root_unavailable\n"
+                                b"INSTRUMENTATION_CODE: 0\n", -1)):
+            with self.assertRaises(ObserverIntegrityFailure):
+                parse_snapshot(data, NONCE, previous_uptime_ms=previous)
+
+    def test_retry_trace_requires_complete_fresh_final_tree_and_records_discarded_attempts(self):
+        attempts = "root_missing:0:-1:-1:-1;child_missing:18:5:2:3;ok:1:0:0:0"
+        parsed = parse_snapshot(response(attempts=attempts), NONCE)
+        self.assertEqual([item["reason"] for item in parsed.attempts], ["root_missing", "child_missing", "ok"])
+        self.assertEqual(parsed.node_count, 1)
+        self.assertEqual(parsed.attempts[1]["childIndex"], 2)
+        for data in (response(attempts=attempts.replace("ok:1", "ok:18")),
+                     response(attempts=attempts).replace(b"observer_xml=", b"observer_xml=%"),
+                     failure_response(attempts=attempts),
+                     response(attempts="byte_limit:18:5:2:3;ok:1:0:0:0"),
+                     response(attempts="capture_deadline:18:5:2:3;ok:1:0:0:0"),
+                     response(attempts="ok:1:0:0:0;ok:1:0:0:0")):
+            with self.assertRaises(ObserverIntegrityFailure):
+                parse_snapshot(data, NONCE)
+
+    def test_structural_diagnostics_are_bounded_and_never_echo_unknown_values(self):
+        marker = "private-view-text"
+        for attempts in (";".join(["root_missing:0:-1:-1:-1"] * 4 + ["ok:1:0:0:0"]),
+                         "ok:1:0:0:0;", "ok:1:50:0:0", "ok:2050:0:0:0", "ok:1:0:2049:0",
+                         "ok:1:0:0:2050", "ok:1:-2:0:0", f"{marker}:1:0:0:0", "ok:1:0:0:0:0"):
+            with self.subTest(attempts=attempts), self.assertRaises(ObserverIntegrityFailure) as caught:
+                parse_snapshot(response(attempts=attempts), NONCE)
+            self.assertNotIn(marker, str(caught.exception))
 
     def test_output_xml_size_and_entity_bounds_are_enforced(self):
         for data in [b"x" * (MAX_OUTPUT_BYTES + 1),
@@ -255,7 +306,9 @@ class NativeObserverTests(unittest.TestCase):
             observer.install()
             with self.assertRaisesRegex(ObserverIntegrityFailure, "process changed"):
                 observer.observe()
-            self.assertEqual(observer.observations, [])
+            self.assertEqual(observer.observations[0]["status"], "failure")
+            self.assertEqual(observer.observations[0]["applicationPidAfter"], 124)
+            self.assertEqual(observer.observations[0]["failure"], "application_pid_after_failed")
 
     def test_missing_or_multiple_application_processes_fail_before_instrumentation(self):
         for pid in (b"", b"123 456"):
@@ -274,12 +327,13 @@ class NativeObserverTests(unittest.TestCase):
             observer.install()
             with self.assertRaises(subprocess.TimeoutExpired):
                 observer.observe()
-            self.assertEqual(observer.observations, [])
+            self.assertEqual(observer.observations[0]["failure"], "instrumentation_timeout")
+            self.assertNotIn("private stale snapshot payload", str(observer.observations))
             observer.observe()
             self.assertEqual(len(set(adb.nonces)), 2)
             stopped = [args for args, _ in adb.commands if args[:3] == ("shell", "am", "force-stop")]
             self.assertEqual(stopped, [("shell", "am", "force-stop", OBSERVER_PACKAGE)])
-            self.assertEqual(len(observer.observations), 1)
+            self.assertEqual([item["status"] for item in observer.observations], ["failure", "success"])
             capture_timeouts = [kwargs["timeout"] for args, kwargs in adb.commands
                                 if args[:3] == ("shell", "am", "instrument")]
             self.assertEqual(capture_timeouts, [10, 10])
@@ -299,7 +353,71 @@ class NativeObserverTests(unittest.TestCase):
             observer.observe()
             with self.assertRaisesRegex(ObserverIntegrityFailure, "this capture request"):
                 observer.observe()
-            self.assertEqual(len(observer.observations), 1)
+            self.assertEqual([item["status"] for item in observer.observations], ["success", "failure"])
+
+    def test_incomplete_tree_retains_fixed_reason_location_focus_and_pid_without_payload(self):
+        attempts = "root_missing:0:-1:-1:-1;child_missing:18:5:2:3"
+        private = "private-view-text-and-url"
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(capture_response=lambda nonce: failure_response(nonce=nonce, attempts=attempts),
+                          window_output=f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}\n{private}".encode())
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            with self.assertRaises(ObserverCaptureFailure):
+                observer.observe()
+            evidence = observer.observations[0]
+            self.assertEqual(evidence["failure"], "child_missing")
+            self.assertFalse(evidence["integrityFailure"])
+            self.assertEqual(evidence["applicationPid"], evidence["applicationPidAfter"])
+            self.assertTrue(evidence["window"]["applicationFocused"])
+            self.assertEqual(evidence["attempts"][-1], {"reason": "child_missing", "visitedNodes": 18,
+                                                      "depth": 5, "childIndex": 2, "childCount": 3})
+            self.assertGreaterEqual(evidence["completedAtMonotonic"], evidence["startedAtMonotonic"])
+            self.assertNotIn(private, str(evidence))
+            self.assertEqual(observer.previous_uptime_ms, 1234)
+            adb.capture_response = None
+            observer.observe()
+            self.assertEqual(observer.observations[-1]["status"], "success")
+            self.assertEqual(len(set(adb.nonces)), 2)
+
+    def test_a_failed_complete_tree_read_still_prevents_device_time_moving_backwards(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(capture_response=lambda nonce: failure_response(nonce=nonce, uptime=2000))
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            with self.assertRaises(ObserverCaptureFailure):
+                observer.observe()
+            adb.capture_response = lambda nonce: response(nonce=nonce, uptime=1999)
+            with self.assertRaisesRegex(ObserverIntegrityFailure, "stale"):
+                observer.observe()
+            self.assertEqual(observer.previous_uptime_ms, 2000)
+            self.assertEqual([item["status"] for item in observer.observations], ["failure", "failure"])
+
+    def test_unknown_raw_response_and_foreign_window_remain_failed_and_content_free(self):
+        private = "private-view-text-and-url"
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(capture_response=lambda nonce: private.encode(),
+                          window_output=f"mCurrentFocus=Window{{abc {private}}}".encode())
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            with self.assertRaises(ObserverIntegrityFailure):
+                observer.observe()
+            evidence = observer.observations[0]
+            self.assertEqual(evidence["status"], "failure")
+            self.assertEqual(evidence["failure"], "response_failed")
+            self.assertFalse(evidence["window"]["applicationFocused"])
+            self.assertNotIn(private, str(evidence))
+
+    def test_native_terminal_error_is_retained_and_not_retried_by_host(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(capture_response=lambda nonce: failure_response("native_exception", nonce=nonce))
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            with self.assertRaises(ObserverIntegrityFailure):
+                observer.observe()
+            self.assertEqual(len(adb.nonces), 1)
+            self.assertTrue(observer.observations[0]["integrityFailure"])
+            self.assertEqual(observer.observations[0]["failure"], "native_exception")
 
     def test_checked_in_manifest_has_no_permissions_activity_or_production_target(self):
         root = ET.parse(Path(__file__).with_name("AndroidManifest.xml")).getroot()

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
 import '../brand_mark.dart';
+import '../help/quick_guide_sheet.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -93,7 +94,19 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                         height: 1.5,
                       ),
                     ),
-                    const SizedBox(height: 34),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: TextButton.icon(
+                        key: const Key('onboarding-quick-guide-button'),
+                        onPressed: _busy
+                            ? null
+                            : () => showQuickGuideSheet(context),
+                        icon: const Icon(Icons.explore_outlined),
+                        label: const Text('New here? Take the 30-second guide'),
+                      ),
+                    ),
+                    const SizedBox(height: 24),
                     TextField(
                       key: const Key('display-name-field'),
                       controller: _nameController,

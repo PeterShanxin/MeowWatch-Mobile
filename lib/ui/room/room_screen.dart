@@ -752,6 +752,7 @@ class _Person extends StatelessWidget {
       children: [
         CircleAvatar(
           radius: 18,
+          foregroundColor: Theme.of(context).colorScheme.onSurface,
           backgroundColor: Theme.of(
             context,
           ).colorScheme.surfaceContainerHighest,

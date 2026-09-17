@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_controller.dart';
 import '../../app/app_services.dart';
 import '../../core/billing/billing_service.dart';
+import '../help/quick_guide_sheet.dart';
 import 'about_sheet.dart';
 import 'appearance_sheet.dart';
 
@@ -15,6 +16,7 @@ Future<void> showSettingsSheet(
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    showDragHandle: false,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.68),
     builder: (_) => _SettingsSheet(app: app, onUpgrade: onUpgrade),
@@ -354,6 +356,18 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                             : _appearance,
                         icon: const Icon(Icons.palette_outlined),
                         label: const Text('Make yourself at home'),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    _Section(
+                      title: 'Help',
+                      child: OutlinedButton.icon(
+                        key: const Key('settings-quick-guide-button'),
+                        onPressed: _working || _billing.isBusy
+                            ? null
+                            : () => showQuickGuideSheet(context),
+                        icon: const Icon(Icons.explore_outlined),
+                        label: const Text('Replay the quick guide'),
                       ),
                     ),
                     const SizedBox(height: 14),

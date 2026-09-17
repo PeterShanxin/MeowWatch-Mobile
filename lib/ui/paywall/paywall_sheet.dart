@@ -13,6 +13,7 @@ Future<bool?> showPaywallSheet(
   context: context,
   isScrollControlled: true,
   useSafeArea: true,
+  showDragHandle: false,
   backgroundColor: Colors.transparent,
   barrierColor: Colors.black.withValues(alpha: 0.68),
   builder: (_) => _PaywallSheet(app: app),

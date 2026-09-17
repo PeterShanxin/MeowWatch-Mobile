@@ -25,6 +25,16 @@ adaptations.
 
 ## Demonstration media
 
+The **Try a short film** action streams the unmodified
+[Sintel official trailer](https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4)
+from the Blender Foundation. **© Blender Foundation | sintel.org**.
+The [project's sharing terms](https://durian.blender.org/sharing/) license this
+movie material under [Creative Commons Attribution 3.0](https://creativecommons.org/licenses/by/3.0/).
+The app includes the attribution and source/license links in **Sample film
+credits** and its in-app license list. No film bytes or third-party trademarks
+are bundled. Source labels use Material icons and provider names; they are not
+claims of provider endorsement or webpage extraction support.
+
 Native acceptance and demo recordings use `bee.mp4` from Flutter's
 [documentation asset repository](https://github.com/flutter/assets-for-api-docs#origin-of-third-party-content),
 which identifies that clip as **CC0 Creative Commons**, originally from

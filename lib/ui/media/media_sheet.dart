@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/app_controller.dart';
 import '../../core/media/media_item.dart';
 import '../../core/media/media_picker.dart';
+import '../../core/media/sample_video.dart';
 
 Future<MediaItem?> showMediaSheet(
   BuildContext context, {
@@ -11,6 +12,7 @@ Future<MediaItem?> showMediaSheet(
   context: context,
   isScrollControlled: true,
   useSafeArea: true,
+  showDragHandle: false,
   backgroundColor: Colors.transparent,
   barrierColor: Colors.black.withValues(alpha: 0.68),
   builder: (_) => _MediaSheet(app: app),
@@ -128,6 +130,28 @@ class _MediaSheetState extends State<_MediaSheet> {
                     ),
                   ),
                   const SizedBox(height: 22),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const Key('open-sample-video'),
+                      onPressed: _picking
+                          ? null
+                          : () => Navigator.of(context).pop(sampleVideo()),
+                      icon: const Icon(Icons.smart_display_outlined),
+                      label: const Text('Try a short film · 52 seconds'),
+                    ),
+                  ),
+                  Padding(
+                    padding: const EdgeInsets.only(left: 12, bottom: 16),
+                    child: Text(
+                      'Sintel trailer · Blender Open Movies\n'
+                      'A 4.4 MB sample to try the player and room controls.',
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: colors.onSurfaceVariant,
+                        height: 1.4,
+                      ),
+                    ),
+                  ),
                   _ChoiceCard(
                     icon: Icons.video_file_outlined,
                     title: 'Video on this device',
@@ -188,7 +212,7 @@ class _MediaSheetState extends State<_MediaSheet> {
                           style: TextStyle(color: colors.onSurface),
                           cursorColor: colors.primary,
                           onChanged: (_) {
-                            if (_error != null) setState(() => _error = null);
+                            setState(() => _error = null);
                           },
                           onSubmitted: (_) => _acceptUrl(),
                           decoration: InputDecoration(
@@ -215,6 +239,10 @@ class _MediaSheetState extends State<_MediaSheet> {
                             ),
                           ),
                         ),
+                        if (_url.text.trim().isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          _SourceHint(value: _url.text),
+                        ],
                         const SizedBox(height: 12),
                         FilledButton.icon(
                           style: FilledButton.styleFrom(
@@ -253,12 +281,79 @@ class _MediaSheetState extends State<_MediaSheet> {
                       ),
                     ],
                   ),
+                  const SizedBox(height: 14),
+                  TextButton(
+                    onPressed: () => showDialog<void>(
+                      context: context,
+                      builder: (context) => AlertDialog(
+                        title: const Text('About the sample film'),
+                        content: const SelectableText(
+                          '$sampleVideoTitle\n\n$sampleVideoCredit\n\n'
+                          'The original trailer is streamed directly from '
+                          'download.blender.org. It is not modified.\n\n'
+                          'Source and license: $sampleVideoLicenseUrl\n'
+                          'https://creativecommons.org/licenses/by/3.0/',
+                        ),
+                        actions: [
+                          TextButton(
+                            onPressed: () => Navigator.of(context).pop(),
+                            child: const Text('Close'),
+                          ),
+                        ],
+                      ),
+                    ),
+                    child: const Text('Sample film credits'),
+                  ),
                 ],
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _SourceHint extends StatelessWidget {
+  const _SourceHint({required this.value});
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final uri = Uri.tryParse(value.trim());
+    if (uri == null ||
+        !['http', 'https'].contains(uri.scheme) ||
+        uri.host.isEmpty) {
+      return const SizedBox.shrink();
+    }
+    final host = uri.host.toLowerCase();
+    final direct = RegExp(
+      r'\.(mp4|m4v|webm|mov|mkv|m3u8|mpd)$',
+      caseSensitive: false,
+    ).hasMatch(uri.path);
+    final (icon, label) = switch (host) {
+      'download.blender.org' when direct => (
+        Icons.movie_outlined,
+        'Blender Open Movies · direct media',
+      ),
+      'archive.org' when direct && uri.path.startsWith('/download/') => (
+        Icons.account_balance_outlined,
+        'Internet Archive · direct media',
+      ),
+      _ => (Icons.language_outlined, host),
+    };
+    return Row(
+      children: [
+        Icon(
+          icon,
+          size: 18,
+          color: Theme.of(context).colorScheme.onSurfaceVariant,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: Text(label, style: Theme.of(context).textTheme.bodySmall),
+        ),
+      ],
     );
   }
 }

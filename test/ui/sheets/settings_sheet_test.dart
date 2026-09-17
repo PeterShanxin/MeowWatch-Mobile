@@ -9,6 +9,69 @@ import 'package:meowwatch_mobile/ui/settings/settings_sheet.dart';
 import 'sheet_test_support.dart';
 
 void main() {
+  testWidgets('replaying the guide leaves an active session and data alone', (
+    tester,
+  ) async {
+    final repository = TestRepository();
+    final billing = TestBilling();
+    final app = createTestApp(billing: billing, repository: repository);
+    const ticket = RoomTicket(
+      id: 'existing-room',
+      config: RoomConfig(
+        server: 'syncplay.pl',
+        port: 8995,
+        room: 'MEOW-ROOM',
+        username: 'Mochi',
+      ),
+      isHost: true,
+    );
+    app.room = ticket;
+    repository.activeRoom = ticket;
+    final target = app.target;
+    final snapshot = target.snapshot;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => Scaffold(
+            body: TextButton(
+              onPressed: () =>
+                  showSettingsSheet(context, app: app, onUpgrade: () {}),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+    for (var replay = 0; replay < 2; replay++) {
+      final guide = find.byKey(const Key('settings-quick-guide-button'));
+      await tester.ensureVisible(guide);
+      await tester.tap(guide);
+      await tester.pumpAndSettle();
+      expect(find.text('Step 1 of 3'), findsOneWidget);
+      final next = find.byKey(const Key('quick-guide-next'));
+      await tester.ensureVisible(next);
+      await tester.tap(next);
+      await tester.pumpAndSettle();
+      expect(find.text('Step 2 of 3'), findsOneWidget);
+      await tester.tap(find.byKey(const Key('quick-guide-close')));
+      await tester.pumpAndSettle();
+    }
+
+    expect(find.text('Settings'), findsOneWidget);
+    expect(app.room, same(ticket));
+    expect(repository.activeRoom, same(ticket));
+    expect(repository.saves, 0);
+    expect(repository.displayName, 'Mochi');
+    expect(app.target, same(target));
+    expect(app.target.snapshot, same(snapshot));
+    expect(billing.configureCalls, 0);
+    expect(billing.purchaseCalls, 0);
+    await app.close();
+  });
+
   testWidgets('opens About, privacy and licenses from settings', (
     tester,
   ) async {

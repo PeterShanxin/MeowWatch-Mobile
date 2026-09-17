@@ -12,6 +12,7 @@ Future<void> showAppearanceSheet(
   context: context,
   isScrollControlled: true,
   useSafeArea: true,
+  showDragHandle: false,
   backgroundColor: Colors.transparent,
   builder: (_) => AppearanceSheet(
     currentTheme: currentTheme,

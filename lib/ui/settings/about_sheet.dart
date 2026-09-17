@@ -2,6 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../../core/media/sample_video.dart';
 import '../brand_mark.dart';
 
 const meowWatchVersion = '0.1.0+1';
@@ -34,6 +35,16 @@ void registerMeowWatchLicenses() {
       );
     });
   }
+  LicenseRegistry.addLicense(() async* {
+    yield const LicenseEntryWithLineBreaks(
+      ['Sintel sample trailer (streamed)'],
+      '$sampleVideoCredit\n\n'
+      'Unmodified official trailer: $sampleVideoUrl\n'
+      'Source and sharing terms: $sampleVideoLicenseUrl\n'
+      'Creative Commons Attribution 3.0: '
+      'https://creativecommons.org/licenses/by/3.0/',
+    );
+  });
 }
 
 Future<void> showAboutSheet(BuildContext context) async {
@@ -41,6 +52,7 @@ Future<void> showAboutSheet(BuildContext context) async {
     context: context,
     isScrollControlled: true,
     useSafeArea: true,
+    showDragHandle: false,
     backgroundColor: Colors.transparent,
     barrierColor: Colors.black.withValues(alpha: 0.68),
     builder: (_) => const AboutSheet(),

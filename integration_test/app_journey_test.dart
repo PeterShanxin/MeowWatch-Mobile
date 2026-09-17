@@ -53,6 +53,36 @@ void main() {
         await tester.pump(const Duration(milliseconds: 200));
         await _tap(
           tester,
+          find.byKey(const Key('onboarding-quick-guide-button')),
+          'open first-use quick guide',
+        );
+        for (var step = 1; step <= 3; step++) {
+          await _waitFor(
+            tester,
+            find.text('Step $step of 3'),
+            'quick guide step $step',
+          );
+          await _capture(
+            nativeScreenshots,
+            tester,
+            screenshots,
+            'quick-guide-$step',
+          );
+          await _tap(
+            tester,
+            find.byKey(const Key('quick-guide-next')),
+            'advance quick guide step $step',
+          );
+        }
+        await _waitForGone(
+          tester,
+          find.byKey(const Key('quick-guide-sheet')),
+          'first-use guide',
+        );
+        expect(tester.widget<TextField>(initial).controller!.text, 'Mochi');
+        verified.add('first_use_guide_completed_name_preserved');
+        await _tap(
+          tester,
           find.byKey(const Key('onboarding-continue-button')),
           'continue onboarding',
         );
@@ -324,6 +354,33 @@ void main() {
         'open settings',
       );
       final appearance = find.byKey(const Key('choose-appearance-button'));
+      await _tap(
+        tester,
+        find.byKey(const Key('settings-quick-guide-button')),
+        'replay quick guide from Settings',
+      );
+      await _waitFor(
+        tester,
+        find.text('Step 1 of 3'),
+        'replayed guide starts at first step',
+      );
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'quick-guide-replay',
+      );
+      await _tap(
+        tester,
+        find.byKey(const Key('quick-guide-close')),
+        'close replayed guide',
+      );
+      await _waitForGone(
+        tester,
+        find.byKey(const Key('quick-guide-sheet')),
+        'replayed guide',
+      );
+      verified.add('settings_guide_replayed_and_closed');
       await _waitFor(tester, appearance, 'appearance entry');
       await tester.ensureVisible(appearance);
       await _tap(tester, appearance, 'open appearance');

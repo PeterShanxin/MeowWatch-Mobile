@@ -59,6 +59,8 @@ Windows ARM hosts currently lack official local Android Emulator support. Use an
 - Guests join free. Reconnection and playback-target changes continue the same session.
 - RevenueCat `meowwatch_plus` unlocks unlimited hosting.
 - Local user-selected files and supported direct media URLs; no DRM bypass.
+- A skippable first-use guide, replay from Settings, and a one-tap licensed
+  Sintel sample trailer in the video picker.
 - Syncplay transport fails closed. Nearby control requires explicit authenticated pairing.
 
 See [product specification](docs/PRODUCT_SPEC.md), [delivery goal](docs/GOAL_BRIEF.md), and [status](docs/STATUS.md).

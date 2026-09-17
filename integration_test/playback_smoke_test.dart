@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
+import 'package:meowwatch_mobile/core/media/sample_video.dart';
 import 'package:meowwatch_mobile/core/playback/local_mobile_target.dart';
 import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:video_player/video_player.dart';
@@ -125,6 +126,53 @@ void main() {
       await tester.pumpWidget(const SizedBox.shrink());
       await target.close();
       expect(target.controller, isNull);
+
+      // Exercise the exact public sample offered by the production picker.
+      final sampleTarget = LocalMobileTarget();
+      addTearDown(sampleTarget.close);
+      await sampleTarget.load(sampleVideo());
+      expect(sampleTarget.snapshot.connection, PlaybackConnection.ready);
+      expect(sampleTarget.snapshot.playing, isFalse);
+      expect(
+        sampleTarget.snapshot.duration.inSeconds,
+        inInclusiveRange(51, 53),
+      );
+      await tester.pumpWidget(
+        _PlaybackSurface(controller: sampleTarget.controller!),
+      );
+      await sampleTarget.play();
+      final sampleAdvanced = await _waitForSnapshot(
+        tester,
+        sampleTarget,
+        (snapshot) =>
+            snapshot.playing &&
+            snapshot.position >= const Duration(milliseconds: 900),
+      );
+      final samplePng = await screenshots.take(tester, 'sample-sintel-playing');
+      expect(samplePng, isNotEmpty);
+      await sampleTarget.pause();
+      await sampleTarget.seek(const Duration(seconds: 10));
+      final sampleSeek = await _waitForSnapshot(
+        tester,
+        sampleTarget,
+        (snapshot) =>
+            !snapshot.playing &&
+            (snapshot.position - const Duration(seconds: 10)).inMilliseconds
+                    .abs() <
+                800,
+      );
+      binding.reportData!['shippedSample'] = <String, dynamic>{
+        'url': sampleVideoUrl,
+        'title': sampleVideoTitle,
+        'durationMs': sampleTarget.snapshot.duration.inMilliseconds,
+        'videoWidth': sampleTarget.controller!.value.size.width,
+        'videoHeight': sampleTarget.controller!.value.size.height,
+        'advancedPositionMs': sampleAdvanced.position.inMilliseconds,
+        'seekPositionMs': sampleSeek.position.inMilliseconds,
+        'screenshots': <String>['sample-sintel-playing'],
+      };
+      await tester.pumpWidget(const SizedBox.shrink());
+      await sampleTarget.close();
     },
     timeout: const Timeout(Duration(minutes: 3)),
   );

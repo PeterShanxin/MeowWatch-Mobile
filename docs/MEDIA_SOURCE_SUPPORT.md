@@ -50,6 +50,22 @@ be brittle and risk exposing authenticated browser state.
 
 ## What the app implements now
 
+The first-launch screen offers a short, skippable guide that can be replayed
+from Settings without leaving a room or resetting playback. **Choose what to
+watch** includes an explicit **Try a short film** action for the unmodified
+[Sintel trailer](https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4).
+It returns the same `MediaItem` used by ordinary file/link selection, so room,
+history and quota behavior follow the normal load path. Opening the picker
+itself starts no download. The 52-second, approximately 4.4 MB sample is credited
+to Blender Foundation under CC BY 3.0 in the picker and in-app license list.
+HTTP range access and H.264/AAC metadata have been checked; the native playback
+gate also exercises this exact public URL before accepting its Android support.
+
+Source hints use generic Material symbols plus the actual URL host, with named
+labels for direct Blender download and Internet Archive download links.
+These are source identification, not third-party platform logos, an endorsement,
+or a guarantee of decoding. Watch pages retain the unsupported-link behavior.
+
 | Source | Current behavior | Practical limit |
 | --- | --- | --- |
 | Android-picked or shared video | **Video on this device** opens a `content://` URI through `video_player`. The Android bridge requires a video MIME type and read permission. | Continue Watching is durable only when Android grants persistent access. Codec support depends on the device. |

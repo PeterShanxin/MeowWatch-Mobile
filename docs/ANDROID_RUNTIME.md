@@ -4,7 +4,7 @@ The Android runtime smoke test exercises the production `LocalMobileTarget`
 with the official Flutter `video_player` plugin. It does not replace the player
 with a fake or call plugin APIs through a mock.
 
-## What the smoke test proves
+## What the smoke test checks
 
 On an Android runtime, the test:
 
@@ -16,10 +16,22 @@ On an Android runtime, the test:
 6. seeks and checks the resulting reported position;
 7. tears down the texture, reopens the media with a new controller, renders it,
    and disposes the target; and
-8. calls `convertFlutterSurfaceToImage()` and captures PNG screenshots of the
-   actual Android Flutter surface while video is playing.
+8. captures PNG screenshots of the actual Android Flutter surface while video
+   is playing through the test-only `NativeScreenshots` helper.
 
-The sample is Flutter's official `bee.mp4` `video_player` documentation asset:
+The helper converts the surface only around each capture, preserves the normal
+`binding.takeScreenshot` reporting path, and attempts to restore the native
+surface in `finally`, including capture failures. It registers the SDK teardown
+once per test and explicitly schedules frames before capture and after restore.
+The short settling period is not a native completion acknowledgement: inspect
+the original Android recording to verify that rendering continues between
+screenshots. This uses Flutter 3.44.0 implementation details; see the exact
+upstream references in
+[`tools/native_capture/README.md`](../tools/native_capture/README.md) before
+changing the Flutter pin.
+
+The primary smoke fixture remains Flutter's official `bee.mp4` `video_player`
+documentation asset:
 
 - media: <https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4>
 - source and license declaration:
@@ -28,6 +40,26 @@ The sample is Flutter's official `bee.mp4` `video_player` documentation asset:
 The Flutter repository declares this 1.3 MB asset CC0. Keeping the sample small
 reduces CI network exposure while still exercising Android's real media stack,
 network data source, decoder, texture, and player controls.
+
+### Shipped sample check — native execution pending
+
+After the bee playback/reopen checks, the
+[`integration test`](../integration_test/playback_smoke_test.dart) now loads
+`sampleVideo()` through a fresh `LocalMobileTarget`. This is the exact public
+Sintel trailer selected by the production media picker's **Try a short film**
+action; its URL, title and attribution live in
+[`sample_video.dart`](../lib/core/media/sample_video.dart).
+
+The added check requires an initially paused, ready player with a duration of
+51–53 seconds, mounts its real video texture, plays until the native position
+reaches at least 900 ms, and captures `sample-sintel-playing.png`. It then pauses
+and seeks to 10 seconds with the existing 800 ms tolerance. The `shippedSample`
+entry in `result.json` records the URL, title, duration, decoded dimensions,
+advanced/seek positions and screenshot name separately from the bee result.
+
+This addition is **awaiting native execution and visual inspection**. Earlier
+passing bee recordings do not establish Sintel playback or the production
+picker interaction; this smoke loads the same media item directly.
 
 ## Run it on an Android device or emulator
 
@@ -45,6 +77,7 @@ The driver writes evidence to `build/android-runtime-artifacts/`:
 
 - `screenshots/playback-playing.png`
 - `screenshots/playback-reopened.png`
+- `screenshots/sample-sintel-playing.png` (new shipped-sample check)
 - `result.json`
 
 The screenshots are accepted only when the driver receives a nontrivial PNG.
@@ -88,7 +121,7 @@ flutter drive \
   -d emulator-5554
 ```
 
-The uploaded artifact contains both screenshots, the structured result,
+The uploaded artifact contains the screenshots, the structured result,
 `flutter-drive.log`, Android `logcat`, runtime properties, MediaCodec state,
 SurfaceFlinger layer names, and a start-to-finish Android screen recording.
 These files identify the actual runtime and help distinguish network, decoder,
@@ -190,11 +223,13 @@ path removes public CDN timing from the synchronization assertion while the
 STARTTLS Together Session still uses the configured public Syncplay server.
 
 Each native screenrecord process is limited to 170 seconds, but the evidence
-tool rotates consecutive segments while the two prebuilt drives run. The full
-wrapper is bounded to six minutes; each drive is bounded to 330 seconds so the
-wrapper has time to finalize evidence. Pass, assertion failure, and timeout
-therefore remain recorded through command exit; all original segments and
-hashes are retained.
+tool rotates consecutive segments while the two prebuilt drives run.
+[`ci_together.sh`](../tools/android_multi_device/ci_together.sh) bounds the
+default smoke wrapper to 360 seconds and each drive to 330 seconds. Its
+`--production-ui` journey uses a 600-second wrapper and 540-second drive limit,
+covering the eight-minute integration-test deadline plus app startup. The
+outer bounds leave time to finalize evidence after success, assertion failure,
+or timeout. All original segments and hashes are retained.
 
 Each AVD runs its own Android-native `screenrecord` process. The evidence tool
 refuses to touch a pre-existing recorder, records the new process ID for each
@@ -204,18 +239,24 @@ their measured host-side start delta is saved in `recording-session.tsv`.
 
 Native `screenrecord` does not expose a reliable fixed-frame-rate option. The
 composition step therefore preserves every native segment and separately
-produces a 1920x1080 H.264 showcase at constant 30 fps. It aligns the sources
-using the saved first-recorder timestamps and shows black pre-roll for the later
-source, rather than falsely resetting unequal starts to the same instant. It
-only drops or duplicates existing frames, scales with aspect ratio intact, adds
-neutral borders, and labels the real source serial. The unedited native MP4
-segments and their SHA-256 hashes remain the primary evidence.
+produces a 1920x1080 H.264 showcase at constant 30 fps. The
+[`schema-v2 compositor`](../tools/android_multi_device/compose_side_by_side.py)
+uses every segment's saved host command timestamp and original MP4. It places
+each segment on one estimated timeline, showing black `RECORDING GAP` panels
+for missing intervals and after the shorter device ends. The composition lasts
+through the longer timeline. It drops or duplicates existing frames for 30 fps,
+preserves aspect ratio, adds neutral borders, and labels the real source serial.
+The unedited native segments, timing files and SHA-256 hashes remain the primary
+evidence.
 
 Starting the next segment requires a new native process, so a short rotation
-gap can occur at a 170-second boundary. Per-device segment timing TSV files
-retain the host-side start time for every segment. Lossless concatenation and
-the showcase close those gaps for viewing convenience; they are not evidence
-of gap-free or frame-exact synchronization across a segment boundary.
+gap can occur at a 170-second boundary. The legacy concatenated `native.mp4`
+closes these gaps; the showcase does not use its concatenated contents. Host
+command timestamps also do not establish exact first-frame times. If estimated
+segment intervals overlap, the later segment takes over at its timestamp and
+the manifest records the overlapping tail. Approximate alignment is a viewing
+aid, not proof of frame-exact playback synchronization. Native player
+observations establish the tested convergence behavior.
 
 A passing two-AVD run demonstrates two separate Android application processes,
 responsive phone/tablet layouts, and whatever real client interaction the

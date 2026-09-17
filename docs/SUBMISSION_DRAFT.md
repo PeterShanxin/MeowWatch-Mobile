@@ -122,11 +122,13 @@ Windows player, updater, floating-window, and desktop layout code are not
 treated as mobile implementations. Both projects use **AGPL-3.0-only**, and
 reused code must retain its applicable notices and provenance.
 
-**Pending entrant confirmation:** before submission, the entrant must confirm
-ownership/licensing for reused contributions and assets, student and academic
-email eligibility, age/guardian requirements where applicable, residency, and
-the organizer's treatment of a substantially developed mobile counterpart to
-the earlier desktop project.
+**Entrant prerequisites:** active student status, local age of majority and
+availability of an academic email were confirmed on 2026-09-17. The actual
+Devpost email-domain check remains open. Before submission, confirm residency,
+absence of disqualifying conflicts, ownership/licensing for reused contributions
+and assets, and the organizer's treatment of a substantially developed mobile
+counterpart to the earlier desktop project. Final legal acceptance remains with
+the entrant.
 
 ## Challenges and lessons
 

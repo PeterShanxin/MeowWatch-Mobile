@@ -23,6 +23,18 @@ adaptations.
   License 1.1. The complete text is in
   [`assets/fonts/DMSerifDisplay-OFL.txt`](assets/fonts/DMSerifDisplay-OFL.txt).
 
+## Demonstration media
+
+Native acceptance and demo recordings use `bee.mp4` from Flutter's
+[documentation asset repository](https://github.com/flutter/assets-for-api-docs#origin-of-third-party-content),
+which identifies that clip as **CC0 Creative Commons**, originally from
+[Pixabay's honey-bee clip](https://pixabay.com/en/videos/honey-bee-insect-bee-flower-flying-211/).
+The downloaded source is pinned to SHA-256
+`91d703354b3bb77b42dc49152f82548668e981525c89464654cb4ca9f802fffc`.
+`tools/android_multi_device/prepare_fixture.sh` repeats its compressed packets
+for longer native tests and retains source/license/hash provenance. The clip is
+test media; it is not a bundled movie catalog or a streaming-service integration.
+
 ## Flutter and Dart packages
 
 The app uses Flutter and the packages locked by `pubspec.lock`. Flutter’s

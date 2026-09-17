@@ -106,6 +106,12 @@ remaining submission work. The local [showcase](tools/showcase/README.md) can
 display actual ADB frames or explicitly labeled captured evidence while recording
 the development canvas.
 
+The [submission artwork](assets/submission/README.md) contains the Devpost cover
+and native screenshot provenance. The [demo editor](tools/submission_demo/README.md)
+composes original recordings at normal speed and preserves their source hashes
+and approximate dual-device timing; it does not turn a failed test into accepted
+product evidence.
+
 ## License
 
 The [icon kit](docs/BRAND.md) includes the editable flat cat-and-play mark,

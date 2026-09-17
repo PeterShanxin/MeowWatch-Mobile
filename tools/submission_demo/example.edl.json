@@ -1,0 +1,75 @@
+{
+  "schema_version": 1,
+  "purpose": "submission-edit",
+  "sources": {
+    "t-phone": {
+      "path": "REPLACE/phone-000.mp4",
+      "sha256": "REPLACE_WITH_INSPECT_SHA256",
+      "width": 720,
+      "height": 1560,
+      "kind": "native-recording",
+      "runtime": "Android emulators",
+      "run": "REPLACE_WITH_TOGETHER_RUN_ID",
+      "commit": "REPLACE_WITH_ACCEPTED_COMMIT"
+    },
+    "t-tablet": {
+      "path": "REPLACE/tablet-000.mp4",
+      "sha256": "REPLACE_WITH_INSPECT_SHA256",
+      "width": 1280,
+      "height": 800,
+      "kind": "native-recording",
+      "runtime": "Android emulators",
+      "run": "REPLACE_WITH_TOGETHER_RUN_ID",
+      "commit": "REPLACE_WITH_ACCEPTED_COMMIT"
+    }
+  },
+  "timelines": {
+    "together": {
+      "path": "REPLACE/framed-timeline.mp4.manifest.json",
+      "sha256": "REPLACE_WITH_TIMING_MANIFEST_SHA256"
+    }
+  },
+  "shots": [
+    {
+      "id": "opening",
+      "kind": "card",
+      "duration": 6,
+      "title": "Movie night, together.",
+      "caption": "Movie night, even when you're miles apart."
+    },
+    {
+      "id": "sync",
+      "kind": "pair",
+      "timeline": "together",
+      "phone": "t-phone",
+      "tablet": "t-tablet",
+      "in": 0,
+      "out": 20,
+      "speed": 1,
+      "phone_label": "Phone / Host",
+      "tablet_label": "Tablet / Guest",
+      "title": "Either person can control",
+      "caption": "Play, pause and seek stay coordinated."
+    },
+    {
+      "id": "phone-detail",
+      "kind": "single",
+      "source": "t-phone",
+      "device": "phone",
+      "in": 20,
+      "out": 25,
+      "speed": 1,
+      "label": "Phone / Host",
+      "title": "Share the moment",
+      "caption": "Use actual inspected footage and describe only the visible action.",
+      "disclosure": "Recorded production app / editorial cut"
+    },
+    {
+      "id": "closing",
+      "kind": "card",
+      "duration": 6,
+      "title": "Watch together, wherever.",
+      "caption": "Android-first. Open source. AGPL-3.0-only. github.com/PeterShanxin/MeowWatch-Mobile"
+    }
+  ]
+}

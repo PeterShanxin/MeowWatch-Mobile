@@ -68,5 +68,23 @@ jobs:
           python3 -m unittest discover -s tools/local_file_runtime -p 'test_*.py'
           python3 -m unittest discover -s tools/android_install -p 'test_*.py'
           python3 -m unittest discover -s tools/production_together -p 'test_*.py'
+          python3 -m unittest discover -s tools/android_lifecycle_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/production_purchase_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/incoming_media_runtime -p 'test_*.py'
           bash tools/android_runtime/test_playback_smoke.sh
           bash tools/android_multi_device/test_record_two_devices.sh
+
+  demo:
+    name: Submission media contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Install native video tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Verify pinned footage and render a labeled synthetic smoke clip
+        run: python3 -m unittest tools.submission_demo.test_compose -v

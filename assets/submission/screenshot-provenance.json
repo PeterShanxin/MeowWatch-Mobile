@@ -1,0 +1,67 @@
+{
+  "file": "assets/submission/meowwatch-android-1179x2556.png",
+  "purpose": "Unframed native production app screenshot for submission",
+  "scene": "Free customer home after onboarding",
+  "width": 1179,
+  "height": 2556,
+  "format": "PNG",
+  "bytes": 158377,
+  "sha256": "df6c2c6105b394798c92d12aaf5e407d2ed8f0cef02ba5ae89d467b3eb324f01",
+  "pixelHandling": {
+    "copiedByteForByte": true,
+    "resized": false,
+    "cropped": false,
+    "framed": false,
+    "retouched": false
+  },
+  "source": {
+    "repository": "PeterShanxin/MeowWatch-Mobile",
+    "commit": "f8fdd626c07bcb666675cf68f3e872776b4516eb",
+    "githubRunId": 35191578153,
+    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35191578153",
+    "artifactName": "production-purchase-1",
+    "artifactRelativePath": "production-purchase-artifacts/20260917T065811Z-58827d40/free-home.png",
+    "artifactRunId": "20260917T065811Z-58827d40",
+    "sourceDocuments": [
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T065811Z-58827d40/run.json",
+        "sha256": "a1adb8e931be9f616398c6183d371c4c086317a074989f0102f8574e50b776dc"
+      },
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T065811Z-58827d40/result.json",
+        "sha256": "e2945a53020284cddbc31bdbde4ba5fc0c032182c460fde8328c6c5baa747a3e"
+      }
+    ]
+  },
+  "runtime": {
+    "platform": "Android",
+    "api": 35,
+    "model": "sdk_gphone64_x86_64",
+    "serial": "emulator-5554",
+    "operatingSystemVersion": "sdk_gphone64_x86_64-userdebug 15 AE3A.240806.043 12960925 dev-keys",
+    "emulator": true,
+    "physicalDevice": false,
+    "nativeCapturePixels": [
+      1179,
+      2556
+    ],
+    "displayConfiguration": "The emulator display was configured to 1179x2556 before native capture; the exported PNG was not resized.",
+    "appEntrypoint": "Production MainApp",
+    "apkSha256": "a96146a26696c51cc2beae0a83852e4cc48609f7e17bd9c7f45e4bdf03ef28e1",
+    "cleanInstall": true,
+    "peerBoundary": "Android MainApp; one native player and independent headless TLS peer in one process"
+  },
+  "acceptanceBoundary": {
+    "workflowPassed": false,
+    "lastRecordedJourneyResult": "running",
+    "partialVerifiedStages": [
+      "clean_production_services_and_free_customer",
+      "one_free_host_consumed_via_ui_and_real_tls_peer",
+      "next_host_opens_production_paywall",
+      "native_cancel_through_production_paywall"
+    ],
+    "recordedRunnerError": "UnsafeDialog: Timed out observing safe failure dialog: The focused window is not the MeowWatch application",
+    "laterPurchaseRestoreAndPaidHostingProvenByThisRun": false,
+    "interpretation": "This image establishes the rendered native home screen. The workflow later failed after free hosting, quota paywall and native cancellation; it does not establish completion of the later purchase, restore or paid-hosting steps."
+  }
+}

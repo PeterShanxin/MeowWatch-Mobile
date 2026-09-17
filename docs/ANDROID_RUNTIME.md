@@ -165,21 +165,31 @@ hosted runtime result.
 
 `tools/android_multi_device/` prepares a truthful two-client hosted test:
 
-- a Pixel 6 profile on `emulator-5554`, portrait, 2 vCPUs and 3072 MiB RAM;
-- a Pixel Tablet profile on `emulator-5556`, landscape, 2 vCPUs and 3072 MiB
-  RAM; and
+- a Pixel 6 profile on `emulator-5554`, portrait, 720 × 1600 at 280 dpi,
+  2 vCPUs and requested 3072 MiB RAM;
+- a Pixel Tablet profile on `emulator-5556`, landscape, 1280 × 800 at 160 dpi,
+  2 vCPUs and requested 3072 MiB RAM; and
 - Android 35 `google_apis` x86_64 images accelerated through Linux KVM.
 
 The standard public `ubuntu-24.04` runner currently provides 4 x64 vCPUs,
 16 GB RAM and 14 GB SSD. This allocation intentionally uses all four virtual
-CPU slots but only 6 GB of configured guest RAM, leaving host memory for the
-Android SDK, adb, graphics emulation, the test driver, and evidence processing.
+CPU slots. Requested guest RAM is not a measurement: the emulator can raise
+its allocation, and an earlier tablet run reported 4096 MiB. Each run retains
+the emulator's allocation message and actual guest-visible `MemTotal` alongside
+the request. The host also needs memory for the Android SDK, adb, graphics
+emulation, the test driver and evidence processing.
 Build the APK before launching both AVDs. Do not run concurrent Flutter or
 Gradle builds while both emulators are active.
 
 The phone allocation was raised from 2 GB after the simultaneous decode and
 record run showed Android low-memory kills. Recorder failures now retain each
 device's diagnostics independently, including per-segment recorder stderr.
+The fixed lower physical dimensions preserve the previous profiles' logical
+dp geometry while reducing software-rendered pixels for this two-player gate.
+They are configured before boot and read back as physical dimensions; a `wm`
+override is rejected. Full-resolution phone/tablet layout acceptance remains
+the separate five-viewport journey. Reduced dimensions alone do not establish
+that an ANR is fixed.
 
 Android assigns one console/adb port pair per emulator and recommends even
 console ports. The scripts use 5554 and 5556, which deterministically produce
@@ -190,7 +200,15 @@ unqualified device command is ambiguous when two devices are connected.
 Run the sequence documented in
 [`tools/android_multi_device/README.md`](../tools/android_multi_device/README.md).
 The launcher verifies Linux x86_64, writable KVM access, acceleration, installed
-device profiles, and both boot-complete signals. It uses current `swiftshader`
+device profiles, and both boot-complete signals. Before recording or installing
+the apps, a bounded 240-second gate requires three consecutive five-second
+windows with Home owning both focus measurements, completed provisioning, no
+new ANR, at least 20% CPU idle, CPU some-stall no higher than 20%, and memory
+full-stall no higher than 1%. These are this test's resource admission policy,
+not an Android responsiveness guarantee. Raw observations, device-clock deltas
+and failures are retained. PSI reads can use read-only `su 0` on the verified
+debuggable emulators if the ordinary shell lacks permission; no device security
+setting is changed. It uses current `swiftshader`
 software graphics rather than the deprecated `swiftshader_indirect` mode; KVM
 still accelerates the x86_64 virtual CPUs.
 

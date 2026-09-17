@@ -8,8 +8,8 @@ CI requests a maximum recording edge of 1600 pixels for the phone and 1280
 for the tablet at 3 Mbps. Before each native segment, the recorder reads the
 current default-display geometry and chooses proportional, even output bounds
 without upscaling. Each raw display dump and `recording-sizes.tsv` retain the
-source and requested dimensions. Android display/UI geometry, native timestamps
-and real recording gaps are unchanged. Rotation during a segment retains
+source and requested dimensions. The recorder does not change display geometry,
+native timestamps or real recording gaps. Rotation during a segment retains
 Android screenrecord behavior; fresh footage must establish whether reduced
 encoding load improves stalls. CLI callers that omit these options retain
 the original full-resolution, 8 Mbps behavior.
@@ -30,6 +30,46 @@ startup, a failed recorder stops the task-owned showcase command promptly;
 available segments are still collected, the run fails, and no replacement take
 is silently started. Native 170-second rotations remain separate segments with
 their real timing gaps.
+
+## Cold-boot admission and two-player CI displays
+
+The launcher creates a phone with physical `720x1600` pixels at `280` dpi and a
+tablet with physical `1280x800` pixels at `160` dpi. These fixed AVD settings keep
+the original profiles' approximately `411.43x914.29` dp and `1280x800` dp geometry
+while reducing pixel work on the shared software-rendering host. They are a
+resource-limited two-native-player CI configuration, not the independent
+full-resolution five-layout acceptance. Any CPU improvement remains to be
+measured. No `wm` size or density override is applied.
+The new AVDs also set `skin.name` and `skin.path` to those same `WxH` sizes:
+the [emulator's skin resolver](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/emu/avd/src/android/avd/info.c#1599)
+checks `skin.path` before falling back to the configured LCD size.
+
+Before the launcher returns, `device_readiness.py` reads both devices within a
+shared 240-second budget. Both must pass three consecutive device-time windows
+of at least five seconds: completed boot/provisioning, stopped boot animation,
+resolved Home owning both focused window and application, no observed system
+dialog or new ANR, CPU idle at least 20%, CPU PSI `some` stall at most 20%, and
+memory PSI `full` stall at most 1%. A failed window resets the joint count.
+Missing measurements or a failure on either device reject the entire run.
+These limits are the test runner's resource policy, not Android guarantees.
+
+Sampling is read-only. PSI uses cumulative `total` deltas and the device elapsed
+clock; system-level CPU `full=0` is not evidence of idleness. If shell PSI reads
+are denied, only a verified debuggable emulator may use `su 0` to read the same
+proc files. The actual access path is recorded; unavailable privilege or data
+fails explicitly. No dialog is dismissed, app stopped, or permission, SELinux,
+adbd or ANR timeout changed by this gate.
+
+Each session retains AVD config snapshots plus `device-readiness/sample-*.json`
+and `result.json`: raw command outputs, device counters, window decisions,
+physical size/density readback, requested RAM, any emulator-reported RAM increase,
+and guest-visible `MemTotal`. Requested 3072 MiB is not reported as actual RAM.
+Unexpected physical geometry or a display override fails. The production invite
+server starts only after this gate, before recording; its TTL remains 900 seconds.
+
+```sh
+python3 -m unittest tools.android_multi_device.test_device_readiness -v
+```
 
 ## Hosted Ubuntu sequence
 

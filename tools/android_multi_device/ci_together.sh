@@ -141,6 +141,26 @@ bash tools/android_multi_device/start_fixture_server.sh \
   --state "$server_state" \
   --port 18765
 
+current_stage='avd-launch'
+set +e
+bash tools/android_multi_device/launch_two_avds.sh "$sessions_root" \
+  2>&1 | tee "$runtime_root/avd-launch.log"
+launch_status="${PIPESTATUS[0]}"
+set -e
+mapfile -t session_files < <(find "$sessions_root" -type f -name session.env -print)
+if [[ "${#session_files[@]}" -eq 1 ]]; then
+  session_file="${session_files[0]}"
+fi
+if [[ "$launch_status" -ne 0 ]]; then
+  exit "$launch_status"
+fi
+if [[ -z "$session_file" ]]; then
+  echo 'AVD launcher did not produce exactly one session.env.' >&2
+  exit 4
+fi
+
+session_dir="$(dirname "$session_file")"
+
 if [[ "$production_ui" -eq 1 ]]; then
   current_stage='invite-rendezvous'
   python3 tools/production_together/coordination_server.py \
@@ -167,25 +187,6 @@ if [[ "$production_ui" -eq 1 ]]; then
   fi
 fi
 
-current_stage='avd-launch'
-set +e
-bash tools/android_multi_device/launch_two_avds.sh "$sessions_root" \
-  2>&1 | tee "$runtime_root/avd-launch.log"
-launch_status="${PIPESTATUS[0]}"
-set -e
-mapfile -t session_files < <(find "$sessions_root" -type f -name session.env -print)
-if [[ "${#session_files[@]}" -eq 1 ]]; then
-  session_file="${session_files[0]}"
-fi
-if [[ "$launch_status" -ne 0 ]]; then
-  exit "$launch_status"
-fi
-if [[ -z "$session_file" ]]; then
-  echo 'AVD launcher did not produce exactly one session.env.' >&2
-  exit 4
-fi
-
-session_dir="$(dirname "$session_file")"
 current_stage='recorded-smoke'
 set +e
 bash tools/android_multi_device/record_two_devices.sh \

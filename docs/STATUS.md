@@ -133,6 +133,17 @@ keep their results separate from baseline acceptance. The 18 preparation
 contracts and local read-only real-SDK hash check pass. This is diagnostic work;
 neither adoption nor a fix for native `object.dart:6670` is established.
 
+The next two-player CI run uses physical phone 720 × 1600 at 280 dpi and tablet
+1280 × 800 at 160 dpi, preserving their previous logical geometry while reducing
+software-rendered pixels. The launcher aligns the AVD LCD and skin configuration
+and rejects a mismatched physical readback or display override. A measured
+240-second cold-boot admission policy runs before installation or recording;
+the invite rendezvous starts afterward so its 900-second lifetime is preserved.
+All 30 local multi-device tool contracts pass, including 17 readiness contracts
+and an actual fake-ADB CLI subprocess sequence. These are harness checks, not
+evidence of improved native performance. The five-layout acceptance keeps its
+separate full-resolution captures.
+
 ## Previous native follow-up: `6edcb03`
 
 The production application is unchanged from `70575be` at this commit; the

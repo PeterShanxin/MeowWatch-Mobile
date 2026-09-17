@@ -6,8 +6,9 @@ usage() {
 Usage: launch_two_avds.sh [output-directory]
 
 Creates and launches a clean Pixel 6 phone AVD on emulator-5554 and a clean
-Pixel Tablet AVD on emulator-5556. The output directory receives emulator logs
-and session.env for the recording and cleanup scripts.
+Pixel Tablet AVD on emulator-5556 using fixed, resource-limited dual-player CI
+displays: 720x1600@280 and 1280x800@160. The output directory receives emulator
+logs, measured cold-boot readiness and session.env for recording and cleanup.
 EOF
 }
 
@@ -85,6 +86,26 @@ printf 'no\n' | ANDROID_AVD_HOME="$avd_home" "$avdmanager" create avd \
   --name "$tablet_avd" \
   --package "$system_image" \
   --device pixel_tablet
+
+# Preserve the profiles' dp geometry while reducing physical pixels for two
+# software-rendered players on one CI host. Full-resolution layout acceptance
+# runs separately. Resource improvements must be established by measurements.
+python3 - "$avd_home/$phone_avd.avd/config.ini" "$avd_home/$tablet_avd.avd/config.ini" <<'PY'
+from pathlib import Path
+import sys
+
+for name, width, height, density in ((sys.argv[1], 720, 1600, 280), (sys.argv[2], 1280, 800, 160)):
+    path = Path(name)
+    # The emulator resolves skin.path before skin.name or the LCD-size fallback.
+    # Keep both explicit magic-size skins aligned with the physical framebuffer.
+    values = {"hw.lcd.width": width, "hw.lcd.height": height, "hw.lcd.density": density,
+              "skin.name": f"{width}x{height}", "skin.path": f"{width}x{height}"}
+    lines = [line for line in path.read_text().splitlines() if line.partition("=")[0].strip() not in values]
+    lines.extend(f"{key}={value}" for key, value in values.items())
+    path.write_text("\n".join(lines) + "\n")
+PY
+cp "$avd_home/$phone_avd.avd/config.ini" "$session_dir/phone-avd-config.ini"
+cp "$avd_home/$tablet_avd.avd/config.ini" "$session_dir/tablet-avd-config.ini"
 
 ANDROID_AVD_HOME="$avd_home" "$emulator" -list-avds \
   > "$session_dir/created-avds.txt"
@@ -210,15 +231,21 @@ done
 "$adb" -s "$phone_serial" shell settings put system accelerometer_rotation 0
 "$adb" -s "$phone_serial" shell settings put system user_rotation 0
 "$adb" -s "$tablet_serial" shell settings put system accelerometer_rotation 0
-# Pixel Tablet's natural 2560x1600 display is already landscape. Rotating it
+# This tablet's natural 1280x800 CI display is already landscape. Rotating it
 # by 90 degrees produces a portrait app viewport and incorrect capture framing.
 "$adb" -s "$tablet_serial" shell settings put system user_rotation 0
 
 "$adb" devices -l > "$session_dir/adb-devices.txt"
 write_session
+python3 -m tools.android_multi_device.device_readiness \
+  --adb "$adb" --phone "$phone_serial" --tablet "$tablet_serial" \
+  --phone-log "$session_dir/phone-emulator.log" \
+  --tablet-log "$session_dir/tablet-emulator.log" \
+  --requested-memory-mib 3072 --output "$session_dir/device-readiness"
 startup_failed=0
 trap - EXIT
 
 printf 'Two AVDs are ready. Session: %s\n' "$session_dir/session.env"
-printf 'Phone:  %s (%s, 2 cores, 3072 MiB)\n' "$phone_serial" "$phone_avd"
-printf 'Tablet: %s (%s, 2 cores, 3072 MiB)\n' "$tablet_serial" "$tablet_avd"
+printf 'Phone:  %s (%s, 2 cores, requested 3072 MiB, physical 720x1600@280)\n' "$phone_serial" "$phone_avd"
+printf 'Tablet: %s (%s, 2 cores, requested 3072 MiB, physical 1280x800@160)\n' "$tablet_serial" "$tablet_avd"
+printf 'Measured guest RAM, display and admission evidence: %s/device-readiness/result.json\n' "$session_dir"

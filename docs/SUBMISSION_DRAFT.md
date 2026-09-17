@@ -36,12 +36,15 @@ places.
 ## What it does
 
 - Starts or joins a Together Session without requiring an account.
+- Offers a short, skippable first-use guide that can be replayed from Settings.
+- Accepts room invitations by paste or QR scan, with room and server details
+  shown for confirmation before joining.
 - Plays supported direct media links and local files selected through the
   native Android file picker.
 - Coordinates play, pause, and seek through a secure Syncplay room.
 - Keeps participant presence, chat, and reactions beside the video.
-- Saves recent playback progress for **Continue Watching** and also works as a
-  standalone player in **Local Mode**.
+- Saves playback progress and local last-watched dates for **Continue Watching**
+  and recent rooms, and also works as a standalone player in **Local Mode**.
 - Provides a playback-target model for watching on the phone or using the phone
   as a companion for a nearby MeowWatch desktop.
 
@@ -50,27 +53,44 @@ day; joining a room and reconnecting do not consume another session.
 **MeowWatch Plus** unlocks unlimited hosting through RevenueCat's entitlement
 state. The accepted emulator purchase journey is described below.
 
-**Acceptance notes:** Two independent Android emulators pass two-way native
-play, pause, seek and reaction checks at `70575be`. The full production Together
-UI journey still fails and is being corrected; complete create/join/social
-footage remains unaccepted. All five current native viewports pass the app's
-direct-link playback and Continue Watching checks, including the correctly
-rendered landscape phone. Their raw recordings contain an unrelated Pixel
-Launcher ANR overlay and need a fresh unobscured capture. File-picker selection, content-URI
-playback and retained grants/history after a process restart also pass.
+**Acceptance notes:** All 11 workflows at `9b7e9ed` have finished: seven pass and
+four fail. Native results use Android emulators. The independent phone/tablet
+runtime matrix passes all three jobs. The full
+[production Together journey 35212468221](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468221)
+reaches real create/join, two-way native play/pause/seek, chat, reactions and peer
+presence, then fails a Flutter semantics assertion during the extended
+shared-link flow. Original footage also reveals an earlier app ANR dialog
+obscuring the phone while widget automation continued beneath it. These steps
+do not prove a normally operable user journey. Recordings exist with explicit
+gaps, but the complete journey and paired demo film remain unaccepted; recovery
+and repeated-room branches are not proved by the earlier steps.
 
-The production UI purchase-and-hosting assertions pass at `70575be`, and later
-purchase/restore/paid-host recording intervals are unobscured: **one native
-Android player and a headless TLS peer in the
-same process**, not two recorded players. Nearby desktop control still needs
-physical Android-to-Windows LAN acceptance. Cast hardware and the full normal
-application lifecycle remain unaccepted. See [current evidence](STATUS.md).
+The guide, Settings replay, Local playback, Continue Watching and actual
+**Try a short film** button pass 20 steps with 14 screenshots on phone,
+portrait tablet, landscape tablet and landscape phone in
+[product journey 35212468253](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468253).
+Small phone records those same app steps, then fails during Flutter semantics
+teardown; its complete driver is not counted as passing. The sample uses the
+unmodified Sintel trailer, credited to Blender Foundation under CC BY 3.0,
+through the normal direct-media path. All five app observations decode its
+52,209 ms duration and advance at least four seconds. Final raw-film inspection
+remains separate from the app screenshots and assertions.
 
-The skippable three-step first-use guide and Settings replay pass the app's
-native checks in all five layouts. **Try a short film** loads the attributed
-Sintel trailer through the ordinary media path; the exact trailer passes native
-playback and seek. The new end-to-end sample-button tap check and clean guide
-recording still await fresh native execution.
+Release API 35 passes clean install and confirmed HTTPS/content-URI sharing,
+with 12/9 seconds of observed playback advancement and a temporary read-only
+content grant. Debug API 29/35 fail the new incoming-media harness checks;
+corrections await native rerun. SAF relaunch independently retains its grant and
+restores an eight-second playback position across two processes. Normal
+lifecycle reaches real playback but fails recording validation; local metadata
+and clock corrections do not establish HOME/resume/restart acceptance. Physical
+Android-to-Windows Nearby control and Cast receiver acceptance remain open.
+
+History now shows local last-watched dates, and room QR scanning leads to review
+and explicit confirmation. Widget tests cover rejection, cancellation,
+permission denial and scanner cleanup. The current Together guest reaches
+joined playback after its required Android ML Kit image-decode step; this is
+execution-prefix evidence, not camera hardware or a completed extended journey.
+The latest [evidence ledger](STATUS.md) controls these acceptance boundaries.
 
 ## How we built it
 
@@ -106,21 +126,35 @@ The paid benefit is easy to understand for people who host regularly:
 Plus removes the once-per-day limit for starting hosted Together Sessions.
 
 The development build uses RevenueCat Test Store through the official Flutter
-SDK. [Production journey 35199455085](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35199455085)
-at `70575be` passes **all 10 recorded stages**: a clean free customer, one free
-hosted session, the next-host paywall, native cancellation, native failure,
-successful purchase, Settings restore, restore after customer-info cache
-invalidation, persisted Cinema Noir, and two distinct paid hosted sessions.
-The same run records the localized price, activates `meowwatch_plus` and
-observes real native playback with its TLS peer in all three sessions.
+SDK. [Production journey 35212468110](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468110)
+at `9b7e9ed` passes **all 12 stages**: a clean free customer, one free hosted
+session, the next-host paywall, native cancellation/failure/success, Settings
+restore and cache-invalidated restore, persisted Glass Aurora, a premium Movie
+night reaction received by the TLS peer, persisted Cinema Noir, and two
+distinct paid hosted sessions. Native playback advances in all three rooms.
+The review confirms the actual theme, reaction, offering and restore screens.
 
-The native purchase-to-hosting recording is available; assembling and reviewing
-the final demo remains open. This acceptance uses one Android player and a
-headless protocol peer in one process. Restore retains the **same already-active
-customer**; it does not establish recovery after reinstall or lost identity.
-This is sandbox Test Store evidence, not a Google Play charge, store publication
-or physical-device billing. The [native screenshot provenance](../assets/submission/screenshot-provenance.json)
-retains the exact build, runtime, verified stages and original recording hashes.
+[RevenueCat relaunch and expiry 35212468121](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468121)
+also passes. The real Test Store purchase at 10:58:48 UTC expires at 11:03:48;
+fresh SDK data observes inactive Plus at 11:03:52, and a cache-invalidated
+restore keeps it inactive for that same customer and original purchase. This
+uses the actual subscription expiry, without changing the clock or entitlement.
+
+The purchase journey uses **one native Android player and a headless TLS peer
+in one process**. Its restore checks retain the same customer; they do not
+establish recovery after reinstall or lost identity. All billing evidence is
+sandbox Test Store evidence, not a Google Play charge, store publication or
+physical-device billing.
+
+Reviewed purchase footage contains no unexpected system modal. Its three source
+files have approximately **3.384/2.623-second playable gaps**, distinct from
+the recorder's 1.281/1.705-second coverage gaps. Final editing must use explicit
+cuts rather than imply uninterrupted actions across those boundaries.
+
+The earlier `70575be` purchase run remains historical 10-stage evidence. The
+prepared [native screenshot provenance](../assets/submission/screenshot-provenance.json)
+still identifies that older build and its original recording hashes; it is not
+relabeled as the new 12-stage run.
 
 ## Relationship to the original desktop MeowWatch
 
@@ -166,15 +200,17 @@ keeps purchase, restore, cancellation, reconnect, and target changes consistent.
 
 Before submission:
 
-1. Complete and inspect the production phone-and-tablet create/join recording,
-   including real chat and reaction UI.
-2. Edit the accepted production purchase footage into the final demo, preserving
-   its sandbox and same-customer restore labels.
+1. Resolve the extended Together failure and inspect a complete paired
+   phone/tablet recording, including chat, reactions and shared video links.
+2. Edit the accepted 12-stage purchase footage with its Test Store and
+   same-customer restore labels, preserving the source segment boundaries.
 3. Complete physical Android-to-Windows Nearby pairing and control acceptance,
    then include it only if the recording is stable.
-4. Pass the sample-button native check, recapture the guide without the emulator
-   Launcher overlay, and complete lifecycle/product review and the full
-   clean-install demo rehearsal.
+4. Finish extended recovery/repeated-room acceptance and fresh debug
+   incoming-media checks; resolve the remaining lifecycle and small-phone
+   teardown failures. Inspect guide/sample recordings and complete the full
+   clean-install demo rehearsal. Keep QR image-decoding and camera evidence
+   clearly distinguished.
 5. Package the final icon, frame-free required screenshot, public source link,
    and a public video shorter than two minutes.
 

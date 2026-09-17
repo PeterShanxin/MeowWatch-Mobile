@@ -72,3 +72,10 @@ inside this repository and are covered by the repository’s AGPL-3.0-only
 license. Transitive dependencies and platform implementations remain under
 their own license terms, shown in the in-app license page and distributed
 package license files.
+
+The optional semantics diagnostic in [`tools/flutter_compat`](tools/flutter_compat/README.md)
+contains a fixed patch and regression fixture from Flutter PR #190431 at
+`65e4783d8a1019029da88ee2435892ef638a9937`. Copyright 2014 The Flutter Authors.
+The original BSD 3-Clause text is retained in
+[`LICENSE.flutter`](tools/flutter_compat/LICENSE.flutter), with exact source
+provenance beside it. This diagnostic does not change the default Flutter SDK.

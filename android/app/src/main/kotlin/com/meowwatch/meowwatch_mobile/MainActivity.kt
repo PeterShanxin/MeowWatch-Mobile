@@ -13,6 +13,7 @@ class MainActivity : FlutterFragmentActivity() {
     private var pendingPicker: MethodChannel.Result? = null
     private var castBridge: CastBridge? = null
     private var incomingMediaBridge: IncomingMediaBridge? = null
+    private var fullscreenBridge: FullscreenBridge? = null
     private var initialMediaIntentHandled = false
     private var initialMediaIntent: Intent? = null
     private val pendingMediaIntents = ArrayDeque<Intent>()
@@ -61,6 +62,7 @@ class MainActivity : FlutterFragmentActivity() {
         super.configureFlutterEngine(flutterEngine)
         castBridge = CastBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         incomingMediaBridge = IncomingMediaBridge(this, flutterEngine.dartExecutor.binaryMessenger)
+        fullscreenBridge = FullscreenBridge(this, flutterEngine.dartExecutor.binaryMessenger)
         dispatchIncomingMedia()
         LanInterfaces.register(this, flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.meowwatch.mobile/media")
@@ -90,11 +92,18 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     override fun cleanUpFlutterEngine(flutterEngine: FlutterEngine) {
+        fullscreenBridge?.dispose()
+        fullscreenBridge = null
         castBridge?.dispose()
         castBridge = null
         incomingMediaBridge?.dispose()
         incomingMediaBridge = null
         super.cleanUpFlutterEngine(flutterEngine)
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        fullscreenBridge?.onWindowFocusChanged(hasFocus)
     }
 
     @Deprecated("Activity result bridge retained for Flutter's embedding")

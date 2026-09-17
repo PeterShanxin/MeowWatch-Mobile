@@ -75,6 +75,7 @@ class _AppMessageSnackBar {
 class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
   final _messenger = GlobalKey<ScaffoldMessengerState>();
   final _navigator = GlobalKey<NavigatorState>();
+  final _roomScreenKey = GlobalKey<RoomScreenState>();
   AppController? _app;
   Object? _loadError;
   bool _paywallOpen = false;
@@ -660,7 +661,11 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
           : PopScope(
               canPop: !app.inPlayer && !app.busy,
               onPopInvokedWithResult: (didPop, _) {
-                if (!didPop) unawaited(_run(app.leavePlayer));
+                if (didPop) return;
+                if (_roomScreenKey.currentState?.exitFullscreen() ?? false) {
+                  return;
+                }
+                unawaited(_run(app.leavePlayer));
               },
               child: Stack(
                 children: [
@@ -671,6 +676,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
                     )
                   else if (app.inPlayer)
                     RoomScreen(
+                      key: _roomScreenKey,
                       app: app,
                       onUpgrade: () => _upgrade(),
                       onLoad: _load,

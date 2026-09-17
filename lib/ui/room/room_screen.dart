@@ -1,9 +1,12 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../app/app_controller.dart';
 import '../../core/chat/reaction_catalog.dart';
+import '../../core/platform/immersive_mode.dart';
 import '../../core/playback/local_mobile_target.dart';
 import '../../core/playback/playback_target.dart';
 import '../../core/sync/peer_state.dart';
@@ -17,7 +20,7 @@ String formatPlaybackTime(Duration value) {
       : '$minutes:${(seconds % 60).toString().padLeft(2, '0')}';
 }
 
-class RoomScreen extends StatelessWidget {
+class RoomScreen extends StatefulWidget {
   const RoomScreen({
     super.key,
     required this.app,
@@ -40,6 +43,179 @@ class RoomScreen extends StatelessWidget {
   final ValueChanged<Duration> onSeek;
   final VoidCallback? onUpgrade;
 
+  @override
+  RoomScreenState createState() => RoomScreenState();
+}
+
+class RoomScreenState extends State<RoomScreen> {
+  final _stageKey = GlobalKey();
+  Timer? _hideControlsTimer;
+  bool _fullscreen = false;
+  bool _controlsVisible = true;
+  bool _accessibleNavigation = false;
+  bool _controlsFocused = false;
+  bool _controlsPressed = false;
+  bool _platformMayBeFullscreen = false;
+  int _modeRevision = 0;
+
+  AppController get app => widget.app;
+  VoidCallback get onLoad => widget.onLoad;
+  VoidCallback get onInvite => widget.onInvite;
+  VoidCallback get onDevices => widget.onDevices;
+  VoidCallback get onLeave => widget.onLeave;
+  VoidCallback get onStartRoom => widget.onStartRoom;
+  VoidCallback get onTogglePlay => widget.onTogglePlay;
+  ValueChanged<Duration> get onSeek => widget.onSeek;
+  VoidCallback? get onUpgrade => widget.onUpgrade;
+
+  bool get _canEnterFullscreen {
+    final target = app.target;
+    return target is LocalMobileTarget &&
+        target.controller != null &&
+        target.snapshot.ready;
+  }
+
+  bool get _keepControlsVisible =>
+      _accessibleNavigation ||
+      _controlsFocused ||
+      _controlsPressed ||
+      !app.playRequested ||
+      !app.target.snapshot.ready ||
+      (!app.isLocal && !app.isConnected);
+
+  @override
+  void initState() {
+    super.initState();
+    app.addListener(_appChanged);
+  }
+
+  @override
+  void didUpdateWidget(RoomScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.app != app) {
+      oldWidget.app.removeListener(_appChanged);
+      app.addListener(_appChanged);
+      exitFullscreen();
+    }
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _accessibleNavigation = MediaQuery.accessibleNavigationOf(context);
+    _updateControlsTimer();
+  }
+
+  void _appChanged() {
+    if (!mounted) return;
+    if (_fullscreen && app.target is! LocalMobileTarget) {
+      exitFullscreen();
+    } else {
+      setState(_updateControlsTimer);
+    }
+  }
+
+  void _updateControlsTimer({bool restart = false}) {
+    if (!_fullscreen || _keepControlsVisible) {
+      _hideControlsTimer?.cancel();
+      _hideControlsTimer = null;
+      _controlsVisible = true;
+      return;
+    }
+    if (restart) {
+      _hideControlsTimer?.cancel();
+      _hideControlsTimer = null;
+    }
+    if (_controlsVisible && _hideControlsTimer == null) {
+      _hideControlsTimer = Timer(const Duration(seconds: 3), () {
+        _hideControlsTimer = null;
+        if (!mounted || !_fullscreen || _keepControlsVisible) return;
+        setState(() => _controlsVisible = false);
+      });
+    }
+  }
+
+  void _enterFullscreen() {
+    if (_fullscreen || !_canEnterFullscreen) return;
+    setState(() {
+      _fullscreen = true;
+      _controlsVisible = true;
+      _updateControlsTimer(restart: true);
+    });
+    _requestImmersiveMode(true);
+  }
+
+  /// Consumes Back before MainApp considers leaving the room.
+  /// The layout changes synchronously, including during a pending entry.
+  bool exitFullscreen() {
+    if (!_fullscreen) return false;
+    setState(() {
+      _fullscreen = false;
+      _controlsFocused = false;
+      _controlsPressed = false;
+      _updateControlsTimer();
+    });
+    _requestImmersiveMode(false);
+    return true;
+  }
+
+  void _requestImmersiveMode(bool enabled) {
+    final revision = ++_modeRevision;
+    if (enabled) _platformMayBeFullscreen = true;
+    // Send every intent immediately. The platform bridge owns global ordering;
+    // an old RoomScreen must never delay its exit until a new room has entered.
+    unawaited(_applyImmersiveMode(enabled, revision));
+  }
+
+  Future<void> _applyImmersiveMode(bool enabled, int revision) async {
+    try {
+      await ImmersiveMode.setEnabled(
+        enabled,
+      ).timeout(const Duration(seconds: 5));
+      if (revision != _modeRevision) return;
+      _platformMayBeFullscreen = enabled;
+    } catch (error) {
+      if (revision != _modeRevision) return;
+      if (!mounted) {
+        debugPrint(
+          'Could not restore system controls after player exit: $error',
+        );
+        return;
+      }
+      if (enabled) exitFullscreen();
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            enabled
+                ? 'Could not enter full screen. Please try again.'
+                : 'Could not restore the system controls. Please try again.',
+          ),
+          action: enabled
+              ? null
+              : SnackBarAction(
+                  label: 'Retry',
+                  onPressed: () => _requestImmersiveMode(false),
+                ),
+        ),
+      );
+    }
+  }
+
+  void _toggleControls() {
+    setState(() {
+      _controlsVisible = _keepControlsVisible || !_controlsVisible;
+      _updateControlsTimer(restart: true);
+    });
+  }
+
+  @override
+  void dispose() {
+    app.removeListener(_appChanged);
+    _hideControlsTimer?.cancel();
+    if (_platformMayBeFullscreen) _requestImmersiveMode(false);
+    super.dispose();
+  }
+
   String get _connectionLabel => switch (app.connection.status) {
     SyncConnectionStatus.connected =>
       app.peers.isEmpty ? 'Waiting for your people' : 'Together in this room',
@@ -52,6 +228,14 @@ class RoomScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final stage = _VideoStage(
+      key: _stageKey,
+      app: app,
+      onLoad: onLoad,
+      onDevices: onDevices,
+      fullscreen: _fullscreen,
+    );
+    if (_fullscreen) return _buildFullscreen(stage);
     return Scaffold(
       body: SafeArea(
         child: LayoutBuilder(
@@ -110,6 +294,15 @@ class RoomScreen extends StatelessWidget {
                       ],
                     ),
                   ),
+                  if (_canEnterFullscreen)
+                    IconButton(
+                      onPressed: _enterFullscreen,
+                      icon: const Icon(Icons.fullscreen_rounded),
+                      tooltip: 'Enter full screen',
+                      style: IconButton.styleFrom(
+                        minimumSize: const Size(48, 48),
+                      ),
+                    ),
                   IconButton(
                     onPressed: onDevices,
                     icon: const Icon(Icons.devices_rounded),
@@ -129,11 +322,6 @@ class RoomScreen extends StatelessWidget {
               onToggle: onTogglePlay,
               onSeek: onSeek,
               compact: landscape,
-            );
-            final stage = _VideoStage(
-              app: app,
-              onLoad: onLoad,
-              onDevices: onDevices,
             );
             if (landscape) {
               return Stack(
@@ -290,16 +478,167 @@ class RoomScreen extends StatelessWidget {
       ),
     );
   }
+
+  Widget _buildFullscreen(Widget stage) => Scaffold(
+    backgroundColor: Colors.black,
+    body: Focus(
+      autofocus: true,
+      onKeyEvent: (_, event) {
+        if (event is KeyDownEvent &&
+            event.logicalKey == LogicalKeyboardKey.escape) {
+          exitFullscreen();
+          return KeyEventResult.handled;
+        }
+        return KeyEventResult.ignored;
+      },
+      child: Stack(
+        key: const ValueKey('fullscreen-player'),
+        children: [
+          Positioned.fill(
+            child: Semantics(
+              label: 'Video',
+              button: !_keepControlsVisible,
+              onTap: _keepControlsVisible ? null : _toggleControls,
+              child: GestureDetector(
+                key: const ValueKey('fullscreen-video-surface'),
+                behavior: HitTestBehavior.opaque,
+                excludeFromSemantics: true,
+                onTap: _toggleControls,
+                child: stage,
+              ),
+            ),
+          ),
+          if (_controlsVisible)
+            Positioned.fill(
+              child: SafeArea(
+                minimum: const EdgeInsets.all(8),
+                child: LayoutBuilder(
+                  builder: (context, constraints) => Focus(
+                    onFocusChange: (focused) {
+                      if (!mounted) return;
+                      setState(() {
+                        _controlsFocused =
+                            focused &&
+                            FocusManager.instance.highlightMode ==
+                                FocusHighlightMode.traditional;
+                        _updateControlsTimer();
+                      });
+                    },
+                    child: Listener(
+                      behavior: HitTestBehavior.deferToChild,
+                      onPointerDown: (_) {
+                        _controlsPressed = true;
+                        _updateControlsTimer();
+                      },
+                      onPointerUp: (_) {
+                        _controlsPressed = false;
+                        _updateControlsTimer(restart: true);
+                      },
+                      onPointerCancel: (_) {
+                        _controlsPressed = false;
+                        _updateControlsTimer(restart: true);
+                      },
+                      child: Stack(
+                        children: [
+                          Align(
+                            alignment: Alignment.topCenter,
+                            child: ColoredBox(
+                              color: Colors.black.withValues(alpha: .76),
+                              child: Row(
+                                children: [
+                                  _fullscreenButton(
+                                    tooltip: 'Exit full screen',
+                                    icon: Icons.fullscreen_exit_rounded,
+                                    onPressed: exitFullscreen,
+                                  ),
+                                  Expanded(
+                                    child: Text(
+                                      app.target.snapshot.media?.title ??
+                                          'Your video',
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .titleMedium
+                                          ?.copyWith(color: Colors.white),
+                                    ),
+                                  ),
+                                  _fullscreenButton(
+                                    tooltip: 'Choose video',
+                                    icon: Icons.video_library_outlined,
+                                    onPressed: onLoad,
+                                  ),
+                                  _fullscreenButton(
+                                    tooltip: 'Choose playback screen',
+                                    icon: Icons.devices_rounded,
+                                    onPressed: onDevices,
+                                  ),
+                                  if (!app.isLocal)
+                                    _fullscreenButton(
+                                      tooltip: 'Room chat',
+                                      icon: Icons.chat_bubble_outline_rounded,
+                                      onPressed: () =>
+                                          showChatSheet(context, app),
+                                    ),
+                                ],
+                              ),
+                            ),
+                          ),
+                          Align(
+                            alignment: Alignment.bottomCenter,
+                            child: ConstrainedBox(
+                              constraints: BoxConstraints(
+                                maxHeight: constraints.maxHeight * .6,
+                              ),
+                              child: ColoredBox(
+                                color: Colors.black.withValues(alpha: .76),
+                                child: SingleChildScrollView(
+                                  child: _PlaybackControls(
+                                    app: app,
+                                    onToggle: onTogglePlay,
+                                    onSeek: onSeek,
+                                    compact: true,
+                                  ),
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _fullscreenButton({
+    required String tooltip,
+    required IconData icon,
+    required VoidCallback onPressed,
+  }) => IconButton(
+    tooltip: tooltip,
+    icon: Icon(icon),
+    color: Colors.white,
+    style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
+    onPressed: onPressed,
+  );
 }
 
 class _VideoStage extends StatelessWidget {
   const _VideoStage({
+    super.key,
     required this.app,
     required this.onLoad,
     required this.onDevices,
+    this.fullscreen = false,
   });
   final AppController app;
   final VoidCallback onLoad, onDevices;
+  final bool fullscreen;
   @override
   Widget build(BuildContext context) {
     final target = app.target;
@@ -307,7 +646,7 @@ class _VideoStage extends StatelessWidget {
     final controller = target is LocalMobileTarget ? target.controller : null;
     final largeText = MediaQuery.textScalerOf(context).scale(16) >= 24;
     return ColoredBox(
-      color: const Color(0xFF070B12),
+      color: fullscreen ? Colors.black : const Color(0xFF070B12),
       child: Stack(
         alignment: Alignment.center,
         children: [
@@ -372,45 +711,50 @@ class _VideoStage extends StatelessWidget {
               ),
             )
           else
-            SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    state.error == null
-                        ? Icons.movie_outlined
-                        : Icons.info_outline_rounded,
-                    size: 46,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(height: 16),
-                  if (state.error != null)
-                    Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Text(state.error!, textAlign: TextAlign.center),
+            Padding(
+              padding: fullscreen
+                  ? const EdgeInsets.only(top: 64, bottom: 112)
+                  : EdgeInsets.zero,
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      state.error == null
+                          ? Icons.movie_outlined
+                          : Icons.info_outline_rounded,
+                      size: 46,
+                      color: Theme.of(context).colorScheme.primary,
                     ),
-                  if (largeText)
-                    FilledButton.tonal(
-                      onPressed: onLoad,
-                      child: Text(
-                        state.error == null
-                            ? 'Choose a video'
-                            : 'Choose another video',
-                        textAlign: TextAlign.center,
+                    const SizedBox(height: 16),
+                    if (state.error != null)
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Text(state.error!, textAlign: TextAlign.center),
                       ),
-                    )
-                  else
-                    FilledButton.tonalIcon(
-                      onPressed: onLoad,
-                      icon: const Icon(Icons.add_rounded),
-                      label: Text(
-                        state.error == null
-                            ? 'Choose a video'
-                            : 'Choose another video',
+                    if (largeText)
+                      FilledButton.tonal(
+                        onPressed: onLoad,
+                        child: Text(
+                          state.error == null
+                              ? 'Choose a video'
+                              : 'Choose another video',
+                          textAlign: TextAlign.center,
+                        ),
+                      )
+                    else
+                      FilledButton.tonalIcon(
+                        onPressed: onLoad,
+                        icon: const Icon(Icons.add_rounded),
+                        label: Text(
+                          state.error == null
+                              ? 'Choose a video'
+                              : 'Choose another video',
+                        ),
                       ),
-                    ),
-                ],
+                  ],
+                ),
               ),
             ),
           if (state.buffering && state.ready && app.playRequested)
@@ -473,6 +817,7 @@ class _PlaybackControlsState extends State<_PlaybackControls> {
             children: [
               if (widget.compact)
                 IconButton.filled(
+                  style: IconButton.styleFrom(minimumSize: const Size(48, 48)),
                   onPressed: ready ? widget.onToggle : null,
                   icon: Icon(
                     playRequested

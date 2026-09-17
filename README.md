@@ -8,6 +8,12 @@ Android-first MeowWatch: synchronized playback, conversation, and nearby desktop
 
 This is the mobile counterpart to [MeowWatch for desktop](https://github.com/PeterShanxin/MeowWatch), with a new touch interface, Android playback, lifecycle handling, and subscription flow. **Active development: not yet submission-ready.** See the [acceptance ledger](docs/STATUS.md) for verified capabilities and remaining work.
 
+When a video is loaded on this device, **Enter full screen** expands the player
+and hides the system bars. Handsets request landscape; tablets keep their
+current orientation. Tap the picture to show controls. Paused playback and
+accessible navigation keep controls available. Back first exits full screen
+while preserving the current video and room.
+
 ## Development
 
 Requires Flutter 3.44.0 / Dart 3.12, Java 17 or later, and the Android SDK. Android is the validation target; iOS scaffolding is present but not yet validated.

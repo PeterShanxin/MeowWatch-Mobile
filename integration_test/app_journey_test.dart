@@ -6,6 +6,8 @@ import 'package:integration_test/integration_test.dart';
 import 'package:meowwatch_mobile/main.dart';
 import 'package:video_player/video_player.dart';
 
+import '../tools/native_capture/native_screenshot.dart';
+
 const _videoUrl = String.fromEnvironment(
   'APP_JOURNEY_VIDEO_URL',
   defaultValue:
@@ -30,7 +32,7 @@ void main() {
       final verified = <String>[];
       final observations = <String, Object?>{};
 
-      await binding.convertFlutterSurfaceToImage();
+      final nativeScreenshots = NativeScreenshots(binding);
       await tester.pumpWidget(const MainApp());
 
       final initial = await _waitForAny(
@@ -72,7 +74,7 @@ void main() {
         observations['onboarding'] = 'already_complete';
       }
 
-      await _capture(binding, tester, screenshots, 'home');
+      await _capture(nativeScreenshots, tester, screenshots, 'home');
       verified.add('home_rendered');
 
       await _tap(
@@ -98,7 +100,7 @@ void main() {
       );
       verified.add('invalid_join_rejected_locally');
       observations['invalidJoinError'] = joinError;
-      await _capture(binding, tester, screenshots, 'join-invalid');
+      await _capture(nativeScreenshots, tester, screenshots, 'join-invalid');
 
       FocusManager.instance.primaryFocus?.unfocus();
       await tester.binding.handlePopRoute();
@@ -181,7 +183,12 @@ void main() {
         find.byTooltip('Play together'),
       ], 'play control after pausing');
       final pausedPosition = _slider(tester).value;
-      await _capture(binding, tester, screenshots, 'video-advanced-paused');
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'video-advanced-paused',
+      );
       await tester.pump(const Duration(milliseconds: 900));
       final pauseDrift = (_slider(tester).value - pausedPosition).abs();
       expect(
@@ -207,7 +214,12 @@ void main() {
       );
       final soughtPosition = _slider(tester).value;
       expect(soughtPosition, greaterThan(advancedPosition));
-      await _capture(binding, tester, screenshots, 'video-paused-sought');
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'video-paused-sought',
+      );
       verified.add('video_seeked_via_ui');
 
       await _tap(tester, find.byTooltip('Back to home'), 'leave local player');
@@ -221,7 +233,12 @@ void main() {
       await _waitFor(tester, find.byKey(resumeKey), 'Continue Watching entry');
       await tester.ensureVisible(find.byKey(resumeKey));
       await tester.pump(const Duration(milliseconds: 200));
-      await _capture(binding, tester, screenshots, 'continue-watching');
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'continue-watching',
+      );
       verified.add('continue_watching_persisted');
 
       await _tap(tester, find.byKey(resumeKey), 'resume Continue Watching');
@@ -239,7 +256,12 @@ void main() {
         timeout: const Duration(seconds: 15),
       );
       final resumedPosition = _slider(tester).value;
-      await _capture(binding, tester, screenshots, 'continue-resumed');
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'continue-resumed',
+      );
       verified.add('continue_watching_resumed');
 
       await _tap(
@@ -284,7 +306,7 @@ void main() {
       observations['offeringCta'] = localizedPrice;
       await tester.ensureVisible(monthlyPackage);
       await tester.pump(const Duration(milliseconds: 200));
-      await _capture(binding, tester, screenshots, 'plus-offering');
+      await _capture(nativeScreenshots, tester, screenshots, 'plus-offering');
       verified.add('revenuecat_offering_rendered');
 
       await _tap(tester, find.text('Maybe tomorrow'), 'dismiss Plus safely');
@@ -307,12 +329,17 @@ void main() {
       await _tap(tester, appearance, 'open appearance');
       final cozy = find.byKey(const Key('theme-choice-cozy'));
       await _waitFor(tester, cozy, 'appearance choices');
-      await _capture(binding, tester, screenshots, 'appearance');
+      await _capture(nativeScreenshots, tester, screenshots, 'appearance');
       final premiumTheme = find.byKey(const Key('theme-choice-cinemaNoir'));
       await tester.ensureVisible(premiumTheme);
       await _tap(tester, premiumTheme, 'review premium appearance');
       await _waitFor(tester, monthlyPackage, 'offering from premium theme');
-      await _capture(binding, tester, screenshots, 'appearance-upgrade');
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'appearance-upgrade',
+      );
       await _tap(
         tester,
         find.text('Maybe tomorrow'),
@@ -372,13 +399,13 @@ Slider _slider(WidgetTester tester) =>
     tester.widget<Slider>(find.byType(Slider));
 
 Future<void> _capture(
-  IntegrationTestWidgetsFlutterBinding binding,
+  NativeScreenshots nativeScreenshots,
   WidgetTester tester,
   List<String> screenshots,
   String name,
 ) async {
   await tester.pump(const Duration(milliseconds: 250));
-  final bytes = await binding.takeScreenshot(name);
+  final bytes = await nativeScreenshots.take(tester, name);
   expect(bytes, isNotEmpty, reason: 'Screenshot $name was empty.');
   screenshots.add(name);
 }

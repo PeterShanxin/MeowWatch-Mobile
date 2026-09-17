@@ -10,6 +10,8 @@ import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/main.dart';
 import 'package:video_player/video_player.dart';
 
+import '../tools/native_capture/native_screenshot.dart';
+
 const _fixtureTitle = 'meowwatch-saf-fixture.mp4';
 const _pollInterval = Duration(milliseconds: 150);
 
@@ -24,7 +26,7 @@ void main() {
         isTrue,
         reason: 'This gate exercises Android DocumentsUI and content URIs.',
       );
-      await binding.convertFlutterSurfaceToImage();
+      final screenshots = NativeScreenshots(binding);
 
       final app = await openAppServices();
       addTearDown(app.close);
@@ -38,16 +40,20 @@ void main() {
       expect(matching.length, lessThanOrEqualTo(1));
 
       final evidence = matching.isEmpty
-          ? await _selectPlayAndPersist(binding, tester, app)
-          : await _resumeAfterRelaunch(binding, tester, app, matching.single);
-      binding.reportData = <String, Object?>{
-        'localFileRuntime': <String, Object?>{
-          ...evidence,
-          'completed': true,
-          'fixtureTitle': _fixtureTitle,
-          'rawContentUriReported': false,
-          'nativeDocumentsUiRequired': true,
-        },
+          ? await _selectPlayAndPersist(screenshots, tester, app)
+          : await _resumeAfterRelaunch(
+              screenshots,
+              tester,
+              app,
+              matching.single,
+            );
+      binding.reportData ??= <String, dynamic>{};
+      binding.reportData!['localFileRuntime'] = <String, Object?>{
+        ...evidence,
+        'completed': true,
+        'fixtureTitle': _fixtureTitle,
+        'rawContentUriReported': false,
+        'nativeDocumentsUiRequired': true,
       };
     },
     timeout: const Timeout(Duration(minutes: 4)),
@@ -55,7 +61,7 @@ void main() {
 }
 
 Future<Map<String, Object?>> _selectPlayAndPersist(
-  IntegrationTestWidgetsFlutterBinding binding,
+  NativeScreenshots screenshots,
   WidgetTester tester,
   AppController app,
 ) async {
@@ -117,7 +123,7 @@ Future<Map<String, Object?>> _selectPlayAndPersist(
   expect(persisted.single.duration, loaded.duration);
 
   await tester.pump(_pollInterval);
-  final screenshot = await binding.takeScreenshot('local-file-selected');
+  final screenshot = await screenshots.take(tester, 'local-file-selected');
   expect(screenshot.length, greaterThan(4096));
   return <String, Object?>{
     'stage': 1,
@@ -134,7 +140,7 @@ Future<Map<String, Object?>> _selectPlayAndPersist(
 }
 
 Future<Map<String, Object?>> _resumeAfterRelaunch(
-  IntegrationTestWidgetsFlutterBinding binding,
+  NativeScreenshots screenshots,
   WidgetTester tester,
   AppController app,
   WatchHistoryEntry saved,
@@ -188,7 +194,7 @@ Future<Map<String, Object?>> _resumeAfterRelaunch(
   expect(app.target.snapshot.playing, isFalse);
 
   await tester.pump(_pollInterval);
-  final screenshot = await binding.takeScreenshot('local-file-relaunched');
+  final screenshot = await screenshots.take(tester, 'local-file-relaunched');
   expect(screenshot.length, greaterThan(4096));
   return <String, Object?>{
     'stage': 2,

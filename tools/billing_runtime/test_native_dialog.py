@@ -11,7 +11,9 @@ from native_dialog import (
     Adb,
     DialogOrchestrator,
     PACKAGE,
+    SETUP_PACKAGE,
     UnsafeDialog,
+    select_google_sdk_setup_anr_close,
     select_pixel_launcher_anr_close,
     select_target,
 )
@@ -78,6 +80,13 @@ LAUNCHER_WINDOW = (
     "com.google.android.apps.nexuslauncher}\n"
     f"mFocusedApp=ActivityRecord{{abcd u0 {PACKAGE}/{PACKAGE}.MainActivity t8}}"
 )
+SETUP_WINDOW = LAUNCHER_WINDOW.replace(
+    "com.google.android.apps.nexuslauncher", SETUP_PACKAGE
+)
+
+
+def setup_anr() -> str:
+    return launcher_anr(f"{SETUP_PACKAGE} isn't responding")
 
 
 class SelectorTests(unittest.TestCase):
@@ -85,6 +94,46 @@ class SelectorTests(unittest.TestCase):
         target = select_pixel_launcher_anr_close(launcher_anr(), LAUNCHER_WINDOW)
         self.assertEqual(target.label, "Close app")
         self.assertEqual(target.center, (540, 1233))
+
+    def test_exact_google_sdk_setup_anr_selects_system_close(self) -> None:
+        target = select_google_sdk_setup_anr_close(setup_anr(), SETUP_WINDOW)
+        self.assertEqual(target.label, "Close app")
+        self.assertEqual(target.center, (540, 1233))
+
+    def test_google_sdk_setup_recovery_rejects_other_anr_or_underlying_app(self) -> None:
+        for observed_xml, window in [
+            (setup_anr(), SETUP_WINDOW.replace(PACKAGE, "com.other")),
+            (
+                launcher_anr("MeowWatch isn't responding"),
+                SETUP_WINDOW.replace(SETUP_PACKAGE, PACKAGE),
+            ),
+            (setup_anr(), SETUP_WINDOW.replace(SETUP_PACKAGE, "com.other.setup")),
+            (launcher_anr(), SETUP_WINDOW),
+        ]:
+            with self.subTest(xml=observed_xml, window=window):
+                with self.assertRaises(UnsafeDialog):
+                    select_google_sdk_setup_anr_close(observed_xml, window)
+
+    def test_documents_ui_recovery_requires_explicit_exact_underlying_package(self) -> None:
+        for package in ("com.google.android.documentsui", "com.android.documentsui"):
+            window = LAUNCHER_WINDOW.replace(PACKAGE, package)
+            with self.subTest(package=package):
+                with self.assertRaises(UnsafeDialog):
+                    select_pixel_launcher_anr_close(launcher_anr(), window)
+                self.assertEqual(select_pixel_launcher_anr_close(
+                    launcher_anr(), window, expected_underlying_package=package,
+                ).center, (540, 1233))
+                with self.assertRaises(UnsafeDialog):
+                    select_pixel_launcher_anr_close(
+                        launcher_anr(), window.replace(package, package + ".other"),
+                        expected_underlying_package=package,
+                    )
+        for invalid in ("", ".*", "com.android.documentsui/Activity"):
+            with self.assertRaises(UnsafeDialog):
+                select_pixel_launcher_anr_close(
+                    launcher_anr(), LAUNCHER_WINDOW,
+                    expected_underlying_package=invalid,
+                )
 
     def test_launcher_recovery_rejects_other_anr_and_underlying_app(self) -> None:
         for observed_xml, window in [
@@ -271,14 +320,23 @@ class FakeAdb:
 
 
 class RecoveringFakeAdb(FakeAdb):
-    def __init__(self, *, emulator: bool = True, always_anr: bool = False):
+    def __init__(
+        self,
+        *,
+        emulator: bool = True,
+        always_anr: bool = False,
+        setup_anr_active: bool = False,
+    ):
         super().__init__()
         self.emulator = emulator
         self.always_anr = always_anr
+        self.setup_anr_active = setup_anr_active
 
     def observe(self) -> tuple[str, str]:
         self.observations += 1
         if self.always_anr or self.observations <= 2:
+            if self.setup_anr_active:
+                return setup_anr(), SETUP_WINDOW
             return launcher_anr(), LAUNCHER_WINDOW
         return xml(dialog()), FOCUS
 
@@ -316,6 +374,66 @@ class OrchestratorTests(unittest.TestCase):
             )
             self.assertIn("serial=emulator-5554", recovery_log)
             self.assertIn("package=com.google.android.apps.nexuslauncher", recovery_log)
+
+    def test_google_sdk_setup_anr_is_recorded_closed_then_purchase_continues(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "native_dialog.NativeRecording"
+        ), patch("native_dialog.time.sleep"):
+            adb = RecoveringFakeAdb(setup_anr_active=True)
+            controller = DialogOrchestrator(adb, Path(temporary))
+            controller.perform("cancel")
+
+            taps = [
+                command
+                for command in adb.commands
+                if command[:3] == ("shell", "input", "tap")
+            ]
+            self.assertEqual(
+                taps,
+                [
+                    ("shell", "input", "tap", "540", "1233"),
+                    ("shell", "input", "tap", "100", "125"),
+                ],
+            )
+            self.assertEqual(controller.setup_recoveries, 1)
+            artifacts = Path(temporary)
+            self.assertTrue((artifacts / "cancel-setup-recovery-1.xml").exists())
+            self.assertTrue((artifacts / "cancel-setup-recovery-1.png").exists())
+            recovery_log = (artifacts / "setup-recovery.log").read_text(
+                encoding="utf-8"
+            )
+            self.assertIn("serial=emulator-5554", recovery_log)
+            self.assertIn(f"package={SETUP_PACKAGE}", recovery_log)
+
+    def test_google_sdk_setup_anr_on_non_emulator_is_never_tapped(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "native_dialog.NativeRecording"
+        ), patch("native_dialog.time.sleep"):
+            adb = RecoveringFakeAdb(
+                emulator=False,
+                always_anr=True,
+                setup_anr_active=True,
+            )
+            controller = DialogOrchestrator(adb, Path(temporary), stage_timeout=0.01)
+            with self.assertRaises(UnsafeDialog):
+                controller.perform("cancel")
+            self.assertEqual(adb.commands, [])
+
+    def test_google_sdk_setup_anr_recovery_is_bounded_to_two_closes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            "native_dialog.NativeRecording"
+        ), patch("native_dialog.time.sleep"):
+            adb = RecoveringFakeAdb(always_anr=True, setup_anr_active=True)
+            controller = DialogOrchestrator(adb, Path(temporary), stage_timeout=0.01)
+            with self.assertRaises(UnsafeDialog):
+                controller.perform("cancel")
+            taps = [
+                command
+                for command in adb.commands
+                if command[:3] == ("shell", "input", "tap")
+            ]
+            self.assertEqual(len(taps), 2)
+            self.assertEqual(controller.setup_recoveries, 2)
 
     def test_launcher_anr_recovery_is_bounded_to_two_closes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch(

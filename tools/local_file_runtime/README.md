@@ -37,6 +37,15 @@ A selector failure stops the runner-owned Flutter drive process immediately,
 instead of being masked by its longer wall timeout. Successful selection still
 requires the exact fixture in focused DocumentsUI and the app regaining focus.
 
+On a verified emulator, the selector can close at most two exact Pixel Launcher
+ANR dialogs obscuring DocumentsUI. It verifies the system ANR title, launcher
+package, underlying DocumentsUI package and close control, captures XML, focused
+window and screenshot evidence, then rechecks focus immediately before tapping.
+The recovery count remains in `documentsui-selector.json`. It never closes a
+MeowWatch ANR, an unrelated application's dialog or a physical device's dialog;
+all original file-selection, decode, playback and retained-grant assertions
+remain required after recovery.
+
 This is API 35 x86_64 emulator evidence. It does not prove behavior for every
 document provider, OEM picker, codec or physical device.
 

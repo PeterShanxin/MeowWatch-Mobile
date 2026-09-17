@@ -1,12 +1,16 @@
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 import unittest
+from unittest.mock import patch
 
 from tools.android_install.runner import (
     Adb,
     PACKAGE,
     RuntimeFailure,
+    Runner,
+    SETUP_PACKAGE,
     artifact_boundary,
     focused_component,
     install_command,
@@ -14,6 +18,7 @@ from tools.android_install.runner import (
     launch_output_succeeded,
     parse_package_metadata,
     redact_log,
+    setup_anr_close,
     verify_onboarding_semantics,
     verify_build_mode,
 )
@@ -39,6 +44,97 @@ def node(
 
 def hierarchy(*nodes: str) -> str:
     return "<?xml version='1.0' encoding='UTF-8'?><hierarchy>" + "".join(nodes) + "</hierarchy>"
+
+
+SETUP_WINDOW = f"mCurrentFocus=Window{{123 u0 Application Not Responding: {SETUP_PACKAGE}}}"
+SETUP_XML = hierarchy(
+    f'<node package="android" enabled="true" resource-id="android:id/alertTitle" '
+    f'text="{SETUP_PACKAGE} isn\'t responding" />',
+    '<node package="android" enabled="true" resource-id="android:id/aerr_close" '
+    'text="Close app" class="android.widget.Button" clickable="true" bounds="[20,100][120,160]" />',
+)
+
+
+class SetupAdb:
+    def __init__(self, *, qemu="1", xml=SETUP_XML, window=SETUP_WINDOW, outcomes=(False, True)):
+        self.qemu, self.xml, self.window = qemu, xml, window
+        self.outcomes = list(outcomes)
+        self.commands = []
+        self.observations = 0
+        self.change_dialog = False
+
+    def run(self, *args, **kwargs):
+        self.commands.append(args)
+        output = b""
+        if args[:3] == ("shell", "am", "start"):
+            ok = self.outcomes.pop(0)
+            output = (f"Status: {'ok' if ok else 'timeout'}\nActivity: {PACKAGE}/.MainActivity\n").encode()
+        elif args == ("shell", "getprop", "ro.kernel.qemu"):
+            output = self.qemu.encode()
+        return subprocess.CompletedProcess(args, 0, output, b"")
+
+    def observe(self):
+        self.observations += 1
+        if self.change_dialog and self.observations > 1:
+            return self.xml, FOCUS
+        return self.xml, self.window
+
+    def screenshot(self):
+        return b"retained-test-evidence"
+
+
+class SetupRecoveryTests(unittest.TestCase):
+    def runner(self, adb):
+        runner = Runner.__new__(Runner)
+        runner.adb = adb
+        return runner
+
+    def test_only_the_exact_system_setup_dialog_can_be_closed(self):
+        self.assertEqual(setup_anr_close(SETUP_XML, SETUP_WINDOW), (70, 130))
+        self.assertIsNone(setup_anr_close(SETUP_XML, SETUP_WINDOW.replace(SETUP_PACKAGE, PACKAGE)))
+        for changed in (
+            SETUP_XML.replace(f"{SETUP_PACKAGE} isn't responding", "MeowWatch isn't responding"),
+            SETUP_XML.replace('package="android"', f'package="{PACKAGE}"'),
+            SETUP_XML.replace('android:id/aerr_close', 'android:id/aerr_wait'),
+            SETUP_XML.replace('clickable="true"', 'clickable="false"'),
+            SETUP_XML.replace('[20,100][120,160]', '[20,100][20,160]'),
+        ):
+            with self.subTest(changed=changed), self.assertRaises(RuntimeFailure):
+                setup_anr_close(changed, SETUP_WINDOW)
+
+    def test_setup_failure_is_retained_then_launch_is_reverified(self):
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+        ):
+            adb = SetupAdb()
+            evidence = self.runner(adb).launch()
+            self.assertEqual(evidence, {"attempts": 2, "googleSetupAnrRecovered": True})
+            self.assertEqual(adb.commands.count(('shell', 'input', 'tap', '70', '130')), 1)
+            self.assertIn('Status: timeout', (Path(temporary) / 'launch-1.txt').read_text())
+            self.assertIn('Status: ok', (Path(temporary) / 'launch-2.txt').read_text())
+            self.assertTrue((Path(temporary) / 'setup-anr.png').is_file())
+
+    def test_other_anrs_and_physical_devices_are_not_retried(self):
+        for adb in (SetupAdb(qemu="0"), SetupAdb(window=SETUP_WINDOW.replace(SETUP_PACKAGE, PACKAGE))):
+            with self.subTest(adb=adb), tempfile.TemporaryDirectory() as temporary, patch(
+                'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+            ):
+                with self.assertRaises(RuntimeFailure):
+                    self.runner(adb).launch()
+                self.assertFalse(any(command[:3] == ('shell', 'input', 'tap') for command in adb.commands))
+                self.assertEqual(sum(command[:3] == ('shell', 'am', 'start') for command in adb.commands), 1)
+
+    def test_changed_dialog_or_second_failed_launch_remains_failure(self):
+        for change in (False, True):
+            with self.subTest(change=change), tempfile.TemporaryDirectory() as temporary, patch(
+                'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+            ):
+                adb = SetupAdb(outcomes=(False, False))
+                adb.change_dialog = change
+                with self.assertRaises(RuntimeFailure):
+                    self.runner(adb).launch()
+                taps = sum(command[:3] == ('shell', 'input', 'tap') for command in adb.commands)
+                self.assertEqual(taps, 0 if change else 1)
 
 
 class RuntimeContractTests(unittest.TestCase):

@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'tools/native_capture/**'
       - ".github/workflows/android-runtime.yml"
       - "android/**"
       - "integration_test/**"
@@ -16,6 +17,7 @@ on:
   push:
     branches: [main]
     paths:
+      - 'tools/native_capture/**'
       - ".github/workflows/android-runtime.yml"
       - "android/**"
       - "integration_test/**"

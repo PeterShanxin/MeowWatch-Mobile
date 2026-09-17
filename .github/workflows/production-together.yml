@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'tools/native_capture/**'
       - '.github/workflows/production-together.yml'
       - 'integration_test/production_together_test.dart'
       - 'test_driver/production_together_driver.dart'

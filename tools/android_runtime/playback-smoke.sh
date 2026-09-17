@@ -8,13 +8,21 @@ recording_stop_file="$recording_control_dir/stop"
 recording_pid_file="$recording_control_dir/remote-pid"
 recording_failure_file="$recording_control_dir/failed"
 remote_recording_dir="/sdcard/meowwatch-runtime-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+remote_storage_probe="$remote_recording_dir/storage-ready.mp4"
 mkdir -p "$recording_dir" "$recording_control_dir"
 storage_ready=0
-# sys.boot_completed can precede the emulated user's /sdcard mount.
+# A mounted /sdcard can accept directories before MediaProvider registers the
+# external volume. Probe media-file creation too, before starting screenrecord.
 storage_deadline=$((SECONDS + 20))
 while (( SECONDS < storage_deadline )); do
   if timeout --signal=TERM --kill-after=2s 3s \
       adb shell mkdir -p "$remote_recording_dir" \
+      >> "$artifact_dir/screenrecord.log" 2>&1 &&
+     timeout --signal=TERM --kill-after=2s 3s \
+      adb shell touch "$remote_storage_probe" \
+      >> "$artifact_dir/screenrecord.log" 2>&1 &&
+     timeout --signal=TERM --kill-after=2s 3s \
+      adb shell rm -f "$remote_storage_probe" \
       >> "$artifact_dir/screenrecord.log" 2>&1; then
     storage_ready=1
     break
@@ -22,7 +30,7 @@ while (( SECONDS < storage_deadline )); do
   sleep 0.5
 done
 if [ "$storage_ready" -ne 1 ]; then
-  echo "Android shared storage did not become writable during the readiness window." \
+  echo "Android shared storage did not accept media files during the readiness window." \
     >> "$artifact_dir/screenrecord.log"
   touch "$recording_failure_file"
 fi

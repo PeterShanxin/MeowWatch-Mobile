@@ -11,6 +11,10 @@ import threading
 import time
 import xml.etree.ElementTree as ET
 
+from tools.billing_runtime.native_dialog import (
+    MAX_SYSTEM_ANR_RECOVERIES, UnsafeDialog, select_pixel_launcher_anr_close,
+)
+
 
 APP_PACKAGE = "com.meowwatch.meowwatch_mobile"
 DOCUMENTS_PACKAGES = {"com.google.android.documentsui", "com.android.documentsui"}
@@ -187,6 +191,7 @@ class Adb:
         if not re.fullmatch(r"[A-Za-z0-9_-]+", run_id):
             raise ValueError("invalid run ID")
         self.prefix = ["adb", "-s", serial]
+        self.serial = serial
         self.remote_prefix = f"/sdcard/meowwatch-saf-{run_id}-"
         self.remote_files: list[str] = []
         self.observation = 0
@@ -238,6 +243,13 @@ class Adb:
             time.sleep(0.25)
         raise RuntimeError("MeowWatch did not regain focus after document selection")
 
+    def verified_emulator(self) -> bool:
+        return re.fullmatch(r"emulator-[0-9]+", self.serial) is not None and (
+            self.run("shell", "getprop", "ro.kernel.qemu").stdout.decode(
+                "ascii", errors="strict"
+            ).strip() == "1"
+        )
+
     def cleanup(self) -> None:
         for remote in self.remote_files:
             if not remote.startswith(self.remote_prefix):
@@ -260,11 +272,13 @@ class DocumentsUiSelector:
         self.timeout = timeout
         self.stop_event = stop_event
         self.selected = False
+        self.launcher_recoveries = 0
 
     def select(self) -> None:
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self.diagnostics: dict[str, object] = {
             "selected": False, "phase": "initial", "searchFields": [],
+            "launcherRecoveries": 0,
         }
         try:
             self._select()
@@ -273,9 +287,45 @@ class DocumentsUiSelector:
             raise
         finally:
             self.diagnostics["selected"] = self.selected
+            self.diagnostics["launcherRecoveries"] = self.launcher_recoveries
             (self.artifacts / "documentsui-selector.json").write_text(
                 json.dumps(self.diagnostics, indent=2) + "\n", encoding="utf-8"
             )
+
+    def _recover_pixel_launcher_anr(self, xml: str, window: str) -> bool:
+        for package in sorted(DOCUMENTS_PACKAGES):
+            try:
+                select_pixel_launcher_anr_close(
+                    xml, window, expected_underlying_package=package,
+                )
+                break
+            except UnsafeDialog:
+                continue
+        else:
+            return False
+        if self.launcher_recoveries >= MAX_SYSTEM_ANR_RECOVERIES:
+            raise RuntimeError("Pixel Launcher ANR recovery limit reached")
+        if not self.adb.verified_emulator():
+            raise RuntimeError("Pixel Launcher ANR recovery is emulator-only")
+        attempt = self.launcher_recoveries + 1
+        prefix = self.artifacts / f"documentsui-launcher-recovery-{attempt}"
+        prefix.with_suffix(".xml").write_text(xml, encoding="utf-8")
+        prefix.with_suffix(".window.txt").write_text(window, encoding="utf-8")
+        png = self.adb.screenshot()
+        prefix.with_suffix(".png").write_bytes(png)
+        width, height = image_size(png)
+        fresh_xml, fresh_window = self.adb.observe()
+        target = select_pixel_launcher_anr_close(
+            fresh_xml, fresh_window, expected_underlying_package=package,
+        )
+        if target.bounds[2] > width or target.bounds[3] > height:
+            raise RuntimeError("Pixel Launcher close lies outside the screen")
+        prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
+        prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
+        x, y = target.center
+        self.adb.run("shell", "input", "tap", str(x), str(y))
+        self.launcher_recoveries = attempt
+        return True
 
     def _select(self) -> None:
         phase = "initial"
@@ -286,6 +336,8 @@ class DocumentsUiSelector:
                 raise RuntimeError("DocumentsUI selection was cancelled")
             try:
                 xml, window = self.adb.observe()
+                if self._recover_pixel_launcher_anr(xml, window):
+                    continue
                 self.diagnostics["phase"] = phase
                 self.diagnostics["searchFields"] = search_field_diagnostics(xml)
                 target = select_picker_target(xml, window, self.fixture_name, phase)
@@ -293,6 +345,8 @@ class DocumentsUiSelector:
                 width, height = image_size(png)
                 # Expensive capture may change focus. Re-read before every tap.
                 xml, window = self.adb.observe()
+                if self._recover_pixel_launcher_anr(xml, window):
+                    continue
                 target = select_picker_target(xml, window, self.fixture_name, phase)
                 if target.bounds[2] > width or target.bounds[3] > height:
                     raise PickerNotReady("Picker control lies outside the screen")

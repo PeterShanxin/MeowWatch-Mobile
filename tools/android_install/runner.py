@@ -20,6 +20,7 @@ import xml.etree.ElementTree as ET
 
 PACKAGE = "com.meowwatch.meowwatch_mobile"
 ACTIVITY = f"{PACKAGE}/.MainActivity"
+SETUP_PACKAGE = "com.google.android.googlesdksetup"
 ARTIFACT_ROOT = Path("build/android-install-artifacts")
 _SERIAL = re.compile(r"^emulator-[0-9]+$")
 _PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
@@ -62,6 +63,47 @@ def launch_output_succeeded(output: str) -> bool:
         output,
     )
     return status_ok and component is not None
+
+
+def setup_anr_close(xml: str, window_dump: str) -> tuple[int, int] | None:
+    """Recognize only the system's Google emulator setup ANR close action."""
+    focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window_dump)
+    if len(focuses) != 1 or re.search(
+        rf"\bApplication Not Responding: {re.escape(SETUP_PACKAGE)}(?:\s|}})",
+        focuses[0],
+    ) is None:
+        return None
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError as error:
+        raise RuntimeFailure("Invalid setup ANR accessibility XML") from error
+    nodes = [
+        node for node in root.iter("node")
+        if node.get("package") == "android"
+        and node.get("enabled") == "true"
+        and node.get("visible-to-user", "true") == "true"
+    ]
+    titles = [
+        node for node in nodes
+        if node.get("resource-id") == "android:id/alertTitle"
+        and node.get("text") == f"{SETUP_PACKAGE} isn't responding"
+    ]
+    buttons = [
+        node for node in nodes
+        if node.get("resource-id") == "android:id/aerr_close"
+        and node.get("text") == "Close app"
+        and node.get("class") == "android.widget.Button"
+        and node.get("clickable") == "true"
+    ]
+    if len(titles) != 1 or len(buttons) != 1:
+        raise RuntimeFailure("Google emulator setup ANR is ambiguous")
+    bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", buttons[0].get("bounds", ""))
+    if bounds is None:
+        raise RuntimeFailure("Google emulator setup close bounds are missing")
+    left, top, right, bottom = map(int, bounds.groups())
+    if left >= right or top >= bottom:
+        raise RuntimeFailure("Google emulator setup close bounds are empty")
+    return ((left + right) // 2, (top + bottom) // 2)
 
 
 def focused_component(window_dump: str) -> str:
@@ -333,6 +375,47 @@ class Runner:
         self.installed_pid: int | None = None
         self.cleanup_authorized = False
 
+    def recover_setup_anr(self) -> bool:
+        # This fixture owns a disposable emulator, never a user's phone. An
+        # application ANR or any other system dialog must still fail the gate.
+        if self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.decode().strip() != "1":
+            raise RuntimeFailure("setup ANR recovery is emulator-only")
+        xml, window = self.adb.observe()
+        if setup_anr_close(xml, window) is None:
+            return False
+        (ARTIFACT_ROOT / "setup-anr.xml").write_text(xml, encoding="utf-8")
+        (ARTIFACT_ROOT / "setup-anr-window.txt").write_text(window, encoding="utf-8")
+        (ARTIFACT_ROOT / "setup-anr.png").write_bytes(self.adb.screenshot())
+        fresh_xml, fresh_window = self.adb.observe()
+        point = setup_anr_close(fresh_xml, fresh_window)
+        if point is None:
+            raise RuntimeFailure("setup ANR changed before the close action")
+        self.adb.run("shell", "input", "tap", str(point[0]), str(point[1]))
+        return True
+
+    def launch(self) -> dict[str, Any]:
+        recovered = False
+        for attempt in (1, 2):
+            try:
+                result = self.adb.run(
+                    "shell", "am", "start", "-W", "-n", ACTIVITY,
+                    timeout=30, check=False,
+                )
+                output = (result.stdout + result.stderr).decode("utf-8", errors="replace")
+                accepted = result.returncode == 0 and launch_output_succeeded(output)
+            except subprocess.TimeoutExpired:
+                output = "ActivityManager launch exceeded its 30-second timeout.\n"
+                accepted = False
+            (ARTIFACT_ROOT / f"launch-{attempt}.txt").write_text(
+                redact_log(output), encoding="utf-8",
+            )
+            if accepted:
+                return {"attempts": attempt, "googleSetupAnrRecovered": recovered}
+            if attempt == 2 or not self.recover_setup_anr():
+                raise RuntimeFailure("ActivityManager did not confirm the normal MainActivity launch")
+            recovered = True
+        raise AssertionError("launch attempts exhausted")
+
     def prepare(self) -> dict[str, Any]:
         if shutil.which("adb") is None:
             raise RuntimeFailure("required tool is unavailable: adb")
@@ -394,13 +477,7 @@ class Runner:
             self.adb.run("logcat", "-c")
             recorder = NativeRecording(self.adb)
             recorder.start()
-            launch = self.adb.run(
-                "shell", "am", "start", "-W", "-n", ACTIVITY, timeout=30
-            ).stdout.decode("utf-8", errors="replace")
-            if not launch_output_succeeded(launch):
-                raise RuntimeFailure(
-                    "ActivityManager did not confirm the normal MainActivity launch"
-                )
+            launch_evidence = self.launch()
             deadline = time.monotonic() + 55
             last_error = "normal first-run UI was not observed"
             while time.monotonic() < deadline:
@@ -496,6 +573,7 @@ class Runner:
                     **metadata,
                 },
                 "install": install_evidence,
+                "launch": launch_evidence,
                 "firstRun": {
                     "normalLibMainEntrypoint": True,
                     "uiautomatorOnboardingSemantics": semantics,

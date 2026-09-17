@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'tools/native_capture/**'
       - '.github/workflows/production-purchase.yml'
       - 'integration_test/purchase_journey_test.dart'
       - 'tools/production_purchase_runtime/**'

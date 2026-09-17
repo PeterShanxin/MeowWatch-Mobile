@@ -46,9 +46,28 @@ if [[ "${1:-}" == shell ]]; then
         fi
       fi
       ;;
+    touch)
+      attempts=0
+      if [[ -f "$FAKE_ANDROID_STORAGE/file-attempts" ]]; then
+        attempts=$(cat "$FAKE_ANDROID_STORAGE/file-attempts")
+      fi
+      attempts=$((attempts + 1))
+      printf '%s' "$attempts" > "$FAKE_ANDROID_STORAGE/file-attempts"
+      if (( attempts < 3 )); then
+        echo 'MediaProvider: Volume external_primary not found' >&2
+        exit 1
+      fi
+      touch "$(device_path "$2")"
+      ;;
     screenrecord)
       remote="${*: -1}"
       if [[ ! "$remote" =~ ^/sdcard/meowwatch-runtime-[0-9]+-[0-9]+/playback-smoke-[0-9]+\.mp4$ ]]; then
+        echo "Unable to open '$remote': Operation not permitted" >&2
+        exit 1
+      fi
+      # The directory can exist before MediaProvider accepts media files.
+      if [[ ! -f "$FAKE_ANDROID_STORAGE/file-attempts" ]] ||
+         (( $(cat "$FAKE_ANDROID_STORAGE/file-attempts") < 3 )); then
         echo "Unable to open '$remote': Operation not permitted" >&2
         exit 1
       fi
@@ -56,7 +75,7 @@ if [[ "${1:-}" == shell ]]; then
       printf '%s' "$$" > "$FAKE_SCREENRECORD_PID"
       finish_recording() {
         mkdir -p "$(dirname "$local_file")"
-        head -c 8192 /dev/zero > "$local_file"
+        head -c "${FAKE_RECORDING_BYTES:-8192}" /dev/zero > "$local_file"
         rm -f "$FAKE_SCREENRECORD_PID"
         exit 0
       }
@@ -94,6 +113,7 @@ cat > "$test_root/bin/flutter" <<'FLUTTER'
 set -euo pipefail
 sleep 1
 printf 'All tests passed.\n'
+exit "${FAKE_FLUTTER_EXIT:-0}"
 FLUTTER
 chmod +x "$test_root/bin/adb" "$test_root/bin/flutter"
 
@@ -115,12 +135,45 @@ grep -Fq \
   'shell screenrecord --bit-rate 4000000 --time-limit 170 /sdcard/meowwatch-runtime-123456-2/playback-smoke-000.mp4' \
   "$test_root/adb.log"
 test ! -e "$test_root/device/sdcard/meowwatch-runtime-123456-2"
-test "$(cat "$test_root/device/mkdir-attempts")" -eq 3
+test "$(cat "$test_root/device/mkdir-attempts")" -eq 5
+test "$(cat "$test_root/device/file-attempts")" -eq 3
 grep -Fq $'flutter_drive_exit\t0' \
   "$test_root/build/android-runtime-artifacts/exit-codes.tsv"
 grep -Fq $'screenrecord_files\t1' \
   "$test_root/build/android-runtime-artifacts/exit-codes.tsv"
 grep -Fq $'final_exit\t0' \
   "$test_root/build/android-runtime-artifacts/exit-codes.tsv"
+
+check_failure() {
+  local name="$1" bytes="$2" flutter_exit="$3" expected_exit="$4"
+  local case_root="$test_root/$name"
+  mkdir -p "$case_root/device"
+  set +e
+  (
+    cd "$case_root"
+    PATH="$test_root/bin:$PATH" \
+      FAKE_ADB_LOG="$case_root/adb.log" \
+      FAKE_ANDROID_STORAGE="$case_root/device" \
+      FAKE_SCREENRECORD_PID="$case_root/screenrecord.pid" \
+      FAKE_RECORDING_BYTES="$bytes" \
+      FAKE_FLUTTER_EXIT="$flutter_exit" \
+      GITHUB_RUN_ID=123456 \
+      GITHUB_RUN_ATTEMPT=2 \
+      bash "$repo_root/tools/android_runtime/playback-smoke.sh"
+  )
+  local status=$?
+  set -e
+  test "$status" -eq "$expected_exit"
+  grep -Fq $'flutter_drive_exit\t'"$flutter_exit" \
+    "$case_root/build/android-runtime-artifacts/exit-codes.tsv"
+  grep -Fq $'final_exit\t'"$expected_exit" \
+    "$case_root/build/android-runtime-artifacts/exit-codes.tsv"
+}
+
+# Storage readiness never turns absent recording or failed native tests green.
+check_failure empty-recording 0 0 1
+grep -Fq $'screenrecord_files\t0' \
+  "$test_root/empty-recording/build/android-runtime-artifacts/exit-codes.tsv"
+check_failure native-failure 8192 7 7
 
 echo 'playback smoke recording contract passed'

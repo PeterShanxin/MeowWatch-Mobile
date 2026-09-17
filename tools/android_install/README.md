@@ -42,6 +42,13 @@ python3 -m tools.android_install.runner \
 The release matrix job uses `--build-mode release` and
 `meowwatch-debug-key-release.apk` instead.
 
+If Google's SDK setup package shows its exact system ANR dialog during launch,
+the runner retains the dialog XML, focused window and screenshot, confirms the
+device is an emulator, then closes only that setup dialog and retries launch
+once. It rechecks the dialog immediately before tapping. App ANRs, unrelated
+dialogs and a second setup failure remain failures; original launch diagnostics
+are retained alongside the successful attempt.
+
 Evidence comes from a public-hosted Android emulator, not a physical device.
 The gate proves clean installation, first launch and native incoming review for
 each APK. The debug artifact contains a real Test Store client configuration,

@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   pull_request:
     paths:
+      - 'tools/native_capture/**'
       - '.github/workflows/product-runtime.yml'
       - 'integration_test/together_smoke_test.dart'
       - 'integration_test/billing_smoke_test.dart'

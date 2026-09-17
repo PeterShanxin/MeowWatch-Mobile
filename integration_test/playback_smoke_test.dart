@@ -8,6 +8,8 @@ import 'package:meowwatch_mobile/core/playback/local_mobile_target.dart';
 import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:video_player/video_player.dart';
 
+import '../tools/native_capture/native_screenshot.dart';
+
 const _sampleVideoUrl =
     'https://flutter.github.io/assets-for-api-docs/assets/videos/bee.mp4';
 
@@ -35,7 +37,7 @@ void main() {
       expect(target.controller!.value.size.width, greaterThan(0));
       expect(target.controller!.value.size.height, greaterThan(0));
 
-      await binding.convertFlutterSurfaceToImage();
+      final screenshots = NativeScreenshots(binding);
       await tester.pumpWidget(_PlaybackSurface(controller: target.controller!));
       await tester.pump(const Duration(milliseconds: 300));
 
@@ -51,7 +53,7 @@ void main() {
       expect(advanced.connection, PlaybackConnection.ready);
 
       await tester.pump(const Duration(milliseconds: 300));
-      final playingPng = await binding.takeScreenshot('playback-playing');
+      final playingPng = await screenshots.take(tester, 'playback-playing');
       expect(playingPng, isNotEmpty);
 
       await target.pause();
@@ -105,7 +107,7 @@ void main() {
             snapshot.position >= const Duration(milliseconds: 1500),
       );
       await tester.pump(const Duration(milliseconds: 300));
-      final reopenedPng = await binding.takeScreenshot('playback-reopened');
+      final reopenedPng = await screenshots.take(tester, 'playback-reopened');
       expect(reopenedPng, isNotEmpty);
 
       binding.reportData ??= <String, dynamic>{};

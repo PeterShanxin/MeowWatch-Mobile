@@ -14,6 +14,8 @@ import 'package:purchases_flutter/purchases_flutter.dart'
     show Purchases, PurchasesErrorCode;
 import 'package:video_player/video_player.dart';
 
+import '../tools/native_capture/native_screenshot.dart';
+
 const _video = String.fromEnvironment(
   'PURCHASE_JOURNEY_VIDEO_URL',
   defaultValue:
@@ -28,6 +30,7 @@ void main() {
   testWidgets(
     'production paywall unlocks themes and further hosted sessions',
     (tester) async {
+      final nativeScreenshots = NativeScreenshots(binding);
       expect(Platform.isAndroid, isTrue);
       expect(usesTestStore, isTrue);
       // The same service factory and durable files as a normal app launch.
@@ -52,12 +55,10 @@ void main() {
       binding.reportData!['purchaseJourney'] = evidence;
 
       Future<void> capture(String name) async {
-        await tester.pump(const Duration(milliseconds: 300));
-        expect(await binding.takeScreenshot(name), isNotEmpty);
+        expect(await nativeScreenshots.take(tester, name), isNotEmpty);
         screenshots.add(name);
       }
 
-      await binding.convertFlutterSurfaceToImage();
       await tester.pumpWidget(MainApp(controller: app));
       final name = find.byKey(const Key('display-name-field'));
       await _wait(tester, () => name.evaluate().isNotEmpty, 'clean onboarding');
@@ -129,7 +130,7 @@ void main() {
             seconds: 70,
           );
           final initialPosition = app.target.snapshot.position;
-          await _tap(tester, find.byTooltip('Play together'));
+          await _tap(tester, _roomPlaybackControl('Play'));
           await _wait(
             tester,
             () =>
@@ -156,7 +157,7 @@ void main() {
             'remainingFreeHosts': await app.hosting.remainingFreeHostsToday(),
           });
           await capture(stage);
-          await _tap(tester, find.byTooltip('Pause together'));
+          await _tap(tester, _roomPlaybackControl('Pause'));
           await _wait(
             tester,
             () => !app.target.snapshot.playing,
@@ -377,6 +378,13 @@ Future<void> _home(WidgetTester tester) => _wait(
   tester,
   () => find.byKey(const Key('home-scroll-view')).evaluate().isNotEmpty,
   'home',
+);
+
+// RoomScreen uses shorter tooltips in portrait and "together" in landscape.
+Finder _roomPlaybackControl(String action) => find.byWidgetPredicate(
+  (widget) =>
+      widget is IconButton &&
+      (widget.tooltip == action || widget.tooltip == '$action together'),
 );
 
 Future<void> _tap(WidgetTester tester, Finder finder) async {

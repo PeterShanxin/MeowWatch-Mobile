@@ -15,6 +15,7 @@ import 'package:meowwatch_mobile/main.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
+import '../tools/native_capture/native_screenshot.dart';
 import '../tools/production_together/json_request.dart';
 
 const _role = String.fromEnvironment('TOGETHER_ROLE', defaultValue: 'host');
@@ -97,7 +98,7 @@ void main() {
       );
       addTearDown(app.close);
 
-      await binding.convertFlutterSurfaceToImage();
+      final nativeScreenshots = NativeScreenshots(binding);
       await tester.pumpWidget(MainApp(controller: app));
       await _completeOnboarding(tester, name);
       verified.addAll([
@@ -157,8 +158,27 @@ void main() {
         'peer presence',
         timeout: const Duration(seconds: 90),
       );
-      await _waitFor(tester, find.text(peerName), 'peer name in production UI');
-      await _capture(binding, tester, screenshots, 'room-ready');
+      // The tablet video occupies most of the details viewport. Reveal the
+      // real roster with a gesture instead of waiting for an offscreen lazy
+      // ListView child to be built.
+      final roomDetails = find.descendant(
+        of: find.byType(ListView).first,
+        matching: find.byType(Scrollable),
+      );
+      await tester.scrollUntilVisible(
+        find.text(peerName),
+        250,
+        scrollable: roomDetails,
+        maxScrolls: 8,
+      );
+      await _waitFor(
+        tester,
+        find.text(peerName).hitTestable(),
+        'visible peer name in production UI',
+      );
+      await _capture(nativeScreenshots, tester, screenshots, 'room-ready');
+      await tester.drag(roomDetails, const Offset(0, 800));
+      await tester.pump(const Duration(milliseconds: 250));
       _observe(observations, app, 'room-ready');
       verified.addAll(['starttls_room_connected', 'peer_presence_rendered']);
 
@@ -182,7 +202,7 @@ void main() {
         timeout: const Duration(seconds: 45),
       );
       expect(find.byType(VideoPlayer), findsOneWidget);
-      await _capture(binding, tester, screenshots, 'video-ready');
+      await _capture(nativeScreenshots, tester, screenshots, 'video-ready');
       _observe(observations, app, 'video-ready');
       verified.addAll([
         'direct_video_loaded_via_ui',
@@ -209,7 +229,12 @@ void main() {
           'host playback to advance',
           timeout: const Duration(seconds: 20),
         );
-        await _capture(binding, tester, screenshots, 'host-controlling-play');
+        await _capture(
+          nativeScreenshots,
+          tester,
+          screenshots,
+          'host-controlling-play',
+        );
         await _signalCheckpoint('host-playing');
         await _waitForCheckpoint(tester, 'guest', 'guest-saw-play');
 
@@ -223,12 +248,22 @@ void main() {
         hostPausedPosition = app.target.snapshot.position.inMilliseconds;
         await _signalCheckpoint('host-paused', value: '$hostPausedPosition');
         await _waitForCheckpoint(tester, 'guest', 'guest-saw-pause');
-        await _capture(binding, tester, screenshots, 'host-paused-together');
+        await _capture(
+          nativeScreenshots,
+          tester,
+          screenshots,
+          'host-paused-together',
+        );
 
         hostSeekPosition = await _seekThroughUi(tester, app, 0.58);
         await _signalCheckpoint('host-sought', value: '$hostSeekPosition');
         await _waitForCheckpoint(tester, 'guest', 'guest-saw-seek');
-        await _capture(binding, tester, screenshots, 'host-sought-together');
+        await _capture(
+          nativeScreenshots,
+          tester,
+          screenshots,
+          'host-sought-together',
+        );
 
         await _signalCheckpoint('guest-control');
         await _waitForCheckpoint(tester, 'guest', 'guest-playing');
@@ -274,7 +309,12 @@ void main() {
           'host play reflected on guest',
           timeout: const Duration(seconds: 20),
         );
-        await _capture(binding, tester, screenshots, 'guest-saw-host-play');
+        await _capture(
+          nativeScreenshots,
+          tester,
+          screenshots,
+          'guest-saw-host-play',
+        );
         await _signalCheckpoint('guest-saw-play');
 
         final pauseValue = await _waitForCheckpoint(
@@ -296,7 +336,12 @@ void main() {
         );
         peerPausePosition = app.target.snapshot.position.inMilliseconds;
         await _signalCheckpoint('guest-saw-pause');
-        await _capture(binding, tester, screenshots, 'guest-paused-together');
+        await _capture(
+          nativeScreenshots,
+          tester,
+          screenshots,
+          'guest-paused-together',
+        );
 
         final seekValue = await _waitForCheckpoint(
           tester,
@@ -316,7 +361,12 @@ void main() {
         );
         peerSeekPosition = app.target.snapshot.position.inMilliseconds;
         await _signalCheckpoint('guest-saw-seek');
-        await _capture(binding, tester, screenshots, 'guest-sought-together');
+        await _capture(
+          nativeScreenshots,
+          tester,
+          screenshots,
+          'guest-sought-together',
+        );
 
         await _waitForCheckpoint(tester, 'host', 'guest-control');
         final beforePlay = app.target.snapshot.position.inMilliseconds;
@@ -343,7 +393,12 @@ void main() {
         await _signalCheckpoint('guest-paused', value: '$guestPausedPosition');
         await _waitForCheckpoint(tester, 'host', 'host-saw-guest-pause');
       }
-      await _capture(binding, tester, screenshots, 'two-way-sync-complete');
+      await _capture(
+        nativeScreenshots,
+        tester,
+        screenshots,
+        'two-way-sync-complete',
+      );
       _observe(observations, app, 'two-way-sync-complete');
       verified.addAll([
         'host_play_synchronized',
@@ -361,7 +416,7 @@ void main() {
         expect(find.text(guestChat), findsOneWidget);
         expect(find.text(peerName), findsWidgets);
         await _sendChatThroughUi(tester, app, hostChat, closeAfter: false);
-        await _capture(binding, tester, screenshots, 'chat-visible');
+        await _capture(nativeScreenshots, tester, screenshots, 'chat-visible');
         await _closeChatIfNeeded(tester);
       } else {
         await _sendChatThroughUi(tester, app, guestChat);
@@ -369,7 +424,7 @@ void main() {
         await _openChat(tester);
         expect(find.text(hostChat), findsOneWidget);
         expect(find.text(peerName), findsWidgets);
-        await _capture(binding, tester, screenshots, 'chat-visible');
+        await _capture(nativeScreenshots, tester, screenshots, 'chat-visible');
         await _closeChatIfNeeded(tester);
       }
       verified.add('chat_sent_and_rendered_via_production_ui');
@@ -389,7 +444,12 @@ void main() {
           find.text('❤️'),
           'reaction overlay in production player',
         );
-        await _capture(binding, tester, screenshots, 'reaction-visible');
+        await _capture(
+          nativeScreenshots,
+          tester,
+          screenshots,
+          'reaction-visible',
+        );
         await _signalCheckpoint('heart-seen');
       } else {
         await _waitForCheckpoint(tester, 'host', 'send-heart');
@@ -863,14 +923,14 @@ void _observe(
 }
 
 Future<void> _capture(
-  IntegrationTestWidgetsFlutterBinding binding,
+  NativeScreenshots nativeScreenshots,
   WidgetTester tester,
   List<String> screenshots,
   String stage,
 ) async {
   final name = '$_role-$stage';
   await tester.pump(const Duration(milliseconds: 250));
-  final bytes = await binding.takeScreenshot(name);
+  final bytes = await nativeScreenshots.take(tester, name);
   expect(bytes, isNotEmpty, reason: 'Screenshot $name was empty.');
   screenshots.add(name);
 }

@@ -14,6 +14,8 @@ import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:video_player/video_player.dart';
 
+import '../tools/native_capture/native_screenshot.dart';
+
 const _role = String.fromEnvironment('TOGETHER_ROLE', defaultValue: 'host');
 const _room = String.fromEnvironment('TOGETHER_ROOM');
 const _server = String.fromEnvironment(
@@ -79,7 +81,7 @@ void main() {
         reason:
             'Use a long video fixture so rendezvous and screenshots do not reach EOF.',
       );
-      await binding.convertFlutterSurfaceToImage();
+      final screenshots = NativeScreenshots(binding);
       await tester.pumpWidget(_RuntimeSurface(app: app, target: target));
 
       Future<void> until(
@@ -145,7 +147,7 @@ void main() {
           'peers': app.peers.toList(),
         });
         await tester.pump();
-        await binding.takeScreenshot('$_role-$stage');
+        await screenshots.take(tester, '$_role-$stage');
       }
 
       for (var round = 0; round < 2; round++) {

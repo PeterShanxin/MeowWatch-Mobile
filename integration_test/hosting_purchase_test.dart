@@ -22,6 +22,8 @@ import 'package:purchases_flutter/purchases_flutter.dart'
     show Purchases, PurchasesErrorCode;
 import 'package:video_player/video_player.dart';
 
+import '../tools/native_capture/native_screenshot.dart';
+
 const _apiKey = String.fromEnvironment('REVENUECAT_API_KEY');
 const _server = String.fromEnvironment(
   'SYNCPLAY_SERVER',
@@ -114,7 +116,7 @@ void main() {
       expect(host.app.peers, isEmpty);
       await host.app.load(MediaItem.fromUrl(_video));
       _expectMedia(host.target);
-      await binding.convertFlutterSurfaceToImage();
+      final nativeScreenshots = NativeScreenshots(binding);
 
       _Peer? peer;
       Future<void> capture(String name) async {
@@ -122,7 +124,7 @@ void main() {
           _RuntimeView(host: host, peer: peer, stage: name),
         );
         await tester.pump(const Duration(milliseconds: 250));
-        await binding.takeScreenshot(name);
+        await nativeScreenshots.take(tester, name);
         screenshots.add(name);
         observations.add({
           'stage': name,

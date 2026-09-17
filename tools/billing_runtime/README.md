@@ -67,6 +67,17 @@ can omit focus entirely; those fields are not accepted as substitutes. The
 captured regression fixture from run 35056405179 documents this distinction.
 Missing, foreign, or ambiguous current-focus entries still prevent every tap.
 
+On a verified emulator only, the driver can close two narrowly identified
+system-infrastructure ANRs that may obscure an otherwise live MeowWatch
+activity: Pixel Launcher and `com.google.android.googlesdksetup`. Recovery
+requires the exact allowlisted package in `mCurrentFocus`, MeowWatch as the
+exact underlying `mFocusedApp`, the exact system ANR title, and one enabled,
+clickable `android:id/aerr_close` button from package `android`. The driver
+captures XML, window state, and a screenshot, then repeats every check before
+one close tap. At most two such recoveries are allowed across a run. App ANRs,
+other packages, other actions, physical devices, and changed observations
+remain hard failures.
+
 The failure integration assertion requires RevenueCat's
 `testStoreSimulatedPurchaseError`; a generic network error cannot pass that step.
 
@@ -79,6 +90,8 @@ Each run directory contains:
 - `run.json`: runner verdict, APK SHA-256, selected serial and observed taps.
 - `<stage>-before.xml`, `<stage>-window.txt`, `<stage>-before.png`,
   `<stage>-after.png`: native evidence for each purchase outcome.
+- `<stage>-<launcher|setup>-recovery-<n>.*` and the matching recovery log:
+  exact system-ANR evidence and the bounded close action, when recovery occurs.
 - `<stage>.mp4` and `<stage>.log`: native screen recording and recorder log.
 - `*-failure.*`: accessibility/window/screenshot diagnostics when available.
 

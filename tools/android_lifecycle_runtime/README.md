@@ -79,3 +79,25 @@ they do not validate Android playback. Only a successful actual workflow run
 provides emulator lifecycle evidence. This gate is not physical-device, Cast,
 frame-accurate video, audio-output, or manufacturer-specific background-policy
 validation. Keep the real workflow result and remaining hardware checks distinct.
+
+### Transient UI capture timeouts
+
+The runner retries a timed-out read-only Android UI observation up to three
+attempts within the phase's original polling deadline. Each attempt requests a
+fresh hierarchy; previously captured XML cannot establish playback progress.
+The retry is restricted to observation, so an uncertain timed-out tap is never
+repeated automatically. Playback advancement, the eight-second HOME hold,
+four-second background-position tolerance, paused stability and process-restart
+checks are unchanged.
+
+`result.json` records `observationTimeouts` with safe operation names rather
+than raw command arguments. On failure, `lastCompletedUiObservation` identifies
+the phase/time associated with the retained diagnostic XML. A screenshot taken
+after a timeout may show a later player time than that older XML.
+
+Run `35188550930` stopped before HOME while sampling `04-advanced`: only the
+0-second loaded state and 3-second playing state were recorded. The exception
+was an unhandled observation `TimeoutExpired`; the supplementary failure image
+shows playback at 20 seconds. That run did not retain the timed-out subcommand
+and is not a lifecycle pass. This change makes that transient capture failure
+retryable and diagnosable; a fresh native run is still required.

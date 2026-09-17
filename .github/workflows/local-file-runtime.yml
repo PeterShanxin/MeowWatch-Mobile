@@ -19,6 +19,8 @@ on:
       - "test_driver/local_file_relaunch_driver.dart"
       - "tools/android_multi_device/*fixture*"
       - "tools/local_file_runtime/**"
+      - "tools/billing_runtime/native_dialog.py"
+      - "tools/native_capture/**"
   push:
     branches: [main]
     paths:
@@ -37,6 +39,8 @@ on:
       - "test_driver/local_file_relaunch_driver.dart"
       - "tools/android_multi_device/*fixture*"
       - "tools/local_file_runtime/**"
+      - "tools/billing_runtime/native_dialog.py"
+      - "tools/native_capture/**"
 
 permissions:
   contents: read

@@ -16,7 +16,8 @@ PACKAGE = "com.meowwatch.meowwatch_mobile"
 PRODUCT = "meowwatch_plus_monthly"
 STAGES = ("cancel", "failure", "success")
 LAUNCHER_PACKAGE = "com.google.android.apps.nexuslauncher"
-MAX_LAUNCHER_RECOVERIES = 2
+SETUP_PACKAGE = "com.google.android.googlesdksetup"
+MAX_SYSTEM_ANR_RECOVERIES = 2
 # The first variants are from the native SDK's SimulatedStoreBillingWrapper;
 # the latter full labels are documented in RevenueCat's Test Store guide.
 BUTTONS = {
@@ -48,19 +49,27 @@ def focused_on_app(window_dump: str, package: str = PACKAGE) -> bool:
     ) is not None
 
 
-def select_pixel_launcher_anr_close(xml: str, window_dump: str) -> Target:
-    """Select only the API 35 Pixel Launcher ANR close action over MeowWatch."""
+def _select_system_anr_close(
+    xml: str,
+    window_dump: str,
+    *,
+    anr_package: str,
+    anr_title: str,
+    expected_underlying_package: str,
+) -> Target:
+    if not re.fullmatch(r"[A-Za-z][A-Za-z0-9_]*(?:\.[A-Za-z][A-Za-z0-9_]*)+", expected_underlying_package):
+        raise UnsafeDialog("An exact underlying Android package is required")
     focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window_dump)
     focused_apps = re.findall(r"mFocusedApp=([^\r\n]+)", window_dump)
     if len(focuses) != 1 or re.search(
-        rf"\bApplication Not Responding: {re.escape(LAUNCHER_PACKAGE)}(?:\s|}})",
+        rf"\bApplication Not Responding: {re.escape(anr_package)}(?:\s|}})",
         focuses[0],
     ) is None:
-        raise UnsafeDialog("The focused window is not the Pixel Launcher ANR")
+        raise UnsafeDialog(f"The focused window is not the allowed {anr_package} ANR")
     if len(focused_apps) != 1 or re.search(
-        rf"\b{re.escape(PACKAGE)}/[^\s}}]+", focused_apps[0]
+        rf"\b{re.escape(expected_underlying_package)}/[^\s}}]+", focused_apps[0]
     ) is None:
-        raise UnsafeDialog("Pixel Launcher ANR is not obscuring MeowWatch")
+        raise UnsafeDialog("System ANR is not obscuring the expected activity")
     try:
         root = ET.fromstring(xml)
     except ET.ParseError as error:
@@ -77,7 +86,7 @@ def select_pixel_launcher_anr_close(xml: str, window_dump: str) -> Target:
         for node in nodes
         if node.get("resource-id") == "android:id/alertTitle"
         and node.get("class") == "android.widget.TextView"
-        and node.get("text") == "Pixel Launcher isn't responding"
+        and node.get("text") == anr_title
     ]
     close_buttons = [
         node
@@ -88,15 +97,41 @@ def select_pixel_launcher_anr_close(xml: str, window_dump: str) -> Target:
         and node.get("text") == "Close app"
     ]
     if len(titles) != 1 or len(close_buttons) != 1:
-        raise UnsafeDialog("Missing unique Pixel Launcher ANR title/close action")
+        raise UnsafeDialog("Missing unique allowed system ANR title/close action")
     node = close_buttons[0]
     bounds = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
     if not bounds:
-        raise UnsafeDialog("Invalid Pixel Launcher close bounds")
+        raise UnsafeDialog("Invalid system ANR close bounds")
     left, top, right, bottom = map(int, bounds.groups())
     if left >= right or top >= bottom:
-        raise UnsafeDialog("Empty Pixel Launcher close bounds")
+        raise UnsafeDialog("Empty system ANR close bounds")
     return Target(node.get("text", ""), (left, top, right, bottom))
+
+
+def select_pixel_launcher_anr_close(
+    xml: str, window_dump: str, *, expected_underlying_package: str = PACKAGE,
+) -> Target:
+    """Select only the Pixel Launcher ANR over the caller's exact activity."""
+    return _select_system_anr_close(
+        xml,
+        window_dump,
+        anr_package=LAUNCHER_PACKAGE,
+        anr_title="Pixel Launcher isn't responding",
+        expected_underlying_package=expected_underlying_package,
+    )
+
+
+def select_google_sdk_setup_anr_close(
+    xml: str, window_dump: str, *, expected_underlying_package: str = PACKAGE,
+) -> Target:
+    """Select only Google SDK setup's ANR over the caller's exact activity."""
+    return _select_system_anr_close(
+        xml,
+        window_dump,
+        anr_package=SETUP_PACKAGE,
+        anr_title=f"{SETUP_PACKAGE} isn't responding",
+        expected_underlying_package=expected_underlying_package,
+    )
 
 
 def select_target(xml: str, window_dump: str, stage: str) -> Target:
@@ -286,27 +321,49 @@ class DialogOrchestrator:
         self.stage_timeout = stage_timeout
         self.completed: list[dict[str, object]] = []
         self.launcher_recoveries = 0
+        self.setup_recoveries = 0
 
-    def _recover_pixel_launcher_anr(self, stage: str, xml: str, window: str) -> bool:
-        try:
-            select_pixel_launcher_anr_close(xml, window)
-        except UnsafeDialog:
+    def _recover_emulator_system_anr(self, stage: str, xml: str, window: str) -> bool:
+        matches = (
+            (
+                "launcher",
+                LAUNCHER_PACKAGE,
+                select_pixel_launcher_anr_close,
+                "launcher_recoveries",
+            ),
+            (
+                "setup",
+                SETUP_PACKAGE,
+                select_google_sdk_setup_anr_close,
+                "setup_recoveries",
+            ),
+        )
+        selected = None
+        for candidate in matches:
+            try:
+                candidate[2](xml, window)
+            except UnsafeDialog:
+                continue
+            selected = candidate
+            break
+        if selected is None:
             return False
-        if self.launcher_recoveries >= MAX_LAUNCHER_RECOVERIES:
-            raise UnsafeDialog("Pixel Launcher ANR recovery limit reached")
+        kind, package, selector, counter_name = selected
+        if self.launcher_recoveries + self.setup_recoveries >= MAX_SYSTEM_ANR_RECOVERIES:
+            raise UnsafeDialog("System ANR recovery limit reached")
         if not self.adb.verified_emulator():
-            raise UnsafeDialog("Pixel Launcher ANR recovery is emulator-only")
+            raise UnsafeDialog("System ANR recovery is emulator-only")
 
-        attempt = self.launcher_recoveries + 1
-        prefix = self.artifacts / f"{stage}-launcher-recovery-{attempt}"
+        attempt = getattr(self, counter_name) + 1
+        prefix = self.artifacts / f"{stage}-{kind}-recovery-{attempt}"
         png = self.adb.screenshot()
         width, height = image_size(png)
         # Reinspect after capture exactly as purchase taps do. A dialog that
         # changed during evidence collection never receives the recovery tap.
         fresh_xml, fresh_window = self.adb.observe()
-        target = select_pixel_launcher_anr_close(fresh_xml, fresh_window)
+        target = selector(fresh_xml, fresh_window)
         if target.bounds[2] > width or target.bounds[3] > height:
-            raise UnsafeDialog("Pixel Launcher close action lies outside the observed screen")
+            raise UnsafeDialog("System ANR close action lies outside the observed screen")
         prefix.with_suffix(".xml").write_text(fresh_xml, encoding="utf-8")
         Path(f"{prefix}-window.txt").write_text(
             fresh_window, encoding="utf-8"
@@ -314,17 +371,21 @@ class DialogOrchestrator:
         prefix.with_suffix(".png").write_bytes(png)
         x, y = target.center
         self.adb.run("shell", "input", "tap", str(x), str(y))
-        self.launcher_recoveries = attempt
-        with (self.artifacts / "launcher-recovery.log").open(
+        setattr(self, counter_name, attempt)
+        with (self.artifacts / f"{kind}-recovery.log").open(
             "a", encoding="utf-8"
         ) as log:
             log.write(
                 f"stage={stage}\tattempt={attempt}\tserial={self.adb.serial}\t"
-                f"package={LAUNCHER_PACKAGE}\taction=close_app\n"
+                f"package={package}\taction=close_app\n"
             )
         time.sleep(0.5)
         Path(f"{prefix}-after.png").write_bytes(self.adb.screenshot())
         return True
+
+    def _recover_pixel_launcher_anr(self, stage: str, xml: str, window: str) -> bool:
+        """Compatibility entry point for runtime subclasses using this guard."""
+        return self._recover_emulator_system_anr(stage, xml, window)
 
     def diagnostics(self, name: str) -> None:
         errors = []
@@ -353,7 +414,7 @@ class DialogOrchestrator:
             while time.monotonic() < deadline:
                 try:
                     xml, window = self.adb.observe()
-                    if self._recover_pixel_launcher_anr(stage, xml, window):
+                    if self._recover_emulator_system_anr(stage, xml, window):
                         continue
                     select_target(xml, window, stage)
                     png = self.adb.screenshot()
@@ -361,7 +422,7 @@ class DialogOrchestrator:
                     # Reinspect after screenshot/recording work; never tap bounds
                     # that preceded an expensive capture or stale log poll.
                     xml, window = self.adb.observe()
-                    if self._recover_pixel_launcher_anr(stage, xml, window):
+                    if self._recover_emulator_system_anr(stage, xml, window):
                         continue
                     target = select_target(xml, window, stage)
                     if target.bounds[2] > width or target.bounds[3] > height:

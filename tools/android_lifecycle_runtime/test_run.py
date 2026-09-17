@@ -1,6 +1,7 @@
 from pathlib import Path
 from contextlib import redirect_stdout
 import io
+import subprocess
 import tempfile
 import unittest
 from unittest.mock import patch
@@ -10,7 +11,7 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_lifecycle_runtime.run import (
     FIXTURE_NAME, Playback, Runner, button, history_card, history_swipe, main,
     parse_time, playback, require_background_pause, require_paused_stability,
-    require_playing_advance, require_restored_position,
+    require_playing_advance, require_restored_position, timed_out_observation,
 )
 
 
@@ -153,6 +154,110 @@ class LifecycleRuntimeTests(unittest.TestCase):
             runner.go_home(pre_home_phase="04-pre-home-playing")
         with self.assertRaises(ValueError):
             runner.go_home(playing=True)
+
+    def test_observation_timeout_retries_fresh_xml_without_accepting_old_sample(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            runner.last_xml = player("0:03", "Pause")
+            dump_commands = []
+
+            def native_command(command, **_kwargs):
+                arguments = command[3:]
+                if arguments[:3] == ["shell", "uiautomator", "dump"]:
+                    dump_commands.append(command)
+                    if len(dump_commands) == 1:
+                        raise subprocess.TimeoutExpired(command, 10)
+                    return subprocess.CompletedProcess(command, 0, b"UI hierarchy dumped", b"")
+                if arguments[:2] == ["exec-out", "cat"]:
+                    return subprocess.CompletedProcess(command, 0, player("0:20", "Pause").encode(), b"")
+                if arguments[:4] == ["shell", "dumpsys", "window", "displays"]:
+                    window = f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}\n".encode()
+                    return subprocess.CompletedProcess(command, 0, window, b"")
+                self.fail(f"Unexpected observation command: {arguments[:3]}")
+
+            with patch("tools.android_install.runner.subprocess.run", side_effect=native_command), patch(
+                "tools.android_lifecycle_runtime.run.time.sleep",
+            ):
+                xml, state = runner.sample("04-advanced", playing=True, screenshot=False)
+
+            self.assertEqual(state, Playback(20, 90, True))
+            self.assertEqual(xml, player("0:20", "Pause"))
+            self.assertEqual(len(dump_commands), 2)
+            self.assertNotEqual(dump_commands[0][-1], dump_commands[1][-1])
+            self.assertEqual([item["position_seconds"] for item in runner.samples], [20])
+            self.assertEqual(runner.observation_timeouts[0]["operation"], "UIAutomator hierarchy dump")
+            self.assertEqual(runner.observation_timeouts[0]["phase"], "04-advanced")
+            self.assertEqual(runner.last_observation["phase"], "04-advanced")
+
+    def test_repeated_ui_timeouts_fail_without_a_playback_sample(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            runner.last_xml = player("0:03", "Pause")
+            timeout = subprocess.TimeoutExpired(
+                ["adb", "-s", "emulator-5554", "shell", "uiautomator", "dump"], 10,
+            )
+            with patch.object(runner, "observe", side_effect=timeout) as observe, patch(
+                "tools.android_lifecycle_runtime.run.time.sleep",
+            ):
+                with self.assertRaisesRegex(RuntimeFailure, "04-advanced.*3 attempts"):
+                    runner.sample("04-advanced", playing=True, screenshot=False)
+            self.assertEqual(observe.call_count, 3)
+            self.assertEqual(runner.samples, [])
+            self.assertEqual(len(runner.observation_timeouts), 3)
+            self.assertFalse((root / "04-advanced.xml").exists())
+
+    def test_timeout_retry_keeps_original_phase_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            clock = [0.0]
+
+            def expired_observation():
+                clock[0] = 46.0
+                raise subprocess.TimeoutExpired(["adb", "-s", "emulator-5554", "exec-out", "cat"], 10)
+
+            with patch.object(runner, "observe", side_effect=expired_observation) as observe, patch(
+                "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0],
+            ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                with self.assertRaisesRegex(RuntimeFailure, "UI hierarchy transfer timed out"):
+                    runner.wait("04-advanced", playback, timeout=45)
+            self.assertEqual(observe.call_count, 1)
+
+    def test_action_timeout_is_not_retried_as_an_observation(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            taps = []
+
+            def action(_xml):
+                taps.append("tap")
+                raise subprocess.TimeoutExpired(["adb", "shell", "input", "tap"], 25)
+
+            with patch.object(runner, "observe", return_value=player()) as observe:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    runner.wait("01-fixture-review", action)
+            self.assertEqual(taps, ["tap"])
+            self.assertEqual(observe.call_count, 1)
+            self.assertEqual(runner.observation_timeouts, [])
+
+    def test_observation_timeout_diagnostics_never_include_raw_payloads(self):
+        for command in ["adb secret-private-data", ["adb", "-s", "emulator-5554", "shell", "private-value"]]:
+            self.assertEqual(timed_out_observation(subprocess.TimeoutExpired(command, 10)),
+                             "Android UI observation")
 
     def test_paused_controls_with_advancing_position_still_fail(self):
         before = Playback(20, 90, False)

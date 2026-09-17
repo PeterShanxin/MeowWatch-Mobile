@@ -25,6 +25,7 @@ from tools.incoming_media_runtime.run import center, exact, nodes, require_revie
 
 FIXTURE_NAME = "sync-fixture.mp4"
 FIXTURE_URL = "http://10.0.2.2:18765/sync-fixture.mp4"
+MAX_OBSERVATION_TIMEOUTS = 3
 T = TypeVar("T")
 
 
@@ -95,6 +96,21 @@ def require_restored_position(saved: Playback, restored: Playback) -> None:
         raise RuntimeFailure("new-process Continue Watching did not restore the paused saved position")
 
 
+def timed_out_observation(error: subprocess.TimeoutExpired) -> str:
+    """Describe only recognized read operations, never raw command payloads."""
+    command = error.cmd
+    if not isinstance(command, (list, tuple)):
+        return "Android UI observation"
+    arguments = list(command[3:]) if len(command) > 3 and command[1] == "-s" else []
+    if arguments[:3] == ["shell", "uiautomator", "dump"]:
+        return "UIAutomator hierarchy dump"
+    if arguments[:2] == ["exec-out", "cat"]:
+        return "UI hierarchy transfer"
+    if arguments[:4] == ["shell", "dumpsys", "window", "displays"]:
+        return "foreground window query"
+    return "Android UI observation"
+
+
 def history_card(xml: str) -> tuple[ET.Element, int]:
     if len(exact(xml, "Continue Watching")) != 1:
         raise RuntimeFailure("Continue Watching is unavailable after process restart")
@@ -151,6 +167,8 @@ class Runner:
         self.evidence_started = False
         self.phase = "prepare"
         self.last_xml = ""
+        self.last_observation: dict[str, object] | None = None
+        self.observation_timeouts: list[dict[str, object]] = []
         self.samples: list[dict[str, object]] = []
 
     def prepare(self) -> dict[str, object]:
@@ -208,9 +226,39 @@ class Runner:
         self.phase = phase
         deadline = time.monotonic() + timeout
         last_error = "waiting for production UI"
+        observation_timeouts = 0
         while time.monotonic() < deadline:
             try:
                 xml = self.observe()
+            except subprocess.TimeoutExpired as error:
+                # A transient read timeout is not a playback result. Retry a
+                # fresh hierarchy within this phase's original polling budget;
+                # never re-use last_xml or repeat a tap performed by check().
+                observation_timeouts += 1
+                operation = timed_out_observation(error)
+                self.observation_timeouts.append({
+                    "phase": phase,
+                    "operation": operation,
+                    "attempt": observation_timeouts,
+                    "timeoutSeconds": error.timeout,
+                    "observedAtMonotonic": time.monotonic(),
+                })
+                last_error = f"{operation} timed out"
+                if observation_timeouts >= MAX_OBSERVATION_TIMEOUTS:
+                    raise RuntimeFailure(
+                        f"{phase}: {last_error} ({observation_timeouts} attempts)"
+                    ) from error
+                time.sleep(0.3)
+                continue
+            except RuntimeFailure as error:
+                last_error = str(error)
+                time.sleep(0.3)
+                continue
+            try:
+                self.last_observation = {
+                    "phase": phase,
+                    "observedAtMonotonic": time.monotonic(),
+                }
                 result = check(xml)
                 self.output.joinpath(f"{phase}.xml").write_text(xml, encoding="utf-8")
                 return xml, result
@@ -376,6 +424,7 @@ class Runner:
             "restoredPositionSeconds": restored.position_seconds,
             "noAutoplayAfterRestart": True,
             "samples": self.samples,
+            "observationTimeouts": self.observation_timeouts,
         })
         return report
 
@@ -406,6 +455,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         if runner.evidence_started:
             args.output.joinpath("result.json").write_text(json.dumps({
                 "completed": False, "phase": runner.phase, "error": message, "samples": runner.samples,
+                "observationTimeouts": runner.observation_timeouts,
+                "lastCompletedUiObservation": runner.last_observation,
             }, indent=2), encoding="utf-8")
             args.output.joinpath("failure.xml").write_text(runner.last_xml, encoding="utf-8")
             try:

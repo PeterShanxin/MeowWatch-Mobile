@@ -56,12 +56,11 @@ server_pid=$!
 server_start_ticks=''
 
 matches_server() {
-  local token_args=()
-  if [[ -n "$server_start_ticks" ]]; then
-    token_args=(--start-ticks "$server_start_ticks")
-  fi
+  # Never authorize cleanup from argv alone, even before readiness.
+  [[ "$server_start_ticks" =~ ^[0-9]+$ ]] || return 1
   python3 "$server_script" --directory "$fixture_dir" --port "$port" \
-    --owner-pid "$server_pid" "${token_args[@]}" >/dev/null 2>&1
+    --owner-pid "$server_pid" --parent-pid "$$" \
+    --start-ticks "$server_start_ticks" >/dev/null 2>&1
 }
 
 startup_ok=0
@@ -77,11 +76,29 @@ cleanup_failed_startup() {
 }
 trap cleanup_failed_startup EXIT
 
+# Capture the birth token before waiting for HTTP. The parent check proves this
+# is still our launched child; retries allow its initial exec to finish. If no
+# identity can be retained, the failure trap must leave it unsignalled.
+for _ in $(seq 1 40); do
+  if server_start_ticks="$(python3 "$server_script" --directory "$fixture_dir" \
+      --port "$port" --owner-pid "$server_pid" --parent-pid "$$")" && \
+      [[ "$server_start_ticks" =~ ^[0-9]+$ ]]; then
+    break
+  fi
+  server_start_ticks=''
+  if ! kill -0 "$server_pid" 2>/dev/null; then break; fi
+  sleep 0.025
+done
+if [[ ! "$server_start_ticks" =~ ^[0-9]+$ ]]; then
+  echo 'Fixture server child identity could not be retained; no cleanup signal sent.' >&2
+  exit 4
+fi
+
 host_url="http://127.0.0.1:$port/sync-fixture.mp4"
 ready=0
 for _ in $(seq 1 40); do
-  if ! kill -0 "$server_pid" 2>/dev/null; then
-    echo 'Fixture HTTP server exited during startup.' >&2
+  if ! matches_server; then
+    echo 'Fixture HTTP server exited or changed identity during startup.' >&2
     cat "$server_log" >&2
     exit 4
   fi
@@ -98,9 +115,8 @@ if [[ "$ready" -ne 1 ]]; then
   echo 'Fixture HTTP server did not become ready.' >&2
   exit 4
 fi
-if ! server_start_ticks="$(python3 "$server_script" --directory "$fixture_dir" \
-  --port "$port" --owner-pid "$server_pid")"; then
-  echo 'Fixture server process identity could not be retained.' >&2
+if ! matches_server; then
+  echo 'Fixture server identity changed before its receipt was written.' >&2
   exit 4
 fi
 

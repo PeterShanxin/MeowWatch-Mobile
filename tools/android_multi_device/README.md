@@ -131,17 +131,24 @@ HEAD returns full metadata without a body and ignores Range, as required by
 [HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.2).
 An unmatched If-Range validator falls back to a full response. Each client has
 its own file handle; a cancelled or stalled reader does not block another.
+The handler inherits the stock server's `None` socket timeout; no new transfer
+deadline is introduced by the Range experiment.
 
 `http-server.log` retains bounded JSON request records: UTC start, safe asset
 name, selected range, status, completed socket-write bytes, monotonic elapsed
-time and cancellation outcome. Query text and arbitrary paths/header values
+time and outcome. Actual socket timeouts are recorded as `timeout`, separately
+from peer reset/broken-pipe `cancelled`; a timeout before headers has status 0.
+Query text and arbitrary paths/header values
 are never logged. Bytes describe completed writes, not decoder consumption;
 a failed write may have delivered a partial final chunk. At 4096 records the
 log emits an explicit limit marker and stops adding request records. Server
 readiness and response headers are retained separately from app acceptance.
 
 The server receipt binds its Linux PID to the complete command, fixture directory,
-port and process birth token. Stop refuses a changed identity, rechecks before
+port and process birth token. Startup captures that token from its verified
+child before HTTP readiness, then retains it unchanged. Failure cleanup requires
+the original birth token; missing identity never authorizes a signal. Stop
+refuses a changed identity, rechecks before
 a TERM fallback, and verifies exit; it never stops all Python processes.
 
 This replaces the prior stock Python server's full-file 200 response to seek

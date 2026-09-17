@@ -206,6 +206,51 @@ class FixtureHttpTests(unittest.TestCase):
         self.assertLess(cancelled[0]["bytes"], 32 * 1024 * 1024)
         self.assertEqual(self.request(method="HEAD")[0], 200)
 
+    def test_real_socket_write_timeout_is_not_reported_as_peer_cancellation(self):
+        self.assertIsNone(fixture.FixtureHandler.timeout)
+
+        class TestTimeoutHandler(fixture.FixtureHandler):
+            def setup(self):
+                super().setup()
+                # Only this test imposes a short timeout to exercise the OS error.
+                self.connection.settimeout(0.05)
+                self.connection.setsockopt(socket.SOL_SOCKET, socket.SO_SNDBUF, 4096)
+
+        self.server.RequestHandlerClass = TestTimeoutHandler
+        with (self.directory / "Bee.mp4").open("ab") as media:
+            media.truncate(32 * 1024 * 1024)
+        connection = http.client.HTTPConnection("127.0.0.1", self.port, timeout=3)
+        response = None
+        try:
+            connection.request("GET", "/Bee.mp4")
+            response = connection.getresponse()
+            self.assertEqual(response.read(1024), PAYLOAD[:1024])
+            row = self.rows(1)[0]  # Keep the peer open, but stop consuming its body.
+            self.assertEqual(row["outcome"], "timeout")
+            self.assertEqual(row["status"], 200)
+            self.assertLess(row["bytes"], 32 * 1024 * 1024)
+        finally:
+            if response is not None:
+                response.close()
+            connection.close()
+
+    def test_real_header_timeout_retains_a_distinct_pre_response_record(self):
+        class TestTimeoutHandler(fixture.FixtureHandler):
+            def setup(self):
+                super().setup()
+                self.connection.settimeout(0.05)
+
+        self.server.RequestHandlerClass = TestTimeoutHandler
+        with socket.create_connection(("127.0.0.1", self.port), timeout=3) as client:
+            # Incomplete headers make BaseHTTPRequestHandler itself catch the
+            # actual socket timeout, before any response status has been sent.
+            client.sendall(b"GET /Bee.mp4?private-value HTTP/1.1\r\nHost: localhost\r\n")
+            row = self.rows(1)[0]
+            self.assertEqual(row["outcome"], "timeout")
+            self.assertEqual(row["status"], 0)
+            self.assertEqual(row["bytes"], 0)
+        self.assertNotIn("private-value", self.log.getvalue())
+
     def test_diagnostic_volume_is_bounded_with_an_explicit_limit_record(self):
         self.server.max_log_records = 2
         for _ in range(6):
@@ -231,6 +276,10 @@ class ProcessIdentityTests(unittest.TestCase):
 
             write(args)
             self.assertEqual(fixture.process_identity(4242, proc, 18765, proc=proc), "912345")
+            self.assertEqual(fixture.process_identity(4242, proc, 18765, proc=proc,
+                                                      parent_pid=0), "912345")
+            self.assertIsNone(fixture.process_identity(4242, proc, 18765, proc=proc,
+                                                       parent_pid=9999))
             self.assertIsNone(fixture.process_identity(4242, proc, 18766, proc=proc))
             self.assertIsNone(fixture.process_identity(4242, proc / "elsewhere", 18765, proc=proc))
             for wrong in (args + ["--extra"], ["/bin/echo"] + args[1:],
@@ -245,6 +294,91 @@ class ProcessIdentityTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == "linux", "actual scripts use Linux /proc ownership")
 class LinuxLifecycleTests(unittest.TestCase):
+    def test_startup_failure_cleanup_never_signals_without_the_original_birth(self):
+        # Execute the actual start script. Substitute only its process/HTTP
+        # boundary observations and signals so PID reuse is deterministic and
+        # this regression can never signal a real unrelated process.
+        environment_script = r'''python3() {
+  local owner='' token='' parent=''
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --owner-pid) owner="$2"; shift ;;
+      --start-ticks) token="$2"; shift ;;
+      --parent-pid) parent="$2"; shift ;;
+    esac
+    shift
+  done
+  if [[ -z "$owner" ]]; then printf '{"event":"ready"}\n'; return 0; fi
+  if [[ -z "$parent" ]]; then return 3; fi
+  if [[ -z "$token" ]]; then
+    printf 'capture\n' >> "$TASK_TRACE"
+    [[ "$TASK_CASE" != missing ]] || return 3
+    printf '111\n'
+  else
+    local actual
+    actual="$(cat "$TASK_BIRTH")"
+    printf 'check:%s:%s\n' "$token" "$actual" >> "$TASK_TRACE"
+    [[ "$token" == "$actual" ]]
+  fi
+}
+curl() {
+  local count
+  count="$(cat "$TASK_CURL_COUNT")"
+  count=$((count + 1))
+  printf '%s\n' "$count" > "$TASK_CURL_COUNT"
+  printf 'curl\n' >> "$TASK_TRACE"
+  if [[ "$TASK_CASE" == startup_failure ||
+        ( "$TASK_CASE" == timeout && "$count" -eq 40 ) ]]; then
+    printf '222\n' > "$TASK_BIRTH"
+  fi
+  return 22
+}
+kill() {
+  if [[ "$1" == -0 ]]; then return 0; fi
+  printf 'signal:%s\n' "$1" >> "$TASK_TRACE"
+  printf 'stopped\n' > "$TASK_BIRTH"
+}
+sleep() { return 0; }
+grep() {
+  if [[ "$*" == *'"event":"ready"'* ]]; then return 0; fi
+  command grep "$@"
+}
+'''
+        for cause in ("missing", "startup_failure", "timeout", "unchanged"):
+            with self.subTest(cause=cause), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                canonical = directory / "sync-fixture.mp4"
+                canonical.write_bytes(PAYLOAD)
+                shell_environment = directory / "boundary.sh"
+                shell_environment.write_text(environment_script)
+                trace = directory / "trace.txt"
+                trace.touch()
+                birth = directory / "birth.txt"
+                birth.write_text("111\n")
+                count = directory / "curl-count.txt"
+                count.write_text("0\n")
+                environment = dict(os.environ, BASH_ENV=str(shell_environment),
+                                   TASK_CASE=cause, TASK_TRACE=str(trace), TASK_BIRTH=str(birth),
+                                   TASK_CURL_COUNT=str(count))
+                result = subprocess.run([
+                    "bash", str(SCRIPTS / "start_fixture_server.sh"),
+                    "--fixture", str(canonical), "--state", str(directory / "state")],
+                    env=environment, capture_output=True, text=True, timeout=10)
+                self.assertEqual(result.returncode, 4, result.stderr)
+                self.assertFalse((directory / "state" / "server.env").exists())
+                events = trace.read_text().splitlines()
+                signals = [row for row in events if row.startswith("signal:")]
+                self.assertEqual(signals, ["signal:-INT"] if cause == "unchanged" else [])
+                self.assertEqual(events[0], "capture")
+                if cause == "missing":
+                    self.assertNotIn("curl", events)
+                    self.assertFalse(any(row.startswith("check:") for row in events))
+                else:
+                    self.assertEqual(events.count("capture"), 1)
+                    self.assertTrue(all(row.startswith("check:111:") for row in events
+                                        if row.startswith("check:")))
+                    self.assertEqual(events.count("curl"), 1 if cause == "startup_failure" else 40)
+
     def test_real_start_stop_refuses_other_pid_or_changed_birth_token(self):
         with tempfile.TemporaryDirectory(prefix="fixture server ") as temporary:
             directory = Path(temporary)

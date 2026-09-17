@@ -8,23 +8,89 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
-| 1 | Clean checkout builds and installs | Partial | At `70575be`, release API 35 clean install passes in 35199455060. Debug API 35 fails storage preparation; debug API 29 completes UI checks but fails recorder finalization. Corrected runners and final judging APK/signing audit remain |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository exists. Gitleaks 8.30.1 finds zero findings in 442 tracked files and 28 all-ref commits at `70575be`; later edits and final release contents still need review |
-| 3 | Clear first-launch create/join | Partial | All five native layouts pass onboarding, three-step guide, saved name and invalid-join checks in 35199455174. Production purchase creates real rooms; full independent production create/join rehearsal 35199455070 fails and remains under diagnosis |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Independent phone/tablet API 35 job 105130438308 passes at `70575be` in matrix 35199455118. Full production Together UI journey 35199455070 fails and remains under diagnosis; matrix workflow fails its separate hosting job |
-| 5 | Real-session chat/reactions/presence | Partial | Public TLS and the independent two-AVD matrix job pass. Full production UI social journey 35199455070 is not yet accepted |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | SAF and RevenueCat process relaunch pass at `70575be`. Normal HOME/replay/process-restart lifecycle 35199455111 fails while preparing the native observer helper, before lifecycle acceptance; runner correction awaits fresh proof |
-| 7 | Local Mode and Continue Watching | Partial | All five native layouts pass playback/history/resume, SAF relaunch passes, and native Sintel playback/seek passes in 35199455129. The newly added sample-button tap journey and physical-device checks remain pending |
-| 8 | Secure phone-to-desktop discovery/pair/control | Partial | Android same-device pinned TLS, protected storage/restarts and NSD pass again in 35199455261; earlier Windows native storage/player probes pass. Physical Android-to-Windows LAN proof remains open |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Production purchase 35199455085 passes 10/10 stages, one free plus two distinct paid hosts, native cancel/failure/success, same-customer restore and theme persistence. Process relaunch 35199455183 passes; physical billing and lost-identity/reinstall recovery remain unproved |
-| 10 | Correct daily quota and session continuity | Partial | Current production purchase proves one free plus two paid sessions. The matrix's separate hosting/quota job fails and remains under diagnosis; full native lifecycle continuity is still open |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | All five actual native orientations pass at `70575be`, with 18 steps and 13 screenshots each. Guide screenshots were inspected on phone, landscape tablet and landscape phone. Full room/Nearby UI and physical-device QA remain |
+| 1 | Clean checkout builds and installs | Partial | At `6edcb03`, normal debug API 29/35 and release API 35 clean installs pass in 35208903866. Subsequent QR/history UI changes and final judging APK/signing audit await fresh acceptance |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository exists. Gitleaks 8.30.1 finds zero findings in 444 tracked files and 32 all-ref commits at `6edcb03`; later edits and final release contents still need review |
+| 3 | Clear first-launch create/join | Partial | Both full MainApp drivers create/join real rooms in 35208903827. Guide/replay passes all five historical layouts and three complete current layouts; newly added scanner/review path awaits native decoding evidence |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | At `6edcb03`, matrix 35208903798 passes and both full MainApp phone/tablet drivers pass in 35208903827. That workflow fails its phone recorder, so paired demo recording remains open; expanded recovery/replay branches await fresh proof |
+| 5 | Real-session chat/reactions/presence | Partial | Both full production UI drivers pass rendered chat/reactions and peer presence in 35208903827; paired recording and newly extended peer-link/replay coverage remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | SAF and RevenueCat process relaunch pass at `6edcb03`. Normal lifecycle 35208903865 installs its observer but rejects Android's short instrumentation component name; corrected exact self-target validation awaits native proof |
+| 7 | Local Mode and Continue Watching | Partial | At `6edcb03`, SAF relaunch and native playback pass. Product journey sample/Local/history passes three complete layouts; phone completes app behavior then hits a framework teardown assertion, and landscape compact sample finder is corrected locally. Physical checks remain pending |
+| 8 | Secure phone-to-desktop discovery/pair/control | Partial | Android same-device pinned TLS, protected storage/restarts and NSD pass again in 35208903810; earlier Windows native storage/player probes pass. Physical Android-to-Windows LAN proof remains open |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Historical production purchase 35199455085 passes one free plus two paid hosts, native cancel/failure/success, same-customer restore and theme persistence. Relaunch passes again in 35208903904. Current production purchase fails its first paid native Play; real expiry, physical billing and lost-identity recovery remain open |
+| 10 | Correct daily quota and session continuity | Partial | Historical production purchase proves one free plus two paid sessions; all hosting/quota matrix jobs pass at `6edcb03`. Extended real-room resume/new-host replay and normal lifecycle continuity await fresh proof |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Historical five-layout screenshots inspected; three complete native product layouts pass at `6edcb03`, with phone teardown/landscape finder failures recorded separately. Full MainApp room/social screenshots pass in both devices. New QR/history widget renders cover four sizes; native final UI and physical-device QA remain |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Official Android sender and same-room handoff compile in the normal release APK; ownership/recovery/external-play quota regressions pass. Real receiver acceptance remains open |
-| 13 | No placeholders, dead ends or silent failures | Partial | Native guide/replay, local/history and production purchase paths pass. Licensed sample playback passes separately; its new picker-tap gate, full production Together and normal lifecycle remain unaccepted |
-| 14 | Clean-install full demo rehearsal | Partial | Current release install and production purchase clean-install journey pass, plus five native layouts. Debug install recording/preparation, normal lifecycle and the complete production Together journey prevent full rehearsal acceptance |
+| 13 | No placeholders, dead ends or silent failures | Partial | Native guide/replay, Local/history/sample and full Together app steps have current proof. New shared-link/error recovery, QR, accepted media sharing and premium branches await native execution; purchase/lifecycle failures are unresolved |
+| 14 | Clean-install full demo rehearsal | Partial | Normal debug API 29/35 and release API 35 install pass at `6edcb03`. Full Together app steps pass but phone recording fails; current purchase, normal lifecycle and phone teardown prevent full rehearsal acceptance |
 | 15 | Shipaton submission confidence | Partial | Official rules/Test Store path researched and student/adult/academic-email prerequisites confirmed. Icon, cover and attributed native screenshot are prepared; final film, remaining eligibility/legal checks and full rehearsal remain |
 
-## Current checkpoint: `70575be`
+## Latest native follow-up: `6edcb03`
+
+The production application is unchanged from `70575be` at this commit; the
+follow-up changes acceptance harnesses, recording preparation and documentation.
+Subsequent local feature changes are not covered by these results.
+
+- [Check 35208903864](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903864)
+  passes 648 app tests, 76 TLS tests, 14 platform tests, formatting, analysis and
+  all checked runner/media contracts. Gitleaks 8.30.1 reports zero findings in
+  444 tracked files and 32 all-ref commits at this exact head.
+- [Normal installation 35208903866](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903866)
+  passes debug API 29/35 and release API 35. The original install/storage and
+  recorder-finalization failures are resolved in these emulator jobs.
+- [Production Together 35208903827](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903827)
+  has passing host and guest application drivers and result files: real Start,
+  Join, native two-way play/pause/seek, rendered chat and reactions. The host
+  records 16 verified steps and the guest 15. Its workflow still fails recording:
+  the phone's first screenrecord cannot open its owned output path, reporting
+  `Operation not permitted`, and no phone MP4 is retained. This is application
+  behavior evidence, not an accepted paired demo film. The tablet's observed
+  viewport is portrait 1600 × 2560 despite its landscape-native display; framing
+  must follow the actual capture geometry.
+- [Runtime matrix 35208903798](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903798),
+  [playback 35208903822](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903822),
+  [SAF 35208903805](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903805),
+  [Nearby 35208903810](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903810)
+  and [RevenueCat relaunch 35208903904](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903904)
+  pass. These remain emulator and same-customer/same-device evidence at their
+  documented boundaries.
+- [Normal lifecycle 35208903865](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903865)
+  now installs its observer successfully but rejects the instrumentation listing
+  during preparation. Android's package manager emits the short component name;
+  the runner required its full form. The local correction preserves the exact
+  self-target check and passes 57 observer/lifecycle contracts; native execution
+  is still required.
+- [Production purchase 35208903797](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903797)
+  fails waiting for native playback and real peer play observation in the first
+  paid hosted session. The decoder and peer were present, but the one Play action
+  was not accepted. Existing intent ordering does not establish that an initial
+  pause overwrote it. A stable native/peer initial-pause precondition and exact
+  lifecycle/play diagnostics await native verification; the earlier passing
+  purchase run below remains historical.
+- [Product journey 35208903814](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35208903814)
+  passes small phone, portrait tablet and landscape tablet. All four non-landscape
+  phone profiles tap the real Sintel sample, decode 52,209 ms and observe at least
+  four seconds of progress. The phone completes its app steps but fails a Flutter
+  semantics assertion while disposing the app; this is not an accepted driver
+  result. Landscape phone fails because its compact playback tooltip differs
+  from the harness lookup. The lookup correction reuses the existing compact
+  control finder. The independent teardown assertion remains under investigation.
+
+The full-spec coverage pass additionally identified missing rendered history
+timestamps and unproved native branches: actual subscription expiry, invite QR
+decoding through confirmed joining, peer video links, failed-media recovery,
+room-history resume/new-room replay, accepted Android media sharing, Glass Aurora
+and the paid reaction pack. Local work is addressing these explicitly; existing
+happy-path checks are not counted as evidence for them. History timestamps now
+render using the device's local date/time format and pass five existing Home/
+recent-room widget checks. Six QR camera-substitute widget tests pass, including
+confirmation, foreign-code rejection, cancellation, denied permission and exact
+scanner release. Four disposable actual-widget renders cover phone, small phone
+at 200% text, landscape phone and landscape tablet; history timestamps and the
+Join scanner entry were inspected without overflow. These are widget evidence,
+not native camera or device acceptance. Native ML Kit image decoding is added to
+the real two-client invitation flow and still awaits execution.
+
+## Previous native checkpoint: `70575be`
 
 Fresh CI below uses `70575be5c9d1cc89f25ff0b6ee68451380eb9056`. A passing individual job is identified separately when its containing workflow failed. All native runs below use Android emulators, not physical devices.
 
@@ -39,9 +105,31 @@ Fresh CI below uses `70575be5c9d1cc89f25ff0b6ee68451380eb9056`. A passing indivi
 - Raw-film review found a persistent **Pixel Launcher** ANR in all five product-journey profiles, already present before MeowWatch launched. Flutter's surface screenshots omit this system overlay. Passing app steps and inspected app pixels therefore do not establish an unobscured end-to-end recording. A separate Google SDK setup ANR covers the production purchase run's early free-host interval; its later purchase/restore/paid-host clips are unobscured. Retain these original failures and recapture the guide after strict emulator preflight; do not replace obstructed motion with clean stills.
 - The prepared icon and cover remain available. The [native submission screenshot](../assets/submission/meowwatch-android-1179x2556.png) now has [verified `70575be` provenance](../assets/submission/screenshot-provenance.json) from purchase run 35199455085. Its Home pixels happen to be identical to the earlier capture; the new source is verified rather than inferred. The current submission kit includes the original 1179 × 2556 PNG and full source hashes. The final film and integrated rehearsal remain open.
 
-## Unverified local follow-up
+## Current local verification after `6edcb03`
 
-The production journey now additionally taps the media chooser's sample button after Continue Watching and checks its decoded result. That extended journey expects **20 steps and 14 screenshots per layout**; these are pending expectations, not the counts accepted by 35199455174.
+Formatting and analysis pass, and the normal debug APK builds successfully.
+The app suite passes 644 tests with ten adapter tests skipped because the first
+invocation lacked the adapter variable; a separate exact target run on the
+enumerated 172.27.224.1/20 adapter passes all eleven tests, including those ten.
+This covers 654 distinct app tests, including six new scanner tests. Four
+disposable layout renders also pass. The relevant observer, lifecycle, install, billing,
+purchase, Together and incoming-media Python suites pass 192 contracts. Recorder
+contracts cover 13 scenarios plus argument boundaries; Bash syntax passes.
+
+The phone teardown failure above matches the open Flutter
+[semantics geometry report](https://github.com/flutter/flutter/issues/189902#issuecomment-5086415367),
+including a report on 3.44.8. This similarity is not a confirmed root cause or a
+fixed issue. No assertions or accessibility semantics are disabled. A bounded
+route-teardown reproduction is being prepared; a later passing run must not be
+described as proof of a framework fix.
+
+New native coverage and recorder/observer corrections await CI. No local widget
+or contract result is counted as camera, physical LAN, purchase expiration or
+clean paired-film acceptance.
+
+## Historical local preparation for `6edcb03`
+
+The production journey additionally taps the media chooser's sample button after Continue Watching and checks its decoded result. That extended journey expects **20 steps and 14 screenshots per layout**; the `6edcb03` outcomes above supersede the earlier pending state.
 
 The hosting harness now uses accepted play intent rather than a transient native buffering flag before requesting pause. The production Together harness waits for accepted pause intent and a stable native position before publishing its test checkpoint: at least 800 ms, nine samples and less than 350 ms total movement, within the existing 45-second bound. Its cross-device 800 ms comparison is unchanged. Original recordings show both devices eventually paused at visible 0:56 while the host reports 56,467 ms; the earlier guest checkpoint value was not retained, so premature optimistic sampling is a source-supported diagnosis rather than a recovered numeric measurement.
 

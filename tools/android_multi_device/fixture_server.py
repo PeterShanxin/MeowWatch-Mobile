@@ -89,7 +89,6 @@ class FixtureHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.0"
     server_version = "MeowWatchFixture/1"
     sys_version = ""
-    timeout = 10
 
     def handle_one_request(self) -> None:
         started = time.monotonic()
@@ -101,11 +100,14 @@ class FixtureHandler(BaseHTTPRequestHandler):
         self._outcome = "complete"
         try:
             super().handle_one_request()
-        except (BrokenPipeError, ConnectionResetError, TimeoutError):
+        except (BrokenPipeError, ConnectionResetError):
             self._outcome = "cancelled"
             self.close_connection = True
+        except TimeoutError:
+            self._outcome = "timeout"
+            self.close_connection = True
         finally:
-            if self._status:
+            if self._status or self._outcome == "timeout":
                 self.server.record({
                     "event": "request", "at_utc": utc,
                     "method": self.command if getattr(self, "command", None) in ("GET", "HEAD") else "other",
@@ -119,6 +121,12 @@ class FixtureHandler(BaseHTTPRequestHandler):
         # BaseHTTP logging includes arbitrary URLs/header values. The bounded
         # record above deliberately retains only allowlisted request fields.
         pass
+
+    def log_error(self, format: str, *args: object) -> None:
+        # BaseHTTPRequestHandler catches read/header timeouts internally. Keep
+        # their classification without exposing its raw error or request text.
+        if any(isinstance(arg, TimeoutError) for arg in args):
+            self._outcome = "timeout"
 
     def send_response(self, code: int, message: str | None = None) -> None:
         self._status = code
@@ -216,8 +224,10 @@ class FixtureHandler(BaseHTTPRequestHandler):
                     self.wfile.write(chunk)
                     self._written += len(chunk)
                     remaining -= len(chunk)
-            except (BrokenPipeError, ConnectionResetError, TimeoutError):
+            except (BrokenPipeError, ConnectionResetError):
                 self._outcome = "cancelled"
+            except TimeoutError:
+                self._outcome = "timeout"
             except OSError:
                 self._outcome = "io_error"
             # bytes is completed socket writes, not an acknowledgement that
@@ -225,7 +235,7 @@ class FixtureHandler(BaseHTTPRequestHandler):
 
 
 def process_identity(pid: int, directory: Path, port: int,
-                     *, proc: Path = Path("/proc")) -> str | None:
+                     *, proc: Path = Path("/proc"), parent_pid: int | None = None) -> str | None:
     """Linux PID birth token, only when the complete server command still matches."""
     try:
         raw = (proc / str(pid) / "cmdline").read_bytes()
@@ -238,6 +248,8 @@ def process_identity(pid: int, directory: Path, port: int,
         fields = (proc / str(pid) / "stat").read_text().rpartition(") ")[2].split()
         if len(fields) < 20 or fields[0] == "Z" or not fields[19].isdigit():
             return None
+        if parent_pid is not None and fields[1] != str(parent_pid):
+            return None
         return fields[19]
     except (OSError, ValueError):
         return None
@@ -249,20 +261,22 @@ def main() -> int:
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--owner-pid", type=int)
     parser.add_argument("--start-ticks")
+    parser.add_argument("--parent-pid", type=int)
     args = parser.parse_args()
     if not 1024 <= args.port <= 65535:
         parser.error("port must be between 1024 and 65535")
     if args.owner_pid is not None:
         if args.owner_pid <= 1:
             return 3
-        token = process_identity(args.owner_pid, args.directory, args.port)
+        token = process_identity(args.owner_pid, args.directory, args.port,
+                                 parent_pid=args.parent_pid)
         if token is None or (args.start_ticks is not None and token != args.start_ticks):
             return 3
         if args.start_ticks is None:
             print(token)
         return 0
-    if args.start_ticks is not None:
-        parser.error("start-ticks requires owner-pid")
+    if args.start_ticks is not None or args.parent_pid is not None:
+        parser.error("start-ticks and parent-pid require owner-pid")
     try:
         server = FixtureServer(args.directory, args.port)
     except (OSError, ValueError):

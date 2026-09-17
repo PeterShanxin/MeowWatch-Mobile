@@ -90,14 +90,20 @@ Two original native `screenrecord` MP4 segments supplement the XML assertions:
 initial fixture review/playback, then the immediate pre-HOME sample through
 foreground, explicit replay and new-process restoration. Each is limited to
 180 seconds and uses an even, proportional size within 720 x 1600 at 2 Mbps.
-The runner checks the exact recorder PID and output path before sending SIGINT,
-refuses an existing recorder, and transfers only its own files. `ffprobe` must
-confirm the expected video dimensions and a duration within three seconds of
-the measured recording interval; early exits, truncated footage and probe or
-cleanup failures cannot leave a passing result. No recording is padded.
+The runner waits for a complete H.264 picture in the MP4 media payload before
+starting UI actions. It checks the exact recorder PID and output path before
+sending SIGINT, refuses an existing recorder, and transfers only its own files.
+`ffprobe` must confirm exactly one video stream with the expected dimensions;
+Android's additional metadata data streams are allowed. The video duration must
+cover the device's ready-to-stop elapsed interval with at most three seconds
+missing. Both endpoints use Android `/proc/uptime`; host times are retained
+separately. Early exits, truncated footage, a failed full `ffmpeg` decode, missing
+device clock observations or cleanup failures cannot leave a passing result.
+No recording is padded.
 
-`recordings.json` and `result.json` retain start/stop/pull monotonic times, the
-original MP4 SHA-256, measured/decoded durations and failures. There is an
+`recordings.json` and `result.json` retain host launch/PID/start/stop/pull times,
+device ready/stop times, the original MP4 SHA-256, measured/decoded durations
+and failures. There is an
 explicitly measured stop/pull/start gap between the two stages, before the fresh
 pre-HOME baseline. The segments are not presented as uninterrupted footage.
 No playback assertion depends on video appearance, frame rate or these timing

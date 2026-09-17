@@ -13,7 +13,7 @@ from tools.android_lifecycle_runtime.run import (
     FIXTURE_NAME, LifecycleRecording, Playback, PreparationRecoveryFailure, Runner, button, history_card, history_swipe, main,
     parse_time, playback, require_background_pause, require_paused_stability,
     require_playing_advance, require_restored_position, timed_out_observation,
-    recording_size, validate_recording_duration,
+    recording_device_elapsed, recording_media_ready, recording_size, validate_recording_duration,
 )
 from tools.billing_runtime.native_dialog import LAUNCHER_PACKAGE, SETUP_PACKAGE
 from tools.android_native_ui.observer import OBSERVER_PACKAGE, ObserverIntegrityFailure
@@ -139,6 +139,8 @@ class LifecycleRuntimeTests(unittest.TestCase):
             recording.output.parent.mkdir()
             media = b"ftyp" + b"x" * 5000 + b"moov"
             def command(*arguments, **_kwargs):
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    return subprocess.CompletedProcess([], 0, b"160.00 80.00\n")
                 if arguments[:2] == ("exec-out", "cat"):
                     return subprocess.CompletedProcess([], 0, f"screenrecord\0{recording.remote}\0".encode())
                 if arguments[0] == "pull":
@@ -147,9 +149,11 @@ class LifecycleRuntimeTests(unittest.TestCase):
             adb.run.side_effect = command
             recording.process = Mock()
             recording.process.poll.side_effect = [None, 0]
+            recording.process.wait.return_value = 0
             recording.pid = "44"
             recording.metadata["startedAtMonotonic"] = 0.0
-            probe = {"streams": [{"codec_type": "video", "width": 720, "height": 1600}],
+            recording.metadata["mediaReadyAtDeviceElapsedSeconds"] = 100.0
+            probe = {"streams": [{"codec_type": "video", "width": 720, "height": 1600, "duration": "20"}],
                      "format": {"duration": "20"}}
             with patch("tools.android_lifecycle_runtime.run.time.monotonic", return_value=60.0), patch(
                 "tools.android_lifecycle_runtime.run.subprocess.run",
@@ -160,6 +164,179 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertEqual(recording.output.read_bytes(), media)
             self.assertEqual(recording.metadata["status"], "failed")
             self.assertEqual(recording.metadata["videoDurationSeconds"], 20)
+            self.assertEqual(len(recording.metadata["sha256"]), 64)
+
+    def test_media_readiness_requires_picture_payload_not_pid_or_container_header(self):
+        ftyp = (24).to_bytes(4, "big") + b"ftyp" + b"isom" + b"\0" * 12
+        free = (16).to_bytes(4, "big") + b"free" + b"\0" * 8
+        mdat = (1).to_bytes(4, "big") + b"mdat" + b"\0" * 8
+        nal = (5).to_bytes(4, "big") + b"\x65abcd"
+        self.assertTrue(recording_media_ready(ftyp + free + mdat + nal))
+        self.assertTrue(recording_media_ready(ftyp + b"\0\0\0\0mdat" + nal))
+        for incomplete in (b"", ftyp, ftyp + free, ftyp + free + mdat,
+                           ftyp + free + mdat + nal[:-1], ftyp + free + mdat + b"\0\0\0\0",
+                           ftyp + free + mdat + (5).to_bytes(4, "big") + b"\x67abcd",
+                           b"\0\0\0\0free"):
+            with self.subTest(prefix=incomplete):
+                self.assertFalse(recording_media_ready(incomplete))
+
+    def test_device_elapsed_clock_rejects_missing_or_invalid_clock(self):
+        self.assertEqual(recording_device_elapsed(b"66.58 72.04\n"), 66.58)
+        for value in (b"", b"nan 0\n", b"inf 0\n", b"0.0 0.0\n", b"-1 0\n", b"12.3\n"):
+            with self.subTest(clock=value), self.assertRaises(RuntimeFailure):
+                recording_device_elapsed(value)
+
+    def test_native_recording_accepts_android_metadata_and_uses_device_clock(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+            recording.output.parent.mkdir()
+            media = b"ftyp" + b"x" * 5000 + b"moov"
+            def command(*arguments, **_kwargs):
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    return subprocess.CompletedProcess([], 0, b"140.00 80.00\n")
+                if arguments[:2] == ("exec-out", "cat"):
+                    return subprocess.CompletedProcess([], 0, f"screenrecord\0{recording.remote}\0".encode())
+                if arguments[0] == "pull":
+                    recording.output.write_bytes(media)
+                return subprocess.CompletedProcess([], 0, b"")
+            adb.run.side_effect = command
+            recording.process = Mock()
+            recording.process.poll.side_effect = [None, 0]
+            recording.process.wait.return_value = 0
+            recording.pid = "44"
+            recording.metadata.update({"startedAtMonotonic": 746.18454515,
+                                       "mediaReadyAtDeviceElapsedSeconds": 67.0})
+            probe = {"streams": [{"codec_type": "video", "width": 720, "height": 1600,
+                                    "duration": "72.672067"},
+                                   {"codec_type": "data"}, {"codec_type": "data"}],
+                     "format": {"duration": "72.672067"}}
+            with patch("tools.android_lifecycle_runtime.run.time.monotonic", return_value=825.194393661), patch(
+                "tools.android_lifecycle_runtime.run.subprocess.run",
+                side_effect=[subprocess.CompletedProcess([], 0, json.dumps(probe).encode()),
+                             subprocess.CompletedProcess([], 0, b"", b"")],
+            ):
+                recording.finish()
+            self.assertEqual(recording.metadata["status"], "verified")
+            self.assertEqual(recording.metadata["measuredSegmentSeconds"], 73)
+            self.assertAlmostEqual(recording.metadata["hostSegmentSeconds"], 79.009848511)
+            self.assertEqual(recording.output.read_bytes(), media)
+
+    def test_recording_start_waits_for_actual_picture_before_measuring(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(serial="emulator-5554", prefix=["adb", "-s", "emulator-5554"],
+                       remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+            prefixes = iter([b"\0\0\0\0mdat", b"\0\0\0\0mdat\0\0\0\x05\x65abcd"])
+            def command(*arguments, **_kwargs):
+                if arguments == ("shell", "getprop", "ro.kernel.qemu"):
+                    return subprocess.CompletedProcess([], 0, b"1")
+                if arguments == ("shell", "pidof", "screenrecord"):
+                    return subprocess.CompletedProcess([], 0, b"")
+                if arguments[:2] == ("exec-out", "head"):
+                    self.assertNotIn("mediaReadyAtDeviceElapsedSeconds", recording.metadata)
+                    return subprocess.CompletedProcess([], 0, next(prefixes))
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    return subprocess.CompletedProcess([], 0, b"67.00 30.00\n")
+                raise AssertionError(arguments)
+            adb.run.side_effect = command
+            process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
+            process.poll.return_value = None
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
+                "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[100, 101, 102, 103, 104],
+            ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                recording.start()
+            recording.reader.join(timeout=1)
+            self.assertEqual(recording.metadata["pidObservedAtMonotonic"], 101)
+            self.assertEqual(recording.metadata["startedAtMonotonic"], 104)
+            self.assertEqual(recording.metadata["mediaReadyAtDeviceElapsedSeconds"], 67)
+
+    def test_recording_start_fails_on_exit_or_missing_picture_without_restarting(self):
+        for early in (True, False):
+            with self.subTest(early=early), tempfile.TemporaryDirectory() as directory:
+                adb = Mock(serial="emulator-5554", prefix=["adb", "-s", "emulator-5554"],
+                           remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+                adb.run.side_effect = [subprocess.CompletedProcess([], 0, b"1"),
+                                       subprocess.CompletedProcess([], 0, b""),
+                                       subprocess.CompletedProcess([], 0, b"\0\0\0\0mdat")]
+                recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+                process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
+                process.poll.return_value = 1 if early else None
+                with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process) as launch, patch(
+                    "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[100, 101, 102, 121],
+                ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                    with self.assertRaisesRegex(RuntimeFailure, "before media|no picture"):
+                        recording.start()
+                recording.reader.join(timeout=1)
+                launch.assert_called_once()
+                self.assertEqual(recording.metadata["status"], "failed")
+                self.assertNotIn("startedAtMonotonic", recording.metadata)
+
+    def test_recording_finish_rejects_invalid_video_decode_and_process_exit(self):
+        video = {"codec_type": "video", "width": 720, "height": 1600, "duration": "10"}
+        cases = [
+            ([video, video], 0, 0, b"", "dimensions"),
+            ([dict(video, width=1600)], 0, 0, b"", "dimensions"),
+            ([dict(video, duration="nan")], 0, 0, b"", "does not cover"),
+            ([dict(video, duration="0")], 0, 0, b"", "does not cover"),
+            ([{"codec_type": "data"}], 0, 0, b"", "dimensions"),
+            ([video, {"codec_type": "audio"}], 0, 0, b"", "dimensions"),
+            ([video], 1, 0, b"", "exit successfully"),
+            ([video], 0, 1, b"decode error", "decoded completely"),
+            ([video], 0, 0, b"decode error", "decoded completely"),
+        ]
+        for streams, exit_code, decode_code, decode_error, error in cases:
+            with self.subTest(streams=streams, exit=exit_code, decode=decode_error), tempfile.TemporaryDirectory() as directory:
+                adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+                recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+                recording.output.parent.mkdir()
+                def command(*arguments, **_kwargs):
+                    if arguments == ("exec-out", "cat", "/proc/uptime"):
+                        return subprocess.CompletedProcess([], 0, b"20.00 10.00\n")
+                    if arguments[:2] == ("exec-out", "cat"):
+                        return subprocess.CompletedProcess([], 0, f"screenrecord\0{recording.remote}\0".encode())
+                    if arguments[0] == "pull":
+                        recording.output.write_bytes(b"ftyp" + b"x" * 5000 + b"moov")
+                    return subprocess.CompletedProcess([], 0, b"")
+                adb.run.side_effect = command
+                recording.pid = "44"
+                recording.process = Mock()
+                recording.process.poll.side_effect = [None, 0]
+                recording.process.wait.return_value = exit_code
+                recording.metadata.update({"startedAtMonotonic": 0.0, "mediaReadyAtDeviceElapsedSeconds": 10.0})
+                with patch("tools.android_lifecycle_runtime.run.time.monotonic", return_value=10.0), patch(
+                    "tools.android_lifecycle_runtime.run.subprocess.run", side_effect=[
+                        subprocess.CompletedProcess([], 0, json.dumps({"streams": streams}).encode()),
+                        subprocess.CompletedProcess([], decode_code, b"", decode_error),
+                    ],
+                ):
+                    with self.assertRaisesRegex(RuntimeFailure, error):
+                        recording.finish()
+                self.assertEqual(recording.metadata["status"], "failed")
+                self.assertEqual(len(recording.metadata["sha256"]), 64)
+
+    def test_missing_device_clock_still_stops_owned_recorder_and_keeps_evidence(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+            recording.output.parent.mkdir()
+            def command(*arguments, **_kwargs):
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    return subprocess.CompletedProcess([], 0, b"invalid clock")
+                if arguments[:2] == ("exec-out", "cat"):
+                    return subprocess.CompletedProcess([], 0, f"screenrecord\0{recording.remote}\0".encode())
+                if arguments[0] == "pull":
+                    recording.output.write_bytes(b"ftyp" + b"x" * 5000 + b"moov")
+                return subprocess.CompletedProcess([], 0, b"")
+            adb.run.side_effect = command
+            recording.pid = "44"
+            recording.process = Mock()
+            recording.process.poll.side_effect = [None, 0]
+            recording.process.wait.return_value = 0
+            with self.assertRaisesRegex(RuntimeFailure, "device elapsed clock"):
+                recording.finish()
+            self.assertTrue(any(call.args == ("shell", "kill", "-2", "44") for call in adb.run.call_args_list))
+            self.assertEqual(recording.metadata["status"], "failed")
             self.assertEqual(len(recording.metadata["sha256"]), 64)
 
     def test_cleanup_failure_cannot_leave_a_successful_result(self):

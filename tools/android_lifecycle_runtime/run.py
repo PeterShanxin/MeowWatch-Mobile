@@ -62,6 +62,43 @@ def validate_recording_duration(duration: float, elapsed: float, exited_early: b
         raise RuntimeFailure("native recording ended early or does not cover its measured segment")
 
 
+def recording_media_ready(data: bytes) -> bool:
+    """Require a complete H.264 picture NAL in the live MP4's media payload."""
+    offset = 0
+    while offset + 8 <= len(data):
+        size = int.from_bytes(data[offset:offset + 4], "big")
+        kind = data[offset + 4:offset + 8]
+        header = 16 if size == 1 else 8
+        if offset + header > len(data):
+            return False
+        if size == 1:
+            size = int.from_bytes(data[offset + 8:offset + 16], "big")
+        if kind == b"mdat":
+            # MediaMuxer leaves the mdat length unset until finalization.
+            offset += header
+            while offset + 5 <= len(data):
+                length = int.from_bytes(data[offset:offset + 4], "big")
+                if length <= 0 or offset + 4 + length > len(data):
+                    return False
+                if data[offset + 4] & 0x1f in (1, 5):
+                    return True
+                offset += 4 + length
+            return False
+        if size < header:
+            return False
+        offset += size
+    return False
+
+
+def recording_device_elapsed(data: bytes) -> float:
+    if re.fullmatch(rb"[0-9]+(?:\.[0-9]+)? [0-9]+(?:\.[0-9]+)?\s*", data) is None:
+        raise RuntimeFailure("native recording device elapsed clock is unavailable")
+    value = float(data.split()[0])
+    if not math.isfinite(value) or value <= 0:
+        raise RuntimeFailure("native recording device elapsed clock is invalid")
+    return value
+
+
 class LifecycleRecording:
     """One original, bounded screenrecord segment with verified process ownership."""
 
@@ -72,6 +109,7 @@ class LifecycleRecording:
         self.process: subprocess.Popen[str] | None = None
         self.reader: threading.Thread | None = None
         self.pid: str | None = None
+        self.lines: list[str] = []
         self.finished = False
         self.metadata: dict[str, object] = {"file": str(self.output.relative_to(output)).replace("\\", "/"),
                                             "status": "not-started", "width": size[0], "height": size[1],
@@ -87,7 +125,7 @@ class LifecycleRecording:
         self.output.parent.mkdir(parents=True, exist_ok=True)
         self.adb.remote_files.append(self.remote)
         width, height = self.size
-        command = (f"screenrecord --size {width}x{height} --bit-rate 2000000 --time-limit 180 {self.remote} & "
+        command = (f"screenrecord --verbose --size {width}x{height} --bit-rate 2000000 --time-limit 180 {self.remote} & "
                    "record_pid=$!; printf 'LIFECYCLE_RECORDER_PID=%s\\n' \"$record_pid\"; wait \"$record_pid\"")
         self.metadata["launchRequestedAtMonotonic"] = time.monotonic()
         self.process = subprocess.Popen(self.adb.prefix + ["shell", command], stdout=subprocess.PIPE,
@@ -97,6 +135,7 @@ class LifecycleRecording:
         def read_output() -> None:
             assert self.process and self.process.stdout
             for line in self.process.stdout:
+                self.lines.append(line)
                 match = re.fullmatch(r"LIFECYCLE_RECORDER_PID=(\d+)\s*", line)
                 if match:
                     observed.put(match[1])
@@ -105,11 +144,30 @@ class LifecycleRecording:
         self.reader.start()
         try:
             self.pid = observed.get(timeout=10)
+            self.metadata.update({"pid": int(self.pid), "pidObservedAtMonotonic": time.monotonic()})
+            deadline = float(self.metadata["launchRequestedAtMonotonic"]) + 20
+            while time.monotonic() < deadline:
+                if self.process.poll() is not None:
+                    raise RuntimeFailure("native lifecycle recorder exited before media was ready")
+                prefix = self.adb.run("exec-out", "head", "-c", "1048576", self.remote,
+                                      timeout=3, check=False)
+                if prefix.returncode == 0 and recording_media_ready(prefix.stdout):
+                    device_elapsed = recording_device_elapsed(
+                        self.adb.run("exec-out", "cat", "/proc/uptime", timeout=3).stdout)
+                    if self.process.poll() is not None:
+                        raise RuntimeFailure("native lifecycle recorder exited before media was ready")
+                    self.metadata.update({"status": "recording", "startedAtMonotonic": time.monotonic(),
+                                          "mediaReadyAtDeviceElapsedSeconds": device_elapsed,
+                                          "readiness": "complete H.264 picture NAL in native MP4 mdat"})
+                    return
+                time.sleep(0.2)
+            raise RuntimeFailure("native lifecycle recorder produced no picture before the readiness deadline")
         except queue.Empty:
             self.metadata["status"] = "failed"
             raise RuntimeFailure("could not identify the owned lifecycle recorder") from None
-        self.metadata.update({"status": "recording", "pid": int(self.pid),
-                              "startedAtMonotonic": time.monotonic()})
+        except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
+            self.metadata.update({"status": "failed", "error": str(error)})
+            raise
 
     def finish(self) -> None:
         if self.finished or self.process is None:
@@ -120,6 +178,7 @@ class LifecycleRecording:
         exited_early = self.process.poll() is not None
         self.metadata["exitedBeforeStopRequest"] = exited_early
         try:
+            clock_error: Exception | None = None
             if not exited_early:
                 if self.pid is None:
                     raise RuntimeFailure("native lifecycle recorder PID is missing")
@@ -127,8 +186,14 @@ class LifecycleRecording:
                     "utf-8", errors="replace").split("\x00")
                 if command[0].rsplit("/", 1)[-1] != "screenrecord" or self.remote not in command:
                     raise RuntimeFailure("native lifecycle recorder ownership changed; no signal sent")
+                try:
+                    self.metadata["stopRequestedAtDeviceElapsedSeconds"] = recording_device_elapsed(
+                        self.adb.run("exec-out", "cat", "/proc/uptime", timeout=3).stdout)
+                except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
+                    clock_error = error
                 self.adb.run("shell", "kill", "-2", self.pid)
-            self.process.wait(timeout=20)
+            exit_code = self.process.wait(timeout=20)
+            self.metadata["exitCode"] = exit_code
             if self.reader:
                 self.reader.join(timeout=5)
                 if self.reader.is_alive():
@@ -138,29 +203,50 @@ class LifecycleRecording:
             validate_mp4(data)
             self.metadata.update({"pulledAtMonotonic": time.monotonic(),
                                   "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+            if exit_code != 0:
+                raise RuntimeFailure("native lifecycle recorder did not exit successfully")
+            if exited_early:
+                raise RuntimeFailure("native recording ended early or does not cover its measured segment")
+            if clock_error is not None:
+                raise RuntimeFailure("native recording device elapsed clock is unavailable") from clock_error
             probe = subprocess.run(["ffprobe", "-v", "error", "-show_entries",
-                                    "format=duration:stream=codec_type,width,height", "-of", "json", str(self.output)],
+                                    "stream=codec_type,width,height,duration", "-of", "json", str(self.output)],
                                    capture_output=True, check=False, timeout=15)
             if probe.returncode:
                 raise RuntimeFailure("native lifecycle recording could not be decoded by ffprobe")
             try:
                 metadata = json.loads(probe.stdout)
                 streams = metadata["streams"]
-                duration = float(metadata["format"]["duration"])
-                if (len(streams) != 1 or streams[0]["codec_type"] != "video"
-                        or (streams[0]["width"], streams[0]["height"]) != self.size):
+                videos = [stream for stream in streams if stream["codec_type"] == "video"]
+                if (len(videos) != 1 or any(stream["codec_type"] not in ("video", "data") for stream in streams)
+                        or (videos[0]["width"], videos[0]["height"]) != self.size):
                     raise ValueError()
+                duration = float(videos[0]["duration"])
             except (ValueError, TypeError, KeyError):
                 raise RuntimeFailure("native lifecycle recording dimensions or duration are invalid") from None
-            elapsed = stopped - float(self.metadata["startedAtMonotonic"])
-            self.metadata.update({"videoDurationSeconds": duration, "measuredSegmentSeconds": elapsed})
+            if "mediaReadyAtDeviceElapsedSeconds" not in self.metadata:
+                raise RuntimeFailure("native lifecycle recording never reached media readiness")
+            elapsed = (float(self.metadata["stopRequestedAtDeviceElapsedSeconds"])
+                       - float(self.metadata["mediaReadyAtDeviceElapsedSeconds"]))
+            self.metadata.update({"videoDurationSeconds": duration, "measuredSegmentSeconds": elapsed,
+                                  "measurementClock": "Android /proc/uptime elapsed seconds",
+                                  "hostSegmentSeconds": stopped - float(self.metadata["startedAtMonotonic"])})
             validate_recording_duration(duration, elapsed, exited_early)
+            decoded = subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(self.output),
+                                      "-map", "0:v:0", "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
+                                      "-f", "null", "-"], capture_output=True, check=False, timeout=60)
+            self.output.with_suffix(".decode.log").write_bytes(decoded.stderr)
+            self.metadata["decodeExitCode"] = decoded.returncode
+            if decoded.returncode != 0 or decoded.stderr.strip():
+                raise RuntimeFailure("native lifecycle recording could not be decoded completely")
             self.metadata["status"] = "verified"
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
             self.metadata["status"] = "failed"
             self.metadata["error"] = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
             raise
         finally:
+            self.output.parent.mkdir(parents=True, exist_ok=True)
+            self.output.with_suffix(".screenrecord.log").write_text("".join(self.lines), encoding="utf-8")
             if self.process.poll() is None:
                 # This is our local ADB subprocess, not an unverified Android PID.
                 self.process.terminate()

@@ -10,7 +10,7 @@ from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure
 from tools.android_native_ui.observer import ObserverIntegrityFailure
 from tools.incoming_media_runtime.confirmed import (
     ConfirmedIntake, FIXTURE_URL, MEDIA_COLLECTION, Playback, download_fixture,
-    owned_row, playback, require_advance, temporary_read_grant,
+    owned_backing_file, owned_row, playback, require_advance, temporary_read_grant,
 )
 
 
@@ -113,6 +113,57 @@ class ConfirmedPlaybackTests(unittest.TestCase):
                 runner.wait('test', lambda value: None)
             runner.observe.assert_called_once()
 
+    def test_held_review_requires_a_new_complete_snapshot_after_transient_capture_failure(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            adb = Adb('emulator-5554', 'confirmed-test')
+            runner = ConfirmedIntake(adb, Path(temporary))
+            runner.observer.production_pid = Mock(return_value='123')
+            runner.observe = Mock(side_effect=[review('trailer.mp4'),
+                RuntimeFailure('native observer could not capture a complete active-window hierarchy'),
+                review('trailer.mp4'), player(0, playing=False), player(1), player(4)])
+            with patch.object(adb, 'run', return_value=subprocess.CompletedProcess(
+                [], 0, f'Status: ok\nActivity: {PACKAGE}/.MainActivity\n'.encode(), b''
+            )), patch.object(adb, 'screenshot', return_value=b'evidence'), patch(
+                'tools.incoming_media_runtime.confirmed.time.sleep'
+            ):
+                result = runner.accept_video(content=False)
+            self.assertEqual(result['advanceSeconds'], 3)
+            self.assertEqual(runner.observe.call_count, 6)
+            evidence = json.loads((Path(temporary) / 'confirmed-https-share-held-review-wait.json').read_text())
+            self.assertEqual([attempt['complete'] for attempt in evidence['attempts']], [False, True])
+            self.assertIn('complete active-window hierarchy', evidence['attempts'][0]['failure'])
+
+    def test_persistently_missing_held_hierarchy_fails_before_any_open_tap(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            adb = Adb('emulator-5554', 'confirmed-test')
+            runner = ConfirmedIntake(adb, Path(temporary))
+            runner.observer.production_pid = Mock(return_value='123')
+            runner.observe = Mock(side_effect=[review('trailer.mp4'), RuntimeFailure('root unavailable')])
+            with patch.object(adb, 'run', return_value=subprocess.CompletedProcess(
+                [], 0, f'Status: ok\nActivity: {PACKAGE}/.MainActivity\n'.encode(), b''
+            )) as command, patch.object(adb, 'screenshot', return_value=b'evidence'), patch(
+                'tools.incoming_media_runtime.confirmed.time.sleep'
+            ), patch('tools.incoming_media_runtime.confirmed.time.monotonic', side_effect=[0, 0, 0, 0, 46]):
+                with self.assertRaisesRegex(RuntimeFailure, 'held-review'):
+                    runner.accept_video(content=False)
+            self.assertFalse(any(call.args[:3] == ('shell', 'input', 'tap') for call in command.call_args_list))
+
+    def test_complete_held_snapshot_with_wrong_review_is_not_retried(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            adb = Adb('emulator-5554', 'confirmed-test')
+            runner = ConfirmedIntake(adb, Path(temporary))
+            runner.observer.production_pid = Mock(return_value='123')
+            runner.observe = Mock(side_effect=[review('trailer.mp4'), review('other.mp4'), review('trailer.mp4')])
+            with patch.object(adb, 'run', return_value=subprocess.CompletedProcess(
+                [], 0, f'Status: ok\nActivity: {PACKAGE}/.MainActivity\n'.encode(), b''
+            )) as command, patch.object(adb, 'screenshot', return_value=b'evidence'), patch(
+                'tools.incoming_media_runtime.confirmed.time.sleep'
+            ):
+                with self.assertRaises(RuntimeFailure):
+                    runner.accept_video(content=False)
+            self.assertEqual(runner.observe.call_count, 2)
+            self.assertFalse(any(call.args[:3] == ('shell', 'input', 'tap') for call in command.call_args_list))
+
     def test_content_open_requires_observed_grant_before_any_confirmation_tap(self):
         warning = 'This app granted temporary video access. To keep it in Continue Watching, choose it again using Open a video.'
         for grant, succeeds in ((GRANT, True), ('no grants', False)):
@@ -154,11 +205,131 @@ class ConfirmedPlaybackTests(unittest.TestCase):
             ), patch('tools.incoming_media_runtime.confirmed.subprocess.run', return_value=subprocess.CompletedProcess([], 0, b'', b'')) as write, patch.object(
                 adb, 'run', return_value=subprocess.CompletedProcess([], 0, data, b'')
             ) as command:
+                command.side_effect = lambda *args, **kwargs: subprocess.CompletedProcess(
+                    [], 0, b'35' if args == ('shell', 'getprop', 'ro.build.version.sdk') else data, b'')
                 result = runner.prepare_video()
             self.assertEqual(write.call_args.kwargs['input'], data)
             self.assertEqual(write.call_args.args[0][-5:], ['-T', 'content', 'write', '--uri', URI])
-            self.assertEqual(command.call_args.args, ('exec-out', 'content', 'read', '--uri', URI))
+            self.assertEqual(command.call_args.args, ('shell', '-T', 'content', 'read', '--uri', URI))
             self.assertEqual(result['providerReadbackSha256'], digest)
+
+    def test_provider_error_with_zero_exit_is_not_mistaken_for_success(self):
+        error = f'Error while accessing provider:media\njava.lang.SecurityException: {URI}\n'.encode()
+        with tempfile.TemporaryDirectory() as temporary:
+            adb = Adb('emulator-5554', 'confirmed-test')
+            runner = ConfirmedIntake(adb, Path(temporary))
+            runner.name = NAME
+            runner.query = Mock(side_effect=['No result found.', ROW])
+            with patch('tools.incoming_media_runtime.confirmed.download_fixture', return_value=b'fixture'), patch(
+                'tools.incoming_media_runtime.confirmed.subprocess.run',
+                return_value=subprocess.CompletedProcess([], 0, b'', error)
+            ), patch.object(adb, 'run', return_value=subprocess.CompletedProcess([], 0, b'35', b'')) as command:
+                with self.assertRaisesRegex(RuntimeFailure, 'could not write'):
+                    runner.prepare_video()
+            self.assertFalse(any('read' in call.args for call in command.call_args_list))
+            evidence = json.loads((Path(temporary) / 'provider-write.json').read_text())
+            self.assertEqual(evidence['exitCode'], 0)
+            self.assertIn('SecurityException', evidence['stderr'])
+            self.assertNotIn(URI, evidence['stderr'])
+
+    def test_corrupt_readback_fails_for_both_provider_and_owned_backing_file(self):
+        data = b'controlled media bytes'
+        for sdk in [b'29', b'35']:
+            with self.subTest(sdk=sdk), tempfile.TemporaryDirectory() as temporary:
+                adb = Adb('emulator-5554', 'confirmed-test')
+                runner = ConfirmedIntake(adb, Path(temporary))
+                runner.name = NAME
+                runner.query = Mock(side_effect=['No result found.', ROW])
+                runner.query_backing_file = Mock(return_value=ROW + f', _data=/storage/emulated/0/Movies/{NAME}')
+                def run(*args, **kwargs):
+                    if args == ('shell', 'getprop', 'ro.build.version.sdk'):
+                        return subprocess.CompletedProcess([], 0, sdk, b'')
+                    if args[:3] == ('shell', 'test', '-e'):
+                        return subprocess.CompletedProcess([], 1, b'', b'')
+                    return subprocess.CompletedProcess([], 0, b'corrupt bytes', b'')
+                with patch('tools.incoming_media_runtime.confirmed.download_fixture', return_value=data), patch(
+                    'tools.incoming_media_runtime.confirmed.FIXTURE_SHA256', hashlib.sha256(data).hexdigest()
+                ), patch('tools.incoming_media_runtime.confirmed.subprocess.run',
+                    return_value=subprocess.CompletedProcess([], 0, b'', b'')
+                ), patch.object(adb, 'run', side_effect=run):
+                    with self.assertRaisesRegex(RuntimeFailure, 'bytes do not match'):
+                        runner.prepare_video()
+                evidence = json.loads((Path(temporary) / 'provider-read.json').read_text())
+                self.assertEqual(evidence['stdoutSha256'], hashlib.sha256(b'corrupt bytes').hexdigest())
+
+    def test_backing_file_relationship_rejects_different_path_row_and_ambiguous_rows(self):
+        path = f'/storage/emulated/0/Movies/{NAME}'
+        row = ROW + f', _data={path}'
+        self.assertEqual(owned_backing_file(row, NAME, URI), path)
+        for changed in (row.replace('/Movies/', '/Download/'), row.replace('_id=42', '_id=43'),
+                        row.replace(NAME + ', mime', 'foreign.mp4, mime'), row + '\n' + row):
+            with self.subTest(changed=changed), self.assertRaises(RuntimeFailure):
+                owned_backing_file(changed, NAME, URI)
+
+    def test_api29_uses_only_the_exact_owned_file_and_reports_actual_hash_method(self):
+        data = b'controlled media bytes'
+        digest = hashlib.sha256(data).hexdigest()
+        path = f'/storage/emulated/0/Movies/{NAME}'
+        with tempfile.TemporaryDirectory() as temporary:
+            adb = Adb('emulator-5554', 'confirmed-test')
+            runner = ConfirmedIntake(adb, Path(temporary))
+            runner.name = NAME
+            runner.query = Mock(side_effect=['No result found.', ROW, ROW, 'No result found.'])
+            runner.query_backing_file = Mock(return_value=ROW + f', _data={path}')
+            runner.observer.cleanup = Mock()
+            def run(*args, **kwargs):
+                if args == ('shell', 'getprop', 'ro.build.version.sdk'):
+                    return subprocess.CompletedProcess([], 0, b'29', b'')
+                if args[:3] == ('shell', 'test', '-e'):
+                    self.assertEqual(args[3], path)
+                    return subprocess.CompletedProcess([], 1, b'', b'')
+                return subprocess.CompletedProcess([], 0, data if args[:2] == ('exec-out', 'cat') else b'', b'')
+            with patch('tools.incoming_media_runtime.confirmed.download_fixture', return_value=data), patch(
+                'tools.incoming_media_runtime.confirmed.FIXTURE_SHA256', digest
+            ), patch('tools.incoming_media_runtime.confirmed.subprocess.run',
+                return_value=subprocess.CompletedProcess([], 0, b'', b'')
+            ) as write, patch.object(adb, 'run', side_effect=run) as command:
+                report = runner.prepare_video()
+                runner.cleanup()
+            self.assertEqual(write.call_args.args[0][-3:], ['shell', '-T', f'cat > {path}'])
+            self.assertEqual(write.call_args.kwargs['input'], data)
+            self.assertEqual(report['mediaStoreBackingFileSha256'], digest)
+            self.assertNotIn('providerReadbackSha256', report)
+            self.assertEqual(report['readbackMethod'], 'owned-backing-file')
+            self.assertEqual(runner.cleanup_result['mediaStoreBackingFile'], 'removed')
+            self.assertTrue(runner.cleanup_result['completed'])
+            self.assertFalse(any('write' in call.args or 'read' in call.args for call in command.call_args_list))
+
+    def test_api29_refuses_preexisting_file_before_insert(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            adb = Adb('emulator-5554', 'confirmed-test')
+            runner = ConfirmedIntake(adb, Path(temporary))
+            with patch('tools.incoming_media_runtime.confirmed.download_fixture', return_value=b'fixture'), patch.object(
+                adb, 'run', side_effect=[subprocess.CompletedProcess([], 0, b'29', b''),
+                                        subprocess.CompletedProcess([], 0, b'', b'')]
+            ) as command:
+                with self.assertRaisesRegex(RuntimeFailure, 'not confirmed absent'):
+                    runner.prepare_video()
+            self.assertFalse(any('insert' in call.args for call in command.call_args_list))
+
+    def test_api29_cleanup_refuses_changed_file_or_remaining_backing_file(self):
+        path = f'/storage/emulated/0/Movies/{NAME}'
+        for changed in [True, False]:
+            with self.subTest(changed=changed), tempfile.TemporaryDirectory() as temporary:
+                adb = Adb('emulator-5554', 'confirmed-test')
+                runner = ConfirmedIntake(adb, Path(temporary))
+                runner.name, runner.uri, runner.backing_file = NAME, URI, path
+                runner.legacy_file_io = True
+                runner.query = Mock(side_effect=[ROW, 'No result found.'])
+                runner.query_backing_file = Mock(return_value=ROW + ', _data=' + (
+                    path.replace('/Movies/', '/Download/') if changed else path))
+                runner.observer.cleanup = Mock()
+                with patch.object(adb, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')) as command:
+                    with self.assertRaisesRegex(RuntimeFailure, 'cleanup'):
+                        runner.cleanup()
+                if changed:
+                    command.assert_not_called()
+                self.assertFalse(runner.cleanup_result['completed'])
 
     def test_uncertain_row_owner_is_retained_without_any_delete(self):
         with tempfile.TemporaryDirectory() as temporary:

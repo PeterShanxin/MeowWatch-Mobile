@@ -14,7 +14,7 @@ import time
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from tools.android_install.runner import ACTIVITY, Adb, PACKAGE, RuntimeFailure, focused_component, launch_output_succeeded
+from tools.android_install.runner import ACTIVITY, Adb, PACKAGE, RuntimeFailure, focused_component, launch_output_succeeded, redact_log
 from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver, ObserverIntegrityFailure
 from tools.incoming_media_runtime.run import center, exact, nodes, require_review
 
@@ -46,6 +46,14 @@ def owned_row(output: str, name: str) -> str:
     if match is None:
         raise RuntimeFailure("the exact owned MediaStore row is missing or ambiguous")
     return f"{MEDIA_COLLECTION}/{match[1]}"
+
+
+def owned_backing_file(output: str, name: str, uri: str) -> str:
+    path = f'/storage/emulated/0/Movies/{name}'
+    suffix = f', _data={path}'
+    if not output.endswith(suffix) or owned_row(output[:-len(suffix)], name) != uri:
+        raise RuntimeFailure('the exact owned MediaStore backing file is missing or ambiguous')
+    return path
 
 
 def temporary_read_grant(output: str, uri: str) -> dict[str, object]:
@@ -108,6 +116,8 @@ class ConfirmedIntake:
         self.observer = NativeUiObserver(adb, observer_apk)
         self.name = f"meowwatch-intake-{secrets.token_hex(16)}.mp4"
         self.uri: str | None = None
+        self.legacy_file_io = False
+        self.backing_file: str | None = None
         self.cleanup_result: dict[str, object] = {"mediaStoreRow": "not-created"}
 
     def query(self) -> str:
@@ -115,8 +125,21 @@ class ConfirmedIntake:
         return self.adb.run('shell', 'content', 'query', '--uri', MEDIA_COLLECTION,
                             '--projection', '_id:_display_name:mime_type', '--where', where).stdout.decode().strip()
 
+    def query_backing_file(self) -> str:
+        where = shlex.quote(f"_display_name='{self.name}'")
+        return self.adb.run('shell', 'content', 'query', '--uri', MEDIA_COLLECTION,
+                            '--projection', '_id:_display_name:mime_type:_data', '--where', where).stdout.decode().strip()
+
     def prepare_video(self) -> dict[str, object]:
         data = download_fixture()
+        sdk = self.adb.run('shell', 'getprop', 'ro.build.version.sdk').stdout.strip()
+        if not sdk.isdigit() or int(sdk) < 29:
+            raise RuntimeFailure('incoming playback fixture requires a verified Android API 29 or newer')
+        self.legacy_file_io = int(sdk) == 29
+        if self.legacy_file_io:
+            path = f'/storage/emulated/0/Movies/{self.name}'
+            if self.adb.run('shell', 'test', '-e', path, check=False).returncode != 1:
+                raise RuntimeFailure('the unique fixture backing path is not confirmed absent')
         if self.query() != 'No result found.':
             raise RuntimeFailure("the unique fixture MediaStore name already exists")
         self.cleanup_result['mediaStoreRow'] = 'retained-ownership-unconfirmed'
@@ -125,16 +148,50 @@ class ConfirmedIntake:
                      '--bind', 'relative_path:s:Movies/')
         self.uri = owned_row(self.query(), self.name)
         self.cleanup_result['mediaStoreRow'] = 'owned'
-        result = subprocess.run(self.adb.prefix + ['shell', '-T', 'content', 'write', '--uri', self.uri],
+        if self.legacy_file_io:
+            # API 29's content read/write supply a null calling package, unlike
+            # insert/query. Use only the exact backing file of our inserted row;
+            # production still receives the provider URI with a temporary grant.
+            self.backing_file = owned_backing_file(self.query_backing_file(), self.name, self.uri)
+            write_arguments = ['shell', '-T', f'cat > {shlex.quote(self.backing_file)}']
+        else:
+            write_arguments = ['shell', '-T', 'content', 'write', '--uri', self.uri]
+        result = subprocess.run(self.adb.prefix + write_arguments,
                                 input=data, capture_output=True, timeout=40, check=False)
-        if result.returncode:
-            raise RuntimeFailure("could not write the fixture through its Android content provider")
-        readback = self.adb.run('exec-out', 'content', 'read', '--uri', self.uri, timeout=40).stdout
+        self.record_provider_io('write', result)
+        # Android 10's Content.Command.execute prints provider exceptions but
+        # returns exit code zero. A successful write has no textual response.
+        if result.returncode or result.stdout or result.stderr:
+            raise RuntimeFailure("could not write the Android MediaStore fixture")
+        # shell v2 with no PTY separates provider stderr from the binary stream;
+        # exec-out merges stderr into stdout and obscures the actual failure.
+        read_arguments = ('exec-out', 'cat', self.backing_file) if self.legacy_file_io else (
+            'shell', '-T', 'content', 'read', '--uri', self.uri)
+        result = self.adb.run(*read_arguments, timeout=40, check=False)
+        self.record_provider_io('read', result)
+        if result.returncode or result.stderr:
+            raise RuntimeFailure("could not read the Android MediaStore fixture")
+        readback = result.stdout
         if hashlib.sha256(readback).hexdigest() != FIXTURE_SHA256:
-            raise RuntimeFailure("the provider's video bytes do not match the public fixture")
-        return {'publicSource': FIXTURE_URL, 'sha256': FIXTURE_SHA256, 'bytes': len(data),
-                'providerReadbackSha256': FIXTURE_SHA256,
-                'contentUriSha256': hashlib.sha256(self.uri.encode()).hexdigest()}
+            raise RuntimeFailure("the Android MediaStore video bytes do not match the public fixture")
+        report = {'publicSource': FIXTURE_URL, 'sha256': FIXTURE_SHA256, 'bytes': len(data),
+                  'readbackMethod': 'owned-backing-file' if self.legacy_file_io else 'content-provider',
+                  'contentUriSha256': hashlib.sha256(self.uri.encode()).hexdigest()}
+        report['mediaStoreBackingFileSha256' if self.legacy_file_io else 'providerReadbackSha256'] = FIXTURE_SHA256
+        return report
+
+    def record_provider_io(self, operation: str, result: subprocess.CompletedProcess[bytes]) -> None:
+        stdout, stderr = result.stdout or b'', result.stderr or b''
+        report = {'operation': operation, 'exitCode': result.returncode,
+                  'method': 'owned-backing-file' if self.legacy_file_io else 'content-provider',
+                  'stdoutBytes': len(stdout), 'stderrBytes': len(stderr),
+                  'stdoutSha256': hashlib.sha256(stdout).hexdigest(),
+                  'stderrSha256': hashlib.sha256(stderr).hexdigest(),
+                  'stderr': redact_log(stderr[:8192].decode('utf-8', errors='replace')).replace(
+                      self.name, '[OWNED_FIXTURE]'),
+                  'stderrTruncated': len(stderr) > 8192}
+        self.output.joinpath(f'provider-{operation}.json').write_text(
+            json.dumps(report, indent=2), encoding='utf-8')
 
     def observe(self) -> str:
         xml, window = self.observer.observe()
@@ -143,17 +200,26 @@ class ConfirmedIntake:
 
     def wait(self, phase: str, check, seconds: float = 45):
         deadline = time.monotonic() + seconds
-        while time.monotonic() < deadline:
-            try:
-                xml = self.observe()
-                value = check(xml)
-                self.output.joinpath(f'{phase}.xml').write_text(xml, encoding='utf-8')
-                return xml, value
-            except ObserverIntegrityFailure:
-                raise
-            except (RuntimeFailure, subprocess.TimeoutExpired):
-                time.sleep(0.3)
-        raise RuntimeFailure(f'{phase}: fresh native acceptance observation timed out')
+        attempts: list[dict[str, object]] = []
+        try:
+            while time.monotonic() < deadline:
+                try:
+                    xml = self.observe()
+                    value = check(xml)
+                    self.output.joinpath(f'{phase}.xml').write_text(xml, encoding='utf-8')
+                    attempts.append({'complete': True})
+                    return xml, value
+                except ObserverIntegrityFailure as error:
+                    attempts.append({'complete': False, 'integrityFailure': str(error)})
+                    raise
+                except (RuntimeFailure, subprocess.TimeoutExpired) as error:
+                    attempts.append({'complete': False, 'failure': str(error)
+                                     if isinstance(error, RuntimeFailure) else 'capture timeout'})
+                    time.sleep(0.3)
+            raise RuntimeFailure(f'{phase}: fresh native acceptance observation timed out')
+        finally:
+            self.output.joinpath(f'{phase}-wait.json').write_text(
+                json.dumps({'attempts': attempts}, indent=2), encoding='utf-8')
 
     def tap(self, node: ET.Element) -> None:
         x, y = center(node)
@@ -178,7 +244,9 @@ class ConfirmedIntake:
         xml, _ = self.wait(phase + '-review', lambda value: require_review(value, title))
         self.output.joinpath(phase + '-review.png').write_bytes(self.adb.screenshot())
         time.sleep(1)
-        xml = self.observe()
+        xml, _ = self.wait(phase + '-held-review', lambda value: None)
+        # A complete tree showing a missing/different review is a gate failure,
+        # not a loading state that can be retried until the dialog comes back.
         require_review(xml, title)
         grant = None
         if content:
@@ -225,9 +293,16 @@ class ConfirmedIntake:
                     try:
                         if owned_row(self.query(), self.name) != self.uri:
                             raise RuntimeFailure('fixture owner changed')
+                        if self.legacy_file_io and (self.backing_file is None or
+                                owned_backing_file(self.query_backing_file(), self.name, self.uri) != self.backing_file):
+                            raise RuntimeFailure('fixture backing file owner changed or was never confirmed')
                         self.adb.run('shell', 'content', 'delete', '--uri', self.uri)
                         if self.query() != 'No result found.':
                             raise RuntimeFailure('fixture deletion was not confirmed')
+                        if self.backing_file is not None:
+                            if self.adb.run('shell', 'test', '-e', self.backing_file, check=False).returncode != 1:
+                                raise RuntimeFailure('fixture backing file deletion was not confirmed')
+                            self.cleanup_result['mediaStoreBackingFile'] = 'removed'
                         self.cleanup_result['mediaStoreRow'] = 'removed'
                     except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
                         self.cleanup_result['mediaStoreRow'] = 'retained-owner-or-cleanup-unconfirmed'

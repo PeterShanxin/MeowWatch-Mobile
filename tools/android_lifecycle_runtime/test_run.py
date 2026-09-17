@@ -1,6 +1,7 @@
 from pathlib import Path
 from contextlib import redirect_stdout
 import io
+import hashlib
 import json
 import subprocess
 import struct
@@ -16,6 +17,7 @@ from tools.android_lifecycle_runtime.run import (
     require_playing_advance, require_restored_position, timed_out_observation,
     RecordingPictures, recording_device_elapsed, recording_frame_clock, recording_media_ready,
     recording_size, require_recorded_observation, validate_recording_duration,
+    MAX_RECORDING_BYTES, MAX_FILE_QUERY_BYTES, MAX_LIVE_READ_SUMMARIES,
 )
 from tools.billing_runtime.native_dialog import LAUNCHER_PACKAGE, SETUP_PACKAGE
 from tools.android_native_ui.observer import OBSERVER_PACKAGE, ObserverIntegrityFailure
@@ -38,6 +40,14 @@ def clock_media(times, *, version=2, count=None, duplicate=False):
                 + struct.pack(f'<{len(times)}Q', *(round(value * 1e9) for value in times)))
     return (box(b'ftyp', b'isom' + bytes(12)) + box(b'mdat', bytes(5000) + metadata * (2 if duplicate else 1))
             + box(b'moov', b''))
+
+
+def device_file_response(arguments, remote, media):
+    if arguments == ('exec-out', 'stat', '-c', '%s', remote):
+        return subprocess.CompletedProcess([], 0, f'{len(media)}\n'.encode(), b'')
+    if arguments == ('exec-out', 'sha256sum', remote):
+        return subprocess.CompletedProcess([], 0, f'{hashlib.sha256(media).hexdigest()}  {remote}\n'.encode(), b'')
+    return None
 
 
 def player(position="0:12", action="Pause"):
@@ -183,6 +193,16 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 self.assertIn('tail -c +1 ', commands[0][0][-1])
                 self.assertIn(f'tail -c +{len(initial) + 1} ', commands[1][0][-1])
                 self.assertTrue(all(call[1]['timeout'] <= 2 for call in commands))
+                reads = recording.metadata['postRoll']['readSummaries']
+                self.assertEqual(reads[0]['offset'], 0)
+                self.assertEqual(reads[0]['bytes'], len(initial))
+                self.assertEqual(reads[0]['sha256'], hashlib.sha256(initial).hexdigest())
+                self.assertEqual(reads[1]['offset'], len(initial))
+                complete = initial + (nal if advances else b'')
+                self.assertEqual(reads[-1]['prefixBytes'], len(complete))
+                self.assertEqual(reads[-1]['prefixSha256'], hashlib.sha256(complete).hexdigest())
+                self.assertEqual(reads[-1]['lastCompletePictureEnd'], len(complete))
+                self.assertTrue(all(row['finishedAtMonotonic'] >= row['startedAtMonotonic'] for row in reads))
 
     def test_final_coverage_and_post_roll_failures_keep_original_recording(self):
         for required, post_error, missing_clock, error_message in (
@@ -197,6 +217,9 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 recording.output.parent.mkdir()
                 media = clock_media([10, 19.8]) if not missing_clock else box(b'ftyp', bytes(12)) + box(b'mdat', bytes(5000)) + box(b'moov', b'')
                 def run(*arguments, **kwargs):
+                    receipt = device_file_response(arguments, recording.remote, media)
+                    if receipt is not None:
+                        return receipt
                     if arguments == ('exec-out', 'cat', '/proc/uptime'):
                         return subprocess.CompletedProcess([], 0, b'20.0 0.0\n')
                     if arguments[:2] == ('exec-out', 'cat'):
@@ -470,6 +493,9 @@ class LifecycleRuntimeTests(unittest.TestCase):
             recording.output.parent.mkdir()
             media = clock_media([67.0, 139.672067])
             def command(*arguments, **_kwargs):
+                receipt = device_file_response(arguments, recording.remote, media)
+                if receipt is not None:
+                    return receipt
                 if arguments == ("exec-out", "cat", "/proc/uptime"):
                     return subprocess.CompletedProcess([], 0, b"140.00 80.00\n")
                 if arguments[:2] == ("exec-out", "cat"):
@@ -499,6 +525,126 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertAlmostEqual(recording.metadata["hostSegmentSeconds"], 79.009848511)
             self.assertEqual(recording.output.read_bytes(), media)
 
+    def test_final_device_receipt_is_required_after_exit_before_pull_without_hiding_decode_errors(self):
+        cases = (("match", b"", None), ("hash-mismatch", b"", "digest differ"),
+                 ("size-mismatch", b"", "digest differ"), ("query-failed", b"", "receipt is unavailable"),
+                 ("query-timeout", b"", "receipt is unavailable"),
+                 ("query-failed", b"original corrupt decoded frame", "decoded completely"),
+                 ("diagnostic-log-write-failed", b"original corrupt decoded frame", "decoded completely"))
+        for failure, decode_stderr, expected_error in cases:
+            with self.subTest(failure=failure, decode_stderr=decode_stderr), tempfile.TemporaryDirectory() as directory:
+                adb = Mock(remote_prefix='/sdcard/meowwatch-install-test/', remote_files=[])
+                recording = LifecycleRecording(adb, Path(directory), 1, (432, 960))
+                recording.output.parent.mkdir()
+                media = clock_media([10.0, 19.8])
+                order = []
+                def command(*arguments, **kwargs):
+                    if arguments == ('exec-out', 'cat', '/proc/uptime'):
+                        return subprocess.CompletedProcess([], 0, b'20.00 10.00\n')
+                    if arguments[:2] == ('exec-out', 'cat'):
+                        return subprocess.CompletedProcess([], 0, f'screenrecord\0{recording.remote}\0'.encode())
+                    if arguments[:2] in (('exec-out', 'stat'), ('exec-out', 'sha256sum')):
+                        order.append(arguments[1])
+                        self.assertIn('recorder-exited', order)
+                        self.assertNotIn('pull', order)
+                        self.assertEqual(kwargs, {'timeout': 3, 'check': False})
+                        if failure == 'query-failed':
+                            return subprocess.CompletedProcess([], 1, b'', b'device query rejected')
+                        if failure == 'query-timeout':
+                            raise subprocess.TimeoutExpired('adb', 3)
+                        response = device_file_response(arguments, recording.remote, media)
+                        if arguments[1] == 'stat' and failure == 'size-mismatch':
+                            response.stdout = f'{len(media) + 1}\n'.encode()
+                        if arguments[1] == 'sha256sum' and failure == 'hash-mismatch':
+                            response.stdout = f'{"0" * 64}  {recording.remote}\n'.encode()
+                        return response
+                    if arguments[0] == 'pull':
+                        order.append('pull')
+                        recording.output.write_bytes(media)
+                    return subprocess.CompletedProcess([], 0, b'', b'')
+                adb.run.side_effect = command
+                recording.process = Mock()
+                recording.process.poll.side_effect = [None, 0]
+                recording.process.wait.side_effect = lambda **_: order.append('recorder-exited') or 0
+                recording.pid = '44'
+                recording.metadata.update({'startedAtMonotonic': 0.0, 'mediaReadyAtDeviceElapsedSeconds': 10.0})
+                probe = {'streams': [{'codec_type': 'video', 'width': 432, 'height': 960, 'duration': '10'}],
+                         'frames': [{'media_type': 'video', 'pts_time': '0'}, {'media_type': 'video', 'pts_time': '9.8'}]}
+                def decode(arguments, **_kwargs):
+                    if arguments[0] == 'ffprobe':
+                        return subprocess.CompletedProcess([], 0, json.dumps(probe).encode(), b'')
+                    order.append('full-decode')
+                    self.assertIn('-xerror', arguments)
+                    self.assertNotIn('-t', arguments)
+                    return subprocess.CompletedProcess([], 0, b'', decode_stderr)
+                if decode_stderr:
+                    recording.codec_log_since = '09-17 17:20:34.000'
+                    recording.codec_evidence = Mock(side_effect=OSError('diagnostic file write failed'))
+                write_bytes, write_text = Path.write_bytes, Path.write_text
+                def retain_bytes(path, data):
+                    if failure == 'diagnostic-log-write-failed' and path.name.endswith('.decode.log'):
+                        raise OSError('decode diagnostic file write failed')
+                    return write_bytes(path, data)
+                def retain_text(path, data, **kwargs):
+                    if failure == 'diagnostic-log-write-failed' and path.name.endswith('.screenrecord.log'):
+                        raise OSError('recorder diagnostic file write failed')
+                    return write_text(path, data, **kwargs)
+                with patch('tools.android_lifecycle_runtime.run.subprocess.run', side_effect=decode), patch.object(
+                    Path, 'write_bytes', retain_bytes,
+                ), patch.object(Path, 'write_text', retain_text):
+                    if expected_error:
+                        with self.assertRaisesRegex(RuntimeFailure, expected_error):
+                            recording.finish()
+                    else:
+                        recording.finish()
+                self.assertEqual(order[-1], 'full-decode')
+                self.assertEqual(recording.output.read_bytes(), media)
+                self.assertEqual(recording.metadata['deviceFileMatchesPulledFile'], failure in ('match', 'diagnostic-log-write-failed'))
+                self.assertEqual(recording.metadata['status'], 'failed' if expected_error else 'verified')
+                if failure == 'diagnostic-log-write-failed':
+                    self.assertEqual(recording.metadata['decodeLogWriteError'], 'OSError')
+                    self.assertEqual(recording.metadata['screenrecordLogWriteError'], 'OSError')
+                    recording.process.stdout.close.assert_called_once()
+                else:
+                    self.assertEqual(recording.output.with_suffix('.decode.log').read_bytes(), decode_stderr)
+                self.assertLessEqual(recording.metadata['recorderExitedAtMonotonic'], recording.metadata['deviceFileReceipt']['queries']['size']['startedAtMonotonic'])
+                self.assertLessEqual(recording.metadata['deviceFileReceipt']['queries']['size']['finishedAtMonotonic'], recording.metadata['pullStartedAtMonotonic'])
+                if decode_stderr:
+                    self.assertEqual(recording.metadata['error'], 'native lifecycle recording could not be decoded completely')
+                    self.assertEqual(recording.metadata['codecLogCollectionError'], 'OSError')
+                    self.assertEqual(recording.metadata['firstDecodeError']['stderrPrefix'], decode_stderr.decode())
+                    self.assertEqual(recording.metadata['firstDecodeError']['stderrSha256'], hashlib.sha256(decode_stderr).hexdigest())
+
+    def test_device_file_receipt_rejects_unowned_paths_and_unbounded_or_ambiguous_results(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(remote_prefix='/sdcard/meowwatch-install-test/', remote_files=[])
+            recording = LifecycleRecording(adb, Path(directory), 1, (432, 960))
+            owned = recording.remote
+            for remote in ('/sdcard/personal.mp4', owned + ';id', '/sdcard/meowwatch-install-other/lifecycle-01.mp4'):
+                recording.remote = remote
+                with self.subTest(remote=remote), self.assertRaisesRegex(RuntimeFailure, 'exact owned'):
+                    recording.device_file_receipt()
+            adb.run.assert_not_called()
+            recording.remote = owned
+            for invalid in (b'0\n', b'-1\n', b'1\n2\n', f'{MAX_RECORDING_BYTES + 1}\n'.encode(), b'1' * (MAX_FILE_QUERY_BYTES + 1)):
+                adb.run.reset_mock()
+                adb.run.return_value = subprocess.CompletedProcess([], 0, invalid, b'')
+                self.assertEqual(recording.device_file_receipt()['status'], 'failed')
+                adb.run.assert_called_once_with('exec-out', 'stat', '-c', '%s', owned, timeout=3, check=False)
+            for invalid in (b'0' * 64 + b'  /sdcard/personal.mp4\n', b'0' * 64 + b'  ' + owned.encode() + b'\nextra', b'not a digest'):
+                adb.run.side_effect = [subprocess.CompletedProcess([], 0, b'5000\n', b''),
+                                       subprocess.CompletedProcess([], 0, invalid, b'')]
+                self.assertEqual(recording.device_file_receipt()['status'], 'failed')
+
+    def test_live_read_summaries_retain_latest_offsets_with_a_fixed_metadata_bound(self):
+        section = {}
+        for offset in range(MAX_LIVE_READ_SUMMARIES + 5):
+            LifecycleRecording.live_read_summary(section, {'offset': offset})
+        self.assertEqual(len(section['readSummaries']), MAX_LIVE_READ_SUMMARIES)
+        self.assertEqual(section['droppedEarlierReadSummaries'], 5)
+        self.assertEqual(section['readSummaries'][0]['offset'], 5)
+        self.assertEqual(section['readSummaries'][-1]['offset'], MAX_LIVE_READ_SUMMARIES + 4)
+
     def test_recording_start_waits_for_actual_picture_before_measuring(self):
         with tempfile.TemporaryDirectory() as directory:
             adb = Mock(serial="emulator-5554", prefix=["adb", "-s", "emulator-5554"],
@@ -527,7 +673,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
             process.poll.return_value = None
             with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process) as launch, patch(
                 "tools.android_lifecycle_runtime.run.time.monotonic",
-                side_effect=[100, 101, 102, 103, 104, 105],
+                side_effect=[100, 101, 102, 102, 103, 103, 104, 105],
             ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
                 recording.start()
             recording.reader.join(timeout=1)
@@ -537,6 +683,10 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertIn("--size 432x960 --bit-rate 2000000", launch.call_args.args[0][-1])
             self.assertEqual(recording.codec_log_since, "09-17 13:00:00.000")
             self.assertEqual(recording.metadata["codecEvidence"]["codec-state"]["status"], "collected")
+            reads = recording.metadata["readinessProbe"]["readSummaries"]
+            self.assertEqual(len(reads), 2)
+            self.assertEqual(reads[0]["sha256"], hashlib.sha256(b"\0\0\0\0mdat").hexdigest())
+            self.assertEqual(reads[1]["bytes"], 17)
 
     def test_recording_start_retries_only_bounded_readiness_timeouts(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -580,12 +730,15 @@ class LifecycleRuntimeTests(unittest.TestCase):
             process.poll.return_value = None
             with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
                 "tools.android_lifecycle_runtime.run.time.monotonic",
-                side_effect=[100, 101, 102, 103, 104, 105, 106, 107, 108, 109],
+                side_effect=[100, 101, 102, 103, 104, 104, 105, 106, 107, 107, 108, 109],
             ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
                 recording.start()
             recording.reader.join(timeout=1)
             self.assertEqual(recording.metadata["mediaReadyAtDeviceElapsedSeconds"], 67)
-            self.assertEqual(recording.metadata["readinessProbe"], {
+            readiness = dict(recording.metadata["readinessProbe"])
+            reads = readiness.pop("readSummaries")
+            self.assertEqual([row["sha256"] for row in reads], [hashlib.sha256(picture).hexdigest()] * 2)
+            self.assertEqual(readiness, {
                 "deadlineAtMonotonic": 120,
                 "probeAttempts": 3,
                 "timeoutCount": 2,
@@ -657,7 +810,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
             process.poll.return_value = None
             with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
                 "tools.android_lifecycle_runtime.run.time.monotonic",
-                side_effect=[100, 101, 119, 119.5, 120.1],
+                side_effect=[100, 101, 119, 119.5, 119.5, 120.1],
             ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
                 with self.assertRaisesRegex(RuntimeFailure, "picture and device clock"):
                     recording.start()
@@ -680,7 +833,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 process = Mock(stdout=io.StringIO("LIFECYCLE_RECORDER_PID=44\n"))
                 process.poll.return_value = 1 if early else None
                 with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process) as launch, patch(
-                    "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[100, 101, 102, 121],
+                    "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[100, 101, 102, 102, 121],
                 ), patch("tools.android_lifecycle_runtime.run.time.sleep"):
                     with self.assertRaisesRegex(RuntimeFailure, "before media|picture and device clock"):
                         recording.start()

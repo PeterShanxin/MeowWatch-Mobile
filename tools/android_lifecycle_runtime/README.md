@@ -117,6 +117,22 @@ separately. Early exits, truncated footage, a failed full `ffmpeg` decode, missi
 device clock observations or cleanup failures cannot leave a passing result.
 No recording is padded.
 
+After the owned recorder has exited and closed its output, but **before pull**,
+the runner queries the finalized remote file with `stat` and `sha256sum`.
+Each command has a three-second timeout and addresses only the exact generated
+recording path. A positive size of at most 64 MiB is required before hashing;
+each response is limited to 512 bytes in the receipt and must identify one
+unambiguous result. The pulled byte count and SHA-256 must match that device
+receipt. `recorderExitedAtMonotonic`, `deviceFileReceipt`,
+`pullStartedAtMonotonic` and `deviceFileMatchesPulledFile` retain the order and
+outcome. A missing/invalid query or mismatch fails the run, but full original
+decoding still runs first whenever the other original prerequisites permit it.
+An existing decode error and its untouched `.decode.log` take precedence over
+the added file-query failure; the latter remains separately visible.
+`firstDecodeError` also retains the exit code, original stderr byte count/hash
+and its first 4096 bytes. If a diagnostic log cannot be written, the write error
+is recorded without replacing that original decode failure or skipping cleanup.
+
 The lower output size is a single-variable recording-cost diagnosis, not a
 confirmed CPU or software-encoder fix. Run `35223362716` at 720 x 1600 recorded
 the required observation at device elapsed 116.29 seconds through a last frame
@@ -132,7 +148,9 @@ a device `date` baseline before launch, one `dumpsys media.codec` after picture
 readiness, and codec-tag logcat output after stopping, including failure exits.
 The log request is restricted to the observed recorder PID and the device-clock
 baseline (rounded down to its second); it never clears logcat. Only CCodec,
-Codec2Client, ACodec, OMXClient, MediaCodec and screenrecord tags are selected.
+Codec2Client, ACodec, OMXClient, MediaCodec, C2SoftAvcEnc, CCodecBufferChannel,
+MPEG4Writer and screenrecord tags are selected. Encoder/muxer shutdown evidence
+uses this same bounded request, not a second unrestricted log dump.
 The codec-state dump belongs to this controlled CI emulator; it is not a general
 device diagnostic collector. Each of the three commands has a three-second
 timeout. Each saved stdout/stderr stream is capped at 256 KiB, with original
@@ -152,6 +170,19 @@ that window. Partial NALs, container/header growth, or a running process are not
 picture progress. This is a recording-progress hint, not proof that the final
 observation was captured. A post-roll failure still stops the owned recorder
 and preserves the original file and failure metadata.
+
+Readiness and post-roll retain bounded `readSummaries`: command start/finish
+times, byte offsets/counts and SHA-256 of the already-read bytes. Post-roll also
+retains the cumulative prefix digest/count and last complete picture boundary.
+Each read is at most 1 MiB; each phase retains the latest 128 summaries and counts
+any dropped earlier summaries. These add no reads or recording time. A live MP4
+header can legitimately change when the muxer finalizes, so prefix digests are
+diagnostic evidence, not a replacement for complete-file or decoder acceptance.
+
+The cause of run `35250983364`'s corrupt final H.264 sample remains unproven.
+The device receipt distinguishes device output from pull/transfer changes; it
+does not establish a codec or SIGINT fix. Stop mode, capture size/bitrate, full
+decode, post-roll and timing tolerances remain unchanged.
 
 Both segments end in independently observed **playing** advancement (`04-advanced`
 and `14-restored-play-advanced`). The restored paused state and four-second

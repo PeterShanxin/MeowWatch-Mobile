@@ -40,6 +40,9 @@ MAX_PREPARATION_ANR_RECOVERIES = 2
 POST_ROLL_SECONDS = 8
 MAX_RECORDING_BYTES = 64 * 1024 * 1024
 MAX_CODEC_EVIDENCE_BYTES = 256 * 1024
+MAX_FILE_QUERY_BYTES = 512
+MAX_LIVE_READ_SUMMARIES = 128
+OWNED_RECORDING_PATH = re.compile(r"/sdcard/meowwatch-install-[A-Za-z0-9_-]+/lifecycle-\d+\.mp4")
 T = TypeVar("T")
 
 
@@ -214,6 +217,60 @@ class LifecycleRecording:
                                             "status": "not-started", "width": size[0], "height": size[1],
                                             "timeLimitSeconds": 180, "bitRate": 2000000}
 
+    def require_owned_path(self) -> None:
+        if (OWNED_RECORDING_PATH.fullmatch(self.remote) is None
+                or self.remote != self.adb.remote_prefix + self.output.name):
+            raise RuntimeFailure("native recording file query requires the exact owned output path")
+
+    def device_file_receipt(self) -> dict[str, object]:
+        """Observe the finalized owned file; defer query failures until after decode."""
+        self.require_owned_path()
+        receipt: dict[str, object] = {"status": "failed", "queries": {},
+                                      "timeoutSecondsPerQuery": 3,
+                                      "maxFileBytes": MAX_RECORDING_BYTES,
+                                      "maxOutputBytesPerQuery": MAX_FILE_QUERY_BYTES}
+        self.metadata["deviceFileReceipt"] = receipt
+        for name, arguments in (("size", ("exec-out", "stat", "-c", "%s", self.remote)),
+                                ("sha256", ("exec-out", "sha256sum", self.remote))):
+            query: dict[str, object] = {"startedAtMonotonic": time.monotonic()}
+            receipt["queries"][name] = query
+            try:
+                result = self.adb.run(*arguments, timeout=3, check=False)
+                stdout, stderr = result.stdout or b"", result.stderr or b""
+                query.update({"exitCode": result.returncode,
+                              "stdoutBytes": len(stdout), "stderrBytes": len(stderr),
+                              "stdoutPrefix": stdout[:MAX_FILE_QUERY_BYTES].decode("ascii", errors="replace"),
+                              "stderrPrefix": stderr[:MAX_FILE_QUERY_BYTES].decode("ascii", errors="replace")})
+                if (result.returncode != 0 or stderr.strip()
+                        or len(stdout) > MAX_FILE_QUERY_BYTES or len(stderr) > MAX_FILE_QUERY_BYTES):
+                    raise RuntimeFailure("device recording file query did not return one bounded result")
+                if name == "size":
+                    if re.fullmatch(rb"[0-9]+\s*", stdout) is None or not 0 < int(stdout) <= MAX_RECORDING_BYTES:
+                        raise RuntimeFailure("finalized device recording size is invalid or exceeds its byte bound")
+                    receipt["bytes"] = int(stdout)
+                else:
+                    match = re.fullmatch(rb"([0-9a-f]{64})  " + re.escape(self.remote.encode("ascii")) + rb"\r?\n?", stdout)
+                    if match is None:
+                        raise RuntimeFailure("device recording digest does not identify the exact owned file")
+                    receipt["sha256"] = match[1].decode("ascii")
+            except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
+                query.update({"status": "failed", "error": str(error) if isinstance(error, RuntimeFailure) else type(error).__name__})
+                receipt["error"] = query["error"]
+                return receipt
+            finally:
+                query["finishedAtMonotonic"] = time.monotonic()
+            query["status"] = "verified"
+        receipt["status"] = "verified"
+        return receipt
+
+    @staticmethod
+    def live_read_summary(section: dict, summary: dict) -> None:
+        summaries = section.setdefault("readSummaries", [])
+        if len(summaries) >= MAX_LIVE_READ_SUMMARIES:
+            summaries.pop(0)
+            section["droppedEarlierReadSummaries"] = section.get("droppedEarlierReadSummaries", 0) + 1
+        summaries.append(summary)
+
     def codec_evidence(self, name: str, arguments: tuple[str, ...]) -> bytes | None:
         """Bound auxiliary diagnostics; never replace recording acceptance failures."""
         evidence: dict[str, object] = {"timeoutSeconds": 3, "byteLimitPerStream": MAX_CODEC_EVIDENCE_BYTES}
@@ -239,9 +296,9 @@ class LifecycleRecording:
         return stdout if evidence["status"] == "collected" else None
 
     def start(self) -> None:
+        self.require_owned_path()
         if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
-                or self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"
-                or re.fullmatch(r"/sdcard/meowwatch-install-[A-Za-z0-9_-]+/lifecycle-\d+\.mp4", self.remote) is None):
+                or self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"):
             raise RuntimeFailure("native recording requires an owned path and verified emulator")
         if self.adb.run("shell", "pidof", "screenrecord", check=False).stdout.strip():
             raise RuntimeFailure("refusing to replace an existing Android screen recorder")
@@ -303,6 +360,13 @@ class LifecycleRecording:
                 except subprocess.TimeoutExpired as error:
                     record_readiness_timeout("media-prefix", error)
                     continue
+                if len(prefix.stdout) > 1048576:
+                    raise RuntimeFailure("native recording readiness prefix exceeds its read bound")
+                self.live_read_summary(readiness, {
+                    "startedAtMonotonic": probe_started, "finishedAtMonotonic": time.monotonic(),
+                    "exitCode": prefix.returncode, "offset": 0, "bytes": len(prefix.stdout),
+                    "sha256": hashlib.sha256(prefix.stdout).hexdigest(),
+                })
                 if prefix.returncode == 0 and recording_media_ready(prefix.stdout):
                     remaining = deadline - time.monotonic()
                     if remaining <= 0:
@@ -334,6 +398,7 @@ class LifecycleRecording:
             raise
 
     def post_roll(self, phase: str) -> None:
+        self.require_owned_path()
         # Winscope timestamps are written only when screenrecord stops. Live
         # NAL progress is a drain hint; the finalized timestamps decide coverage.
         required = recording_device_elapsed(
@@ -343,6 +408,7 @@ class LifecycleRecording:
                               "requiredThroughSource": "Android /proc/uptime after final native observation and screenshot"})
         deadline = time.monotonic() + POST_ROLL_SECONDS
         progress = RecordingPictures()
+        prefix_digest = hashlib.sha256()
         observations: list[dict[str, object]] = []
         self.metadata["postRoll"] = {"limitSeconds": POST_ROLL_SECONDS,
                                      "startedAtMonotonic": deadline - POST_ROLL_SECONDS,
@@ -361,8 +427,19 @@ class LifecycleRecording:
             # The path was generated and verified by start(); the integer byte
             # cursor avoids repeatedly transferring already observed footage.
             command = f"tail -c +{progress.read_bytes + 1} {self.remote} | head -c 1048576"
+            read_started = time.monotonic()
+            offset = progress.read_bytes
             chunk = self.adb.run("exec-out", "sh", "-c", command, timeout=min(2, remaining)).stdout
+            if len(chunk) > 1048576:
+                raise RuntimeFailure("native recording post-roll chunk exceeds its read bound")
             progress.feed(chunk)
+            prefix_digest.update(chunk)
+            self.live_read_summary(self.metadata["postRoll"], {
+                "startedAtMonotonic": read_started, "finishedAtMonotonic": time.monotonic(),
+                "offset": offset, "bytes": len(chunk), "sha256": hashlib.sha256(chunk).hexdigest(),
+                "prefixBytes": progress.read_bytes, "prefixSha256": prefix_digest.hexdigest(),
+                "lastCompletePictureEnd": progress.picture_ends[-1] if progress.picture_ends else None,
+            })
             observations.append({"hostMonotonic": time.monotonic(), "bytesRead": progress.read_bytes,
                                  "completePictureNals": len(progress.picture_ends)})
             remaining = deadline - time.monotonic()
@@ -390,6 +467,7 @@ class LifecycleRecording:
         exited_early = self.process.poll() is not None
         self.metadata["exitedBeforeStopRequest"] = exited_early
         try:
+            self.require_owned_path()
             clock_error: Exception | None = None
             if not exited_early:
                 if self.pid is None:
@@ -406,15 +484,23 @@ class LifecycleRecording:
                 self.adb.run("shell", "kill", "-2", self.pid)
             exit_code = self.process.wait(timeout=20)
             self.metadata["exitCode"] = exit_code
+            self.metadata["recorderExitedAtMonotonic"] = time.monotonic()
             if self.reader:
                 self.reader.join(timeout=5)
                 if self.reader.is_alive():
                     raise RuntimeFailure("native lifecycle recorder output did not close")
+            device_receipt = self.device_file_receipt()
+            self.metadata["pullStartedAtMonotonic"] = time.monotonic()
             self.adb.run("pull", self.remote, str(self.output), timeout=40)
+            if not 0 < self.output.stat().st_size <= MAX_RECORDING_BYTES:
+                raise RuntimeFailure("pulled native recording exceeds its file byte bound")
             data = self.output.read_bytes()
-            validate_mp4(data)
             self.metadata.update({"pulledAtMonotonic": time.monotonic(),
                                   "sha256": hashlib.sha256(data).hexdigest(), "bytes": len(data)})
+            self.metadata["deviceFileMatchesPulledFile"] = (
+                device_receipt["status"] == "verified" and device_receipt["bytes"] == len(data)
+                and device_receipt["sha256"] == self.metadata["sha256"])
+            validate_mp4(data)
             if exit_code != 0:
                 raise RuntimeFailure("native lifecycle recorder did not exit successfully")
             if exited_early:
@@ -462,9 +548,21 @@ class LifecycleRecording:
             decoded = subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(self.output),
                                       "-map", "0:v:0", "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
                                       "-f", "null", "-"], capture_output=True, check=False, timeout=60)
-            self.output.with_suffix(".decode.log").write_bytes(decoded.stderr)
             self.metadata["decodeExitCode"] = decoded.returncode
-            if decoded.returncode != 0 or decoded.stderr.strip():
+            decode_failed = decoded.returncode != 0 or bool(decoded.stderr.strip())
+            if decode_failed:
+                self.metadata["firstDecodeError"] = {
+                    "stage": "ffmpeg", "exitCode": decoded.returncode,
+                    "stderrBytes": len(decoded.stderr), "stderrSha256": hashlib.sha256(decoded.stderr).hexdigest(),
+                    "stderrPrefix": decoded.stderr[:4096].decode("utf-8", errors="replace"),
+                }
+            try:
+                self.output.with_suffix(".decode.log").write_bytes(decoded.stderr)
+            except OSError as error:
+                self.metadata["decodeLogWriteError"] = type(error).__name__
+                if not decode_failed:
+                    raise
+            if decode_failed:
                 raise RuntimeFailure("native lifecycle recording could not be decoded completely")
             if frame_clock_error is not None:
                 raise RuntimeFailure("native recording frame-clock evidence is unavailable or invalid") from frame_clock_error
@@ -476,14 +574,25 @@ class LifecycleRecording:
                                              float(self.metadata["stopRequestedAtDeviceElapsedSeconds"]))
             if post_roll_error is not None:
                 raise RuntimeFailure("native recording bounded post-roll failed") from post_roll_error
+            if device_receipt["status"] != "verified":
+                raise RuntimeFailure("native recording finalized device file receipt is unavailable or invalid")
+            if not self.metadata["deviceFileMatchesPulledFile"]:
+                raise RuntimeFailure("native recording device bytes or digest differ from the pulled original")
             self.metadata["status"] = "verified"
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
             self.metadata["status"] = "failed"
             self.metadata["error"] = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
             raise
         finally:
-            self.output.parent.mkdir(parents=True, exist_ok=True)
-            self.output.with_suffix(".screenrecord.log").write_text("".join(self.lines), encoding="utf-8")
+            log_write_error: OSError | None = None
+            try:
+                self.output.parent.mkdir(parents=True, exist_ok=True)
+                self.output.with_suffix(".screenrecord.log").write_text("".join(self.lines), encoding="utf-8")
+            except OSError as error:
+                self.metadata["screenrecordLogWriteError"] = type(error).__name__
+                if self.metadata["status"] != "failed":
+                    log_write_error = error
+                    self.metadata.update({"status": "failed", "error": "native recorder output log could not be retained"})
             if self.process.poll() is None:
                 # This is our local ADB subprocess, not an unverified Android PID.
                 self.process.terminate()
@@ -493,12 +602,17 @@ class LifecycleRecording:
             if self.codec_log_since is not None and self.pid is not None:
                 self.metadata["codecLogRecorderPid"] = int(self.pid)
                 self.metadata["codecLogSinceDeviceTime"] = self.codec_log_since
-                self.codec_evidence("codec-log", (
-                    "exec-out", "logcat", "-d", "-b", "main", "-b", "system", "-v", "threadtime",
-                    "-T", self.codec_log_since, "--pid", self.pid,
-                    "CCodec:D", "Codec2Client:D", "ACodec:D", "OMXClient:D", "MediaCodec:D",
-                    "screenrecord:D", "*:S",
-                ))
+                try:
+                    self.codec_evidence("codec-log", (
+                        "exec-out", "logcat", "-d", "-b", "main", "-b", "system", "-v", "threadtime",
+                        "-T", self.codec_log_since, "--pid", self.pid,
+                        "CCodec:D", "Codec2Client:D", "ACodec:D", "OMXClient:D", "MediaCodec:D",
+                        "C2SoftAvcEnc:D", "CCodecBufferChannel:D", "MPEG4Writer:D", "screenrecord:D", "*:S",
+                    ))
+                except (OSError, RuntimeFailure, subprocess.TimeoutExpired) as error:
+                    self.metadata["codecLogCollectionError"] = type(error).__name__
+            if log_write_error is not None:
+                raise RuntimeFailure("native recorder output log could not be retained") from log_write_error
 
 
 @dataclass(frozen=True)

@@ -1,6 +1,7 @@
 from pathlib import Path
 from contextlib import redirect_stdout
 import io
+import json
 import subprocess
 import tempfile
 import unittest
@@ -9,10 +10,11 @@ from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_lifecycle_runtime.run import (
-    FIXTURE_NAME, Playback, Runner, button, history_card, history_swipe, main,
+    FIXTURE_NAME, Playback, PreparationRecoveryFailure, Runner, button, history_card, history_swipe, main,
     parse_time, playback, require_background_pause, require_paused_stability,
     require_playing_advance, require_restored_position, timed_out_observation,
 )
+from tools.billing_runtime.native_dialog import LAUNCHER_PACKAGE, SETUP_PACKAGE
 
 
 def node(label="", *, children="", clickable=False, extra="", class_name="android.view.View"):
@@ -33,7 +35,178 @@ def history(*, position="0:19", filename=FIXTURE_NAME, context="Local player"):
     return '<hierarchy>' + node("Continue Watching") + card + '</hierarchy>'
 
 
+def preparation_anr(package=LAUNCHER_PACKAGE, underlying=PACKAGE):
+    title = "Pixel Launcher" if package == LAUNCHER_PACKAGE else package
+    xml = '<hierarchy>' + ''.join([
+        node(f"{title} isn't responding", class_name="android.widget.TextView",
+             extra='resource-id="android:id/alertTitle"'),
+        node("Close app", clickable=True, class_name="android.widget.Button",
+             extra='resource-id="android:id/aerr_close"'),
+    ]).replace(f'package="{PACKAGE}"', 'package="android"') + '</hierarchy>'
+    window = (f"mCurrentFocus=Window{{abc u0 Application Not Responding: {package}}}\n"
+              f"mFocusedApp=ActivityRecord{{abc u0 {underlying}/.MainActivity t8}}")
+    return xml, window
+
+
+class PreparationAdb:
+    def __init__(self, frames, *, qemu=b"1", serial="emulator-5554", tap_error=None):
+        self.frames = iter(frames)
+        self.qemu, self.serial, self.tap_error = qemu, serial, tap_error
+        self.taps = []
+        self.captures = 0
+
+    def observe(self):
+        return next(self.frames)
+
+    def screenshot(self):
+        self.captures += 1
+        return (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
+                + (400).to_bytes(4, "big") + (500).to_bytes(4, "big"))
+
+    def run(self, *arguments):
+        if arguments == ("shell", "getprop", "ro.kernel.qemu"):
+            return subprocess.CompletedProcess([], 0, self.qemu)
+        if arguments[:3] == ("shell", "input", "tap"):
+            self.taps.append(arguments)
+            if self.tap_error:
+                raise self.tap_error
+            return subprocess.CompletedProcess([], 0, b"")
+        raise AssertionError(f"Unexpected command: {arguments}")
+
+
+def preparation_runner(root, adb):
+    apk, fixture = root / "app.apk", root / FIXTURE_NAME
+    apk.write_bytes(b"apk")
+    fixture.write_bytes(b"fixture")
+    runner = Runner("emulator-5554", apk, fixture, root)
+    runner.adb = adb
+    runner.phase = "01-fixture-review"
+    return runner
+
+
 class LifecycleRuntimeTests(unittest.TestCase):
+    def test_initial_launcher_and_sdk_setup_recovery_requires_fresh_app_ui(self):
+        for package in (LAUNCHER_PACKAGE, SETUP_PACKAGE):
+            with self.subTest(package=package), tempfile.TemporaryDirectory() as directory:
+                root = Path(directory)
+                anr = preparation_anr(package)
+                app_frame = (player("0:00", "Play"), f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}")
+                adb = PreparationAdb([anr, anr, app_frame])
+                runner = preparation_runner(root, adb)
+                with patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                    xml, state = runner.wait("01-fixture-review", playback)
+                self.assertEqual(state, Playback(0, 90, False))
+                self.assertEqual(xml, app_frame[0])
+                self.assertEqual(runner.last_window, app_frame[1])
+                self.assertEqual(len(adb.taps), 1)
+                self.assertEqual(runner.preparation_recoveries[0]["package"], package)
+                self.assertEqual(runner.preparation_recoveries[0]["status"], "closed")
+                for suffix in ("xml", "window.txt", "png", "fresh.xml", "fresh.window.txt"):
+                    self.assertTrue((root / f"01-preparation-anr-1.{suffix}").is_file())
+
+    def test_preparation_anr_recovery_never_runs_during_measured_phases(self):
+        anr = preparation_anr()
+        for phase in ("02-loaded-paused", "04-pre-home-playing", "05-foreground-paused",
+                      "07-explicit-replay", "10-persisted-history", "11-resumed-paused"):
+            with self.subTest(phase=phase), tempfile.TemporaryDirectory() as directory:
+                adb = PreparationAdb([anr])
+                runner = preparation_runner(Path(directory), adb)
+                runner.phase = phase
+                with self.assertRaisesRegex(RuntimeFailure, "not the focused"):
+                    runner.observe()
+                self.assertEqual(adb.taps, [])
+                self.assertEqual(adb.captures, 0)
+                self.assertEqual(runner.preparation_recoveries, [])
+
+    def test_initial_recovery_refuses_app_anr_foreign_activity_and_changed_focus(self):
+        anr = preparation_anr()
+        app_anr = preparation_anr(PACKAGE)
+        with tempfile.TemporaryDirectory() as directory:
+            adb = PreparationAdb([app_anr])
+            runner = preparation_runner(Path(directory), adb)
+            self.assertFalse(runner.recover_preparation_anr(*app_anr))
+            self.assertFalse(runner.recover_preparation_anr(*preparation_anr(underlying="com.other")))
+            with self.assertRaisesRegex(RuntimeFailure, "changed before recovery"):
+                runner.recover_preparation_anr(*anr)
+            self.assertEqual(adb.taps, [])
+            self.assertEqual(runner.last_window, app_anr[1])
+
+    def test_initial_recovery_is_verified_emulator_only_and_combined_limit_two(self):
+        launcher, setup = preparation_anr(), preparation_anr(SETUP_PACKAGE)
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            adb = PreparationAdb([launcher, setup])
+            runner = preparation_runner(root, adb)
+            self.assertTrue(runner.recover_preparation_anr(*launcher))
+            self.assertTrue(runner.recover_preparation_anr(*setup))
+            with self.assertRaisesRegex(PreparationRecoveryFailure, "limit"):
+                runner.recover_preparation_anr(*launcher)
+            self.assertEqual(len(adb.taps), 2)
+        for serial, qemu in (("physical-phone", b"1"), ("emulator-5554", b"0")):
+            with tempfile.TemporaryDirectory() as directory:
+                adb = PreparationAdb([], serial=serial, qemu=qemu)
+                runner = preparation_runner(Path(directory), adb)
+                with self.assertRaisesRegex(PreparationRecoveryFailure, "emulator-only"):
+                    runner.recover_preparation_anr(*launcher)
+                self.assertEqual(adb.taps, [])
+
+    def test_uncertain_preparation_close_stops_without_repeating_tap(self):
+        anr = preparation_anr()
+        timeout = subprocess.TimeoutExpired(["adb", "shell", "input", "tap"], 20)
+        with tempfile.TemporaryDirectory() as directory:
+            adb = PreparationAdb([anr, anr], tap_error=timeout)
+            runner = preparation_runner(Path(directory), adb)
+            with self.assertRaisesRegex(PreparationRecoveryFailure, "refusing another tap"):
+                runner.wait("01-fixture-review", playback)
+            self.assertEqual(len(adb.taps), 1)
+            self.assertEqual(runner.preparation_recoveries[0]["status"], "uncertain")
+            self.assertEqual(runner.observation_timeouts, [])
+
+    def test_initial_recovery_keeps_original_phase_deadline(self):
+        anr = preparation_anr()
+        clock = [0.0]
+        class SlowRecoveryAdb(PreparationAdb):
+            def run(self, *arguments):
+                result = super().run(*arguments)
+                if arguments[:3] == ("shell", "input", "tap"):
+                    clock[0] = 66.0
+                return result
+        with tempfile.TemporaryDirectory() as directory:
+            adb = SlowRecoveryAdb([anr, anr])
+            runner = preparation_runner(Path(directory), adb)
+            with patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), patch(
+                "tools.android_lifecycle_runtime.run.time.sleep",
+            ):
+                with self.assertRaisesRegex(RuntimeFailure, "awaiting fresh application UI"):
+                    runner.wait("01-fixture-review", playback, timeout=65)
+            self.assertEqual(len(adb.taps), 1)
+            self.assertEqual(runner.samples, [])
+
+    def test_failure_retains_last_window_and_recovery_provenance(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture, output = root / "app.apk", root / FIXTURE_NAME, root / "evidence"
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            xml, window = preparation_anr()
+            def failed_run(runner):
+                output.mkdir()
+                runner.evidence_started = True
+                runner.last_xml, runner.last_window = xml, window
+                runner.phase = "01-fixture-review"
+                runner.preparation_recoveries.append({"attempt": 1, "status": "uncertain"})
+                raise PreparationRecoveryFailure("unconfirmed close")
+            with patch.object(Runner, "run", failed_run), patch(
+                "tools.android_install.runner.Adb.screenshot", return_value=b"png",
+            ), redirect_stdout(io.StringIO()):
+                status = main(["--serial", "emulator-5554", "--apk", str(apk),
+                               "--fixture", str(fixture), "--output", str(output)])
+            self.assertEqual(status, 1)
+            self.assertEqual((output / "failure-window.txt").read_text(), window)
+            report = json.loads((output / "result.json").read_text())
+            self.assertFalse(report["completed"])
+            self.assertEqual(report["preparationAnrRecoveries"], [{"attempt": 1, "status": "uncertain"}])
+
     def test_actual_timeline_and_action_parse_together(self):
         self.assertEqual(playback(player()), Playback(12, 90, True))
         self.assertEqual(playback(player("0:00", "Play")), Playback(0, 90, False))

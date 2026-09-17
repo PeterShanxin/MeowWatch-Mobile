@@ -388,14 +388,18 @@ Finder _roomPlaybackControl(String action) => find.byWidgetPredicate(
 );
 
 Future<void> _tap(WidgetTester tester, Finder finder) async {
-  await _wait(tester, () => finder.evaluate().isNotEmpty, 'control $finder');
+  await _wait(
+    tester,
+    () => finder.evaluate().isNotEmpty,
+    'requested UI control',
+  );
   await tester.ensureVisible(finder);
   // Let sheet transitions and scroll animations stop before deriving a hit.
   await tester.pump(const Duration(milliseconds: 450));
   await _wait(
     tester,
     () => finder.hitTestable().evaluate().isNotEmpty,
-    'tappable $finder',
+    'tappable UI control',
   );
   await tester.tap(finder.hitTestable());
   await tester.pump(_poll);

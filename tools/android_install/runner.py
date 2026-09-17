@@ -65,6 +65,20 @@ def launch_output_succeeded(output: str) -> bool:
     return status_ok and component is not None
 
 
+def launch_output_timed_out(output: str) -> bool:
+    """AM's draw wait can expire while the requested activity is still starting."""
+    statuses = re.findall(r"(?m)^Status:[ \t]*([^\r\n]+)", output)
+    activities = re.findall(r"(?m)^Activity:[ \t]*([^\r\n]+)", output)
+    return (
+        [value.strip() for value in statuses] == ["timeout"]
+        and len(activities) == 1
+        and activities[0].strip() in {
+            ACTIVITY, f"{PACKAGE}/{PACKAGE}.MainActivity",
+        }
+        and re.search(r"(?im)^Error\b", output) is None
+    )
+
+
 def setup_anr_close(xml: str, window_dump: str) -> tuple[int, int] | None:
     """Recognize only the system's Google emulator setup ANR close action."""
     focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window_dump)
@@ -403,17 +417,33 @@ class Runner:
                 )
                 output = (result.stdout + result.stderr).decode("utf-8", errors="replace")
                 accepted = result.returncode == 0 and launch_output_succeeded(output)
+                draw_wait_expired = result.returncode == 0 and launch_output_timed_out(output)
             except subprocess.TimeoutExpired:
                 output = "ActivityManager launch exceeded its 30-second timeout.\n"
                 accepted = False
+                draw_wait_expired = False
             (ARTIFACT_ROOT / f"launch-{attempt}.txt").write_text(
                 redact_log(output), encoding="utf-8",
             )
             if accepted:
                 return {"attempts": attempt, "googleSetupAnrRecovered": recovered}
-            if attempt == 2 or not self.recover_setup_anr():
-                raise RuntimeFailure("ActivityManager did not confirm the normal MainActivity launch")
-            recovered = True
+            if attempt == 1 and self.recover_setup_anr():
+                recovered = True
+                continue
+            if draw_wait_expired:
+                _, window = self.adb.observe()
+                if focused_component(window) not in {
+                    ACTIVITY, f"{PACKAGE}/{PACKAGE}.MainActivity",
+                }:
+                    raise RuntimeFailure("Timed-out launch did not focus MainActivity")
+                # This is not a pass: run() must still observe exact onboarding,
+                # a stable live process and clean app logs within its 55s budget.
+                return {
+                    "attempts": attempt,
+                    "googleSetupAnrRecovered": recovered,
+                    "activityManagerWaitTimedOut": True,
+                }
+            raise RuntimeFailure("ActivityManager did not confirm the normal MainActivity launch")
         raise AssertionError("launch attempts exhausted")
 
     def prepare(self) -> dict[str, Any]:

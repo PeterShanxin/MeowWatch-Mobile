@@ -21,12 +21,21 @@ from tools.android_install.runner import (
     install_output_succeeded, launch_output_succeeded, parse_package_metadata,
 )
 from tools.incoming_media_runtime.run import center, exact, nodes, require_review
+from tools.billing_runtime.native_dialog import (
+    LAUNCHER_PACKAGE, SETUP_PACKAGE, UnsafeDialog, image_size,
+    select_google_sdk_setup_anr_close, select_pixel_launcher_anr_close,
+)
 
 
 FIXTURE_NAME = "sync-fixture.mp4"
 FIXTURE_URL = "http://10.0.2.2:18765/sync-fixture.mp4"
 MAX_OBSERVATION_TIMEOUTS = 3
+MAX_PREPARATION_ANR_RECOVERIES = 2
 T = TypeVar("T")
+
+
+class PreparationRecoveryFailure(RuntimeFailure):
+    """Preparation recovery must stop rather than repeat an uncertain action."""
 
 
 @dataclass(frozen=True)
@@ -167,9 +176,11 @@ class Runner:
         self.evidence_started = False
         self.phase = "prepare"
         self.last_xml = ""
+        self.last_window = ""
         self.last_observation: dict[str, object] | None = None
         self.observation_timeouts: list[dict[str, object]] = []
         self.samples: list[dict[str, object]] = []
+        self.preparation_recoveries: list[dict[str, object]] = []
 
     def prepare(self) -> dict[str, object]:
         if self.output.exists() and any(self.output.iterdir()):
@@ -215,8 +226,64 @@ class Runner:
     def observe(self) -> str:
         xml, window = self.adb.observe()
         self.last_xml = xml
+        self.last_window = window
+        if self.recover_preparation_anr(xml, window):
+            raise RuntimeFailure("initial emulator ANR closed; awaiting fresh application UI")
         focused_component(window)
         return xml
+
+    def recover_preparation_anr(self, xml: str, window: str) -> bool:
+        if self.phase != "01-fixture-review":
+            return False
+        for package, selector in (
+            (LAUNCHER_PACKAGE, select_pixel_launcher_anr_close),
+            (SETUP_PACKAGE, select_google_sdk_setup_anr_close),
+        ):
+            try:
+                selector(xml, window)
+                break
+            except UnsafeDialog:
+                continue
+        else:
+            return False
+        if len(self.preparation_recoveries) >= MAX_PREPARATION_ANR_RECOVERIES:
+            raise PreparationRecoveryFailure("initial emulator ANR recovery limit reached")
+        if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
+                or self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.decode().strip() != "1"):
+            raise PreparationRecoveryFailure("initial ANR recovery is emulator-only")
+        attempt = len(self.preparation_recoveries) + 1
+        prefix = self.output / f"01-preparation-anr-{attempt}"
+        prefix.with_suffix(".xml").write_text(xml, encoding="utf-8")
+        prefix.with_suffix(".window.txt").write_text(window, encoding="utf-8")
+        png = self.adb.screenshot()
+        prefix.with_suffix(".png").write_bytes(png)
+        try:
+            width, height = image_size(png)
+        except UnsafeDialog as error:
+            raise PreparationRecoveryFailure("initial ANR screenshot dimensions are invalid") from error
+        fresh_xml, fresh_window = self.adb.observe()
+        self.last_xml, self.last_window = fresh_xml, fresh_window
+        prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
+        prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
+        try:
+            target = selector(fresh_xml, fresh_window)
+        except UnsafeDialog as error:
+            raise RuntimeFailure("initial ANR changed before recovery; no tap sent") from error
+        if target.bounds[2] > width or target.bounds[3] > height:
+            raise PreparationRecoveryFailure("initial ANR close lies outside the screen")
+        row: dict[str, object] = {
+            "phase": self.phase, "package": package, "attempt": attempt,
+            "status": "attempted", "evidencePrefix": prefix.name,
+        }
+        self.preparation_recoveries.append(row)
+        x, y = target.center
+        try:
+            self.adb.run("shell", "input", "tap", str(x), str(y))
+        except (RuntimeFailure, subprocess.TimeoutExpired) as error:
+            row["status"] = "uncertain"
+            raise PreparationRecoveryFailure("initial ANR close was not confirmed; refusing another tap") from error
+        row["status"] = "closed"
+        return True
 
     def tap(self, node: ET.Element) -> None:
         x, y = center(node)
@@ -230,6 +297,8 @@ class Runner:
         while time.monotonic() < deadline:
             try:
                 xml = self.observe()
+            except PreparationRecoveryFailure:
+                raise
             except subprocess.TimeoutExpired as error:
                 # A transient read timeout is not a playback result. Retry a
                 # fresh hierarchy within this phase's original polling budget;
@@ -425,6 +494,7 @@ class Runner:
             "noAutoplayAfterRestart": True,
             "samples": self.samples,
             "observationTimeouts": self.observation_timeouts,
+            "preparationAnrRecoveries": self.preparation_recoveries,
         })
         return report
 
@@ -457,8 +527,10 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "completed": False, "phase": runner.phase, "error": message, "samples": runner.samples,
                 "observationTimeouts": runner.observation_timeouts,
                 "lastCompletedUiObservation": runner.last_observation,
+                "preparationAnrRecoveries": runner.preparation_recoveries,
             }, indent=2), encoding="utf-8")
             args.output.joinpath("failure.xml").write_text(runner.last_xml, encoding="utf-8")
+            args.output.joinpath("failure-window.txt").write_text(runner.last_window, encoding="utf-8")
             try:
                 args.output.joinpath("failure.png").write_bytes(runner.adb.screenshot())
             except (RuntimeFailure, OSError, subprocess.TimeoutExpired):

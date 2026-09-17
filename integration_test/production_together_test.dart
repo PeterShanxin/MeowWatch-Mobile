@@ -160,20 +160,32 @@ void main() {
       );
       // The tablet video occupies most of the details viewport. Reveal the
       // real roster with a gesture instead of waiting for an offscreen lazy
-      // ListView child to be built.
-      final roomDetails = find.descendant(
-        of: find.byType(ListView).first,
-        matching: find.byType(Scrollable),
-      );
-      await tester.scrollUntilVisible(
-        find.text(peerName),
-        250,
-        scrollable: roomDetails,
-        maxScrolls: 8,
-      );
+      // ListView child to be built. Its first Scrollable owns the list viewport;
+      // later descendants include the empty video stage's nested scroll view.
+      final roomDetails = find
+          .descendant(
+            of: find.byType(ListView).first,
+            matching: find.byType(Scrollable),
+          )
+          .first;
+      final peerLabel = find.text(peerName);
+      for (
+        var scrolls = 0;
+        peerLabel.evaluate().isEmpty && scrolls < 8;
+        scrolls++
+      ) {
+        final bounds = tester.getRect(roomDetails);
+        // The list's padding is outside the independently scrolling stage.
+        await tester.dragFrom(
+          Offset(bounds.left + 8, bounds.center.dy),
+          const Offset(0, -250),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      await tester.ensureVisible(peerLabel);
       await _waitFor(
         tester,
-        find.text(peerName).hitTestable(),
+        peerLabel.hitTestable(),
         'visible peer name in production UI',
       );
       await _capture(nativeScreenshots, tester, screenshots, 'room-ready');

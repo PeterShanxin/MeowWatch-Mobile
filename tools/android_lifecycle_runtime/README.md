@@ -71,7 +71,8 @@ model/API/ABI, installed package metadata, APK and fixture hashes, process IDs,
 elapsed positions, and sampled monotonic observation times. Every successful
 stage saves its original XML and a supplementary screenshot. Failure records the
 phase, safe error message, previous samples, last XML, and a screenshot where
-available. The workflow uploads these plus fixture provenance and local HTTP
+available. `failure-window.txt` preserves the focused-window dump paired with
+the last XML. The workflow uploads these plus fixture provenance and local HTTP
 server logs even on failure. A missing/false `completed` field is not a pass.
 
 Python tests exercise the runner's acceptance/rejection rules with synthetic XML;
@@ -101,3 +102,24 @@ was an unhandled observation `TimeoutExpired`; the supplementary failure image
 shows playback at 20 seconds. That run did not retain the timed-out subcommand
 and is not a lifecycle pass. This change makes that transient capture failure
 retryable and diagnosable; a fresh native run is still required.
+
+### Initial emulator setup dialogs
+
+During `01-fixture-review` only, the runner can close up to two verified Pixel
+Launcher or Google SDK Setup ANR dialogs that obscure the MeowWatch activity.
+Each action requires an emulator serial, `ro.kernel.qemu=1`, the exact Android
+system ANR package/title/close control and MeowWatch as the underlying activity.
+The runner captures XML, focus and screenshot evidence and then re-observes the
+same dialog before tapping. A close that times out stops the gate rather than
+being repeated. `preparationAnrRecoveries` records each attempt and its outcome.
+
+The existing phase deadline is unchanged, and fresh MeowWatch UI must still pass
+the original onboarding and media-review checks after recovery. Recovery is
+disabled once initial preparation ends: an ANR during playback, HOME, explicit
+replay or process-restart observation still fails the gate. MeowWatch ANRs and
+unrelated dialogs are never closed by this mechanism.
+
+Run `35191578094` failed during `01-fixture-review`; its original XML and native
+screenshot show a Pixel Launcher ANR over onboarding, with no playback samples.
+It provides no HOME or restart evidence. This recovery needs a fresh native run;
+the Python regressions establish only the strict control and evidence rules.

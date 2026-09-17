@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meowwatch_mobile/core/connect/room_config.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
 import 'package:meowwatch_mobile/core/nearby/nearby_desktop_target.dart';
 import 'package:meowwatch_mobile/core/nearby/nearby_snapshot.dart';
 import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
+import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/ui/app_theme.dart';
 import 'package:meowwatch_mobile/ui/chat/chat_panel.dart';
 import 'package:meowwatch_mobile/ui/room/room_screen.dart';
@@ -29,6 +31,91 @@ void main() {
       await (FontLoader(font.key)..addFont(rootBundle.load(font.value))).load();
     }
   });
+
+  for (final layout in [
+    (name: 'small phone', size: const Size(360, 640), textScale: 2.0),
+    (name: 'landscape tablet', size: const Size(1280, 800), textScale: 1.0),
+  ]) {
+    testWidgets('${layout.name} reveals roster through the outer room list', (
+      tester,
+    ) async {
+      await _setView(tester, layout.size);
+      final fixture = UiTestApp.create();
+      fixture.controller
+        ..room = const RoomTicket(
+          id: 'roster-session',
+          isHost: true,
+          config: RoomConfig(
+            server: 'syncplay.example',
+            port: 8995,
+            room: 'Movie night',
+            username: 'Production Host',
+          ),
+        )
+        ..connection = const SyncConnectionState(
+          status: SyncConnectionStatus.connected,
+        );
+      fixture.controller.peers.add('Production Guest');
+
+      await tester.pumpWidget(
+        _scaledApp(
+          RoomScreen(
+            app: fixture.controller,
+            onLoad: () {},
+            onInvite: () {},
+            onDevices: () {},
+            onLeave: () {},
+            onStartRoom: () {},
+            onTogglePlay: () {},
+            onSeek: (_) {},
+          ),
+          textScale: layout.textScale,
+        ),
+      );
+      await tester.pump();
+
+      expect(fixture.controller.phone.snapshot.media, isNull);
+      final roomScrollables = find.descendant(
+        of: find.byType(ListView).first,
+        matching: find.byType(Scrollable),
+      );
+      expect(roomScrollables.evaluate().length, greaterThan(1));
+      final roomDetails = roomScrollables.first;
+      expect(roomDetails, findsOneWidget);
+      expect(
+        find.ancestor(of: roomDetails, matching: find.byType(Scrollable)),
+        findsNothing,
+        reason: 'Select the outer list, not the nested empty video stage.',
+      );
+
+      // Use the production driver's gutter gesture: the empty stage can
+      // scroll independently at 200% text and consume a center-origin drag.
+      final peerLabel = find.text('Production Guest');
+      for (
+        var scrolls = 0;
+        peerLabel.evaluate().isEmpty && scrolls < 8;
+        scrolls++
+      ) {
+        final bounds = tester.getRect(roomDetails);
+        await tester.dragFrom(
+          Offset(bounds.left + 8, bounds.center.dy),
+          const Offset(0, -250),
+        );
+        await tester.pump(const Duration(milliseconds: 50));
+      }
+      await tester.ensureVisible(peerLabel);
+      await tester.pumpAndSettle();
+
+      expect(peerLabel.hitTestable(), findsOneWidget);
+      expect(
+        tester.state<ScrollableState>(roomDetails).position.pixels,
+        greaterThan(0),
+      );
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(fixture.close);
+    });
+  }
 
   testWidgets('small phone transport controls reflow at 200% text', (
     tester,

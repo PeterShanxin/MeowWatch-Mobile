@@ -49,6 +49,15 @@ once. It rechecks the dialog immediately before tapping. App ANRs, unrelated
 dialogs and a second setup failure remain failures; original launch diagnostics
 are retained alongside the successful attempt.
 
+Android's `am start -W` can report `Status: timeout` before the first Flutter
+frame is ready. Only an exit-zero response naming exactly MeowWatch's
+`MainActivity`, with that activity independently focused, proceeds to the
+existing 55-second UI-readiness gate. This does not count as launch acceptance:
+all onboarding, stable-process, recording and app-log checks still apply.
+The original timeout output and `activityManagerWaitTimedOut` flag are retained.
+ADB command timeouts, ambiguous responses, app ANRs and other focused activities
+are not accepted through this path.
+
 Evidence comes from a public-hosted Android emulator, not a physical device.
 The gate proves clean installation, first launch and native incoming review for
 each APK. The debug artifact contains a real Test Store client configuration,

@@ -16,6 +16,7 @@ from tools.android_install.runner import (
     install_command,
     install_output_succeeded,
     launch_output_succeeded,
+    launch_output_timed_out,
     parse_package_metadata,
     redact_log,
     setup_anr_close,
@@ -136,8 +137,67 @@ class SetupRecoveryTests(unittest.TestCase):
                 taps = sum(command[:3] == ('shell', 'input', 'tap') for command in adb.commands)
                 self.assertEqual(taps, 0 if change else 1)
 
+    def test_draw_wait_timeout_preserves_evidence_and_defers_without_relaunch(self):
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+        ):
+            adb = SetupAdb(xml=hierarchy(), window=FOCUS, outcomes=(False,))
+            evidence = self.runner(adb).launch()
+            self.assertEqual(evidence, {
+                'attempts': 1, 'googleSetupAnrRecovered': False,
+                'activityManagerWaitTimedOut': True,
+            })
+            self.assertIn('Status: timeout', (Path(temporary) / 'launch-1.txt').read_text())
+            self.assertEqual(sum(command[:3] == ('shell', 'am', 'start') for command in adb.commands), 1)
+            self.assertFalse(any(command[:3] == ('shell', 'input', 'tap') for command in adb.commands))
+            # No UI success is fabricated by launch(); run() owns the native gate.
+            with self.assertRaises(RuntimeFailure):
+                verify_onboarding_semantics(adb.xml)
+
+    def test_draw_wait_timeout_requires_current_main_activity_focus(self):
+        for focus in (FOCUS.replace('.MainActivity', '.OtherActivity'), 'mCurrentFocus=null'):
+            with self.subTest(focus=focus), tempfile.TemporaryDirectory() as temporary, patch(
+                'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+            ):
+                with self.assertRaises(RuntimeFailure):
+                    self.runner(SetupAdb(xml=hierarchy(), window=focus, outcomes=(False,))).launch()
+
+    def test_adb_timeout_and_nonzero_exit_are_not_draw_wait_timeouts(self):
+        for outcome in (
+            subprocess.TimeoutExpired('adb', 30),
+            subprocess.CompletedProcess([], 1, f'Status: timeout\nActivity: {PACKAGE}/.MainActivity\n'.encode(), b''),
+        ):
+            with self.subTest(outcome=outcome), tempfile.TemporaryDirectory() as temporary, patch(
+                'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+            ):
+                adb = SetupAdb(xml=hierarchy(), window=FOCUS)
+                original = adb.run
+                def run(*args, **kwargs):
+                    if args[:3] == ('shell', 'am', 'start'):
+                        if isinstance(outcome, Exception):
+                            raise outcome
+                        return outcome
+                    return original(*args, **kwargs)
+                adb.run = run
+                with self.assertRaises(RuntimeFailure):
+                    self.runner(adb).launch()
+
 
 class RuntimeContractTests(unittest.TestCase):
+    def test_draw_wait_timeout_requires_unambiguous_exact_activity(self):
+        output = f'Starting: Intent {{ cmp={PACKAGE}/.MainActivity }}\nStatus: timeout\nActivity: {PACKAGE}/.MainActivity\n'
+        self.assertTrue(launch_output_timed_out(output))
+        for changed in (
+            output.replace('timeout', 'ok'),
+            output.replace(f'Activity: {PACKAGE}/.MainActivity', 'Activity: other/.MainActivity'),
+            output.replace(f'Activity: {PACKAGE}/.MainActivity', ''),
+            output + 'Status: ok\n',
+            output + f'Activity: {PACKAGE}/.MainActivity\n',
+            output + 'Error: Activity not started\n',
+        ):
+            with self.subTest(changed=changed):
+                self.assertFalse(launch_output_timed_out(changed))
+
     def test_android_evidence_uses_a_unique_owned_directory(self) -> None:
         adb = Adb("emulator-5554", "run-42")
         self.assertEqual(adb.remote_root, "/sdcard/meowwatch-install-run-42")

@@ -5,8 +5,8 @@
   "width": 1179,
   "height": 2556,
   "format": "PNG",
-  "bytes": 201435,
-  "sha256": "ee8f0731e5b0ec7ffbaa1bba9d66d5efd9b8a23553f6b692ca7a23264dc3e50a",
+  "bytes": 158377,
+  "sha256": "df6c2c6105b394798c92d12aaf5e407d2ed8f0cef02ba5ae89d467b3eb324f01",
   "pixelHandling": {
     "copiedByteForByte": true,
     "resized": false,
@@ -16,32 +16,41 @@
   },
   "source": {
     "repository": "PeterShanxin/MeowWatch-Mobile",
-    "commit": "70575be5c9d1cc89f25ff0b6ee68451380eb9056",
-    "githubRunId": 35199455085,
-    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35199455085",
-    "githubJobId": 105130437986,
+    "commit": "9b7e9ed08d0d83487441678b0aaee342d690138f",
+    "workflowName": "Production UI purchase journey",
+    "workflowPath": ".github/workflows/production-purchase.yml",
+    "workflowRunNumber": 6,
+    "workflowRunAttempt": 1,
+    "githubRunId": 35212468110,
+    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468110",
+    "githubJobId": 105173000210,
+    "jobName": "MainApp Test Store, themes and hosting (API 35 emulator)",
     "artifactName": "production-purchase-1",
-    "artifactId": 10488215223,
-    "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/free-home.png",
-    "artifactRunId": "20260917T083130Z-0d631bd0",
+    "artifactId": 10493172352,
+    "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/free-home.png",
+    "artifactRunId": "20260917T105737Z-6e753b05",
     "sourceDocuments": [
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/run.json",
-        "sha256": "30746a346fde0390fe9328841a66b1a4f593a0e6d2b020a26dba886487b7c55d"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/run.json",
+        "sha256": "c3e009fdb91701b1062e5728a28e5b5bd301128709f2aad8348a9040614dcc29"
       },
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/result.json",
-        "sha256": "61d05685bc03d285997c2f4e4fbf47d456b52a5b5f9fe1d60e345d4ba9690c04"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/result.json",
+        "sha256": "7a1ce74c745779d5be9bc3f35cfb675ce113a5d07b13e28ff74d97945e82a4aa"
       }
     ],
     "recordings": [
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/journey-001.mp4",
-        "sha256": "c30c3425e2cb7924d53b8af6dae01f98ca2360c5b7a7d8195dbbf1a1bca49522"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/journey-001.mp4",
+        "sha256": "f29d5c22d7ded31b5f8f1e580d2a165ea4e325820c8a94c631f23db2d046ea54"
       },
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/journey-002.mp4",
-        "sha256": "f9a2f4e56bbc8d9401ebe8b93f351f253537c1c3dbc357aee64c6d7113ee2a40"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/journey-002.mp4",
+        "sha256": "26a600d6a890cabb0fa52f23c0ec9970726049058dfd0dbcdfac99e3461b7e0d"
+      },
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/journey-003.mp4",
+        "sha256": "77396f3b468c5a0f1dd6bf2ae000be31e47757bb1f0baf6c35efe39f16c4d46c"
       }
     ]
   },
@@ -59,7 +68,7 @@
     ],
     "displayConfiguration": "The emulator display was configured to 1179x2556 before native capture; the exported PNG was not resized.",
     "appEntrypoint": "Production MainApp",
-    "apkSha256": "793c4b1a72b36bb56166251f9c7a9d928e2776cd4745fcf9f01037e817fec1b7",
+    "apkSha256": "34af1ee05316ab6c4ef80718b5281f46249b50195fb4e0444e51c8b2696b62d2",
     "cleanInstall": true,
     "peerBoundary": "Android MainApp; one native player and independent headless TLS peer in one process"
   },
@@ -75,6 +84,8 @@
       "native_success_through_production_paywall",
       "sdk_restore_via_settings_retains_entitlement_for_same_customer",
       "sdk_restore_after_customer_info_cache_invalidation",
+      "glass_aurora_selected_persisted_and_paid_room_usable",
+      "movie_night_premium_reaction_sent_via_ui_and_received_by_real_tls_peer",
       "premium_theme_selected_via_ui_and_persisted",
       "two_distinct_paid_hosts_via_ui_with_real_tls_peer"
     ],
@@ -106,9 +117,17 @@
     },
     "themeEvidence": {
       "selectedViaUiAndPersisted": true,
-      "theme": "cinemaNoir"
+      "theme": "cinemaNoir",
+      "glassAuroraPersisted": true,
+      "glassAuroraPaidRoomUsable": true
     },
-    "interpretation": "The clean, unobscured free-home capture was visually inspected and establishes the rendered native free-customer home screen. Its source workflow completed the ten recorded emulator acceptance stages, including one free host, two paid hosts, native Test Store cancel/failure/success, same-customer restore after cache invalidation, and premium theme persistence. This run does not establish physical-device rendering or reinstall/lost-identity recovery.",
-    "recordingCaveat": "This is screenshot provenance, not a claim of clean continuous demo footage. Integration review identified a com.google.android.googlesdksetup ANR overlay in raw journey-001.mp4 at approximately 29-43 seconds; the selected original free-home PNG is unobscured. Raw segment rotation and transfer gaps also remain."
+    "premiumReactionEvidence": {
+      "reaction": "Movie night",
+      "sentViaProductionUi": true,
+      "realTlsPeerReceived": true,
+      "senderMatched": true
+    },
+    "interpretation": "The clean, unobscured free-home capture was visually inspected and establishes the rendered native free-customer home screen. Its source workflow completed the twelve recorded emulator acceptance stages, including one free host, two paid hosts, native Test Store cancel/failure/success, same-customer restore after cache invalidation, Glass Aurora persistence and paid-room usability, a Movie night premium reaction received by the independent real TLS peer, and Cinema Noir persistence. This run uses one native Android player plus an independent headless TLS peer; it does not establish two native devices, physical-device rendering, or reinstall/lost-identity recovery.",
+    "recordingCaveat": "This is screenshot provenance, not a claim of seamless demo footage. The selected original free-home PNG is unobscured, and review found no unexpected OS modal in the three raw recordings. The raw segmented recordings retain reported 1.281-second and 1.705-second coverage gaps and must not be presented as one continuous shot."
   }
 }

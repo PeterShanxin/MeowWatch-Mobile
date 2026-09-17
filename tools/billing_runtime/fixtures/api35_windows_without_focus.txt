@@ -1,0 +1,10 @@
+WINDOW MANAGER WINDOWS (dumpsys window windows)
+  Window #7 Window{b4ba7fe u0 com.meowwatch.meowwatch_mobile/com.meowwatch.meowwatch_mobile.MainActivity}:
+    mOwnerUid=10209 showForAllUsers=false package=com.meowwatch.meowwatch_mobile appop=NONE
+    isOnScreen=true
+    isVisible=true
+  Window #9 Window{a6f3778 u0 com.meowwatch.meowwatch_mobile/com.meowwatch.meowwatch_mobile.MainActivity}:
+  mTopFocusedDisplayId=0
+  imeLayeringTarget in display# 0 Window{a6f3778 u0 com.meowwatch.meowwatch_mobile/com.meowwatch.meowwatch_mobile.MainActivity}
+  imeInputTarget in display# 0 Window{a6f3778 u0 com.meowwatch.meowwatch_mobile/com.meowwatch.meowwatch_mobile.MainActivity}
+  imeControlTarget in display# 0 Window{a6f3778 u0 com.meowwatch.meowwatch_mobile/com.meowwatch.meowwatch_mobile.MainActivity}

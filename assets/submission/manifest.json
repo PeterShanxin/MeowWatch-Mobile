@@ -1,0 +1,111 @@
+{
+  "purpose": "Devpost gallery thumbnail / project cover",
+  "width": 1200,
+  "height": 800,
+  "aspectRatio": "3:2",
+  "palette": {
+    "navy": "#102A43",
+    "cream": "#FFF5DF",
+    "blue": "#5BA8F5"
+  },
+  "headline": "MeowWatch Mobile",
+  "tagline": "Movie night, even when you’re miles apart.",
+  "contentBoundary": "Brand mark and tagline only; no UI screenshot, device claim, purchase claim or submission-acceptance claim.",
+  "renderer": {
+    "sharp": "0.35.4",
+    "libvips": "8.18.6",
+    "opentype": "1.3.4"
+  },
+  "fonts": [
+    {
+      "family": "DM Sans",
+      "file": "assets/fonts/DMSans.ttf",
+      "license": "../fonts/DMSans-OFL.txt"
+    },
+    {
+      "family": "DM Serif Display",
+      "file": "assets/fonts/DMSerifDisplay.ttf",
+      "license": "../fonts/DMSerifDisplay-OFL.txt"
+    }
+  ],
+  "inputs": [
+    {
+      "file": "assets/brand/meowwatch.svg",
+      "sha256": "8374bfeb92588422cd039f3096e4c051011413c0b3ed1811fa900c48f7b7ea31"
+    },
+    {
+      "file": "assets/fonts/DMSans.ttf",
+      "sha256": "8cd08d97e89c24d0aa92edd2f0f4c8ee6195eee9b7c9f154865a58b02f0c1c0d"
+    },
+    {
+      "file": "assets/fonts/DMSerifDisplay.ttf",
+      "sha256": "8cc3643535edf039aa5d95440a8542735e9197e4f4b8d9303e980fefbf5ab616"
+    },
+    {
+      "file": "tools/generate_submission_artwork.cjs",
+      "sha256": "d36646d9ad0a4b7ee27ba95acbd196a156d2949ee6ba49848925a7355fbdb479"
+    },
+    {
+      "file": "assets/fonts/DMSans-OFL.txt",
+      "sha256": "7ec15e79c59bc14b86436a17e5eb7926b46cbcaeb08e1a7e6c110b415e6eb2a2"
+    },
+    {
+      "file": "assets/fonts/DMSerifDisplay-OFL.txt",
+      "sha256": "aa49c876a28d8c0b0a3027d6c25b9c607eee8c0fb96165011d42a6ace1408fe1"
+    }
+  ],
+  "outputs": [
+    {
+      "file": "assets/submission/meowwatch-devpost-1200x800.svg",
+      "bytes": 433564,
+      "sha256": "14808aa4e5aa12470db76365f134fed5d37acb3d2a5eadd58041c4eb785f042b"
+    },
+    {
+      "file": "assets/submission/meowwatch-devpost-1200x800-outlined.svg",
+      "bytes": 42067,
+      "sha256": "e47c1ddd48c8c27ca9becb8dcbf0f1e97ab73bec199a8ddeb628e99243b12499"
+    },
+    {
+      "file": "assets/submission/meowwatch-devpost-1200x800.png",
+      "bytes": 63739,
+      "sha256": "0288f12beb1fb378f19dbf82e490916b02507e0fc8289247b5234457173ad426"
+    }
+  ],
+  "textBounds": [
+    {
+      "text": "MeowWatch",
+      "x1": 546.006,
+      "y1": 225.84,
+      "x2": 984.444,
+      "y2": 282.936
+    },
+    {
+      "text": "MOBILE",
+      "x1": 546.848,
+      "y1": 311.912,
+      "x2": 652.944,
+      "y2": 329.288
+    },
+    {
+      "text": "Movie night,",
+      "x1": 541.32,
+      "y1": 400.734,
+      "x2": 898.5780000000002,
+      "y2": 462.18
+    },
+    {
+      "text": "even when you’re",
+      "x1": 541.44,
+      "y1": 479.14,
+      "x2": 1007.0999999999998,
+      "y2": 537.4
+    },
+    {
+      "text": "miles apart.",
+      "x1": 541.32,
+      "y1": 552.734,
+      "x2": 886.5,
+      "y2": 614.18
+    }
+  ]
+}

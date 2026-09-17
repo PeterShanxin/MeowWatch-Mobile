@@ -1,0 +1,121 @@
+name: Production phone and tablet journey
+run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }}${{ inputs.compact_capture && ', compact capture' || '' }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      semantics_candidate:
+        description: 'Diagnose with the unmerged pinned Flutter semantics patch in a copied SDK'
+        type: boolean
+        required: false
+        default: false
+      compact_capture:
+        description: 'Compare lower recording output size while retaining the native phone/tablet layouts'
+        type: boolean
+        required: false
+        default: false
+  pull_request:
+    paths:
+      - 'tools/native_capture/**'
+      - '.github/workflows/production-together.yml'
+      - 'integration_test/production_together_test.dart'
+      - 'test_driver/production_together_driver.dart'
+      - 'tools/production_together/**'
+      - 'tools/android_multi_device/**'
+      - 'lib/**'
+      - 'android/**'
+      - 'pubspec.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-together-${{ github.ref }}-${{ inputs.semantics_candidate && 'semantics-candidate' || 'baseline' }}
+  cancel-in-progress: true
+
+jobs:
+  production-together:
+    name: Production phone and tablet API 35 (${{ inputs.semantics_candidate && 'UNMERGED CANDIDATE' || 'baseline' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - name: Prepare isolated unmerged semantics candidate SDK
+        if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
+        env:
+          CANDIDATE_SDK: ${{ runner.temp }}/meowwatch-semantics-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p build/flutter-compat
+          cp tools/flutter_compat/provenance.json build/flutter-compat/upstream-source.json
+          echo '## Unmerged Flutter semantics diagnostic candidate' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Copied SDK only; this run does not establish adoption or a geometry fix.' >> "$GITHUB_STEP_SUMMARY"
+          python3 -m unittest discover -s tools/flutter_compat -p 'test_*.py'
+          python3 tools/flutter_compat/prepare.py --source-sdk "$FLUTTER_ROOT" --output-sdk "$CANDIDATE_SDK" --report build/flutter-compat/preparation.json
+          echo "FLUTTER_ROOT=$CANDIDATE_SDK" >> "$GITHUB_ENV"
+          echo "$CANDIDATE_SDK/bin" >> "$GITHUB_PATH"
+          echo "$CANDIDATE_SDK/bin/cache/dart-sdk/bin" >> "$GITHUB_PATH"
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify candidate against the upstream semantics regression
+        if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded tools/flutter_compat/overlay_sibling_conflict_test.dart tools/flutter_compat/sibling_conflict_semantics_contract_test.dart 2>&1 | tee build/flutter-compat/upstream-regression.log
+      - name: Verify invite rendezvous and runner syntax
+        run: |
+          python3 -m unittest discover -s tools/production_together -p 'test_*.py'
+          python3 -m unittest tools.android_multi_device.test_fixture_contract -v
+          python3 -m unittest tools.android_multi_device.test_prepare_sdk_packages tools.android_multi_device.test_sdk_launch_contract tools.android_multi_device.test_prepare_sdk_setup tools.android_multi_device.test_prepare_system_launcher tools.android_multi_device.test_device_readiness -v
+          flutter test tools/production_together/json_request_test.dart
+          bash -n tools/android_multi_device/ci_together.sh
+          bash -n tools/android_multi_device/launch_two_avds.sh
+          bash -n tools/android_multi_device/prepare_fixture.sh
+          bash -n tools/android_multi_device/build_together_apks.sh
+          bash -n tools/android_multi_device/record_two_devices.sh
+          bash -n tools/android_multi_device/run_together_smoke.sh
+          bash tools/android_multi_device/test_record_two_devices.sh
+      - name: Prepare Android system image and KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          preparation="$GITHUB_WORKSPACE/build/android-multi-device/sdk-preparation"
+          python3 -m tools.android_multi_device.prepare_sdk_packages prepare --sdk-root "$sdk_root" --output "$preparation"
+          echo "MEOWWATCH_ANDROID_SDK_PREPARATION=$preparation/result.json" >> "$GITHUB_ENV"
+      - name: Prepare native media fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh
+      - name: Build production UI host and guest
+        run: |
+          bash tools/android_multi_device/build_together_apks.sh \
+            --target integration_test/production_together_test.dart \
+            --room "mw-product-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            --coordination-url http://10.0.2.2:18766/invite \
+            --video-url http://10.0.2.2:18765/Bee.mp4
+      - name: Record real Start, Join, playback and conversation
+        env:
+          MEOWWATCH_PHONE_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1600' }}
+          MEOWWATCH_TABLET_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1280' }}
+        run: bash tools/android_multi_device/ci_together.sh --production-ui
+      - name: Upload production screenshots, observations and framed video
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: production-phone-tablet-${{ github.run_attempt }}${{ inputs.semantics_candidate && '-semantics-candidate' || '' }}${{ inputs.compact_capture && '-compact-capture' || '' }}
+          path: |
+            build/android-multi-device/
+            build/production-together-artifacts/
+            build/flutter-compat/
+            !build/android-multi-device/apks/*.apk
+            !build/android-multi-device/fixture/sync-fixture.mp4
+            !build/android-multi-device/fixture/Bee.mp4
+          retention-days: 14

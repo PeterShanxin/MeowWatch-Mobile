@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1000 1000" role="img" aria-labelledby="title">
+  <title id="title">MeowWatch — geometric refinement study B</title>
+  <rect width="1000" height="1000" fill="#102A43"/>
+  <g id="mark">
+    <path d="M209 424 L209 197 Q209 186 219 192 L377 308 Q500 274 623 308 L781 192 Q791 186 791 197 L791 424 Q844 512 827 608 C802 738 697 797 500 797 C303 797 198 738 173 608 Q156 512 209 424 Z" fill="none" stroke="#FFF5DF" stroke-width="38" stroke-linejoin="round"/>
+    <path d="M260 275 Q250 268 250 280 L250 369 Q250 380 259 373 L314 329 Q320 324 314 319 Z" fill="#5BA8F5"/>
+    <path d="M740 275 Q750 268 750 280 L750 369 Q750 380 741 373 L686 329 Q680 324 686 319 Z" fill="#5BA8F5"/>
+    <path d="M428 425 Q412 416 412 434 L412 647 Q412 665 428 656 L609 550 Q622 541 609 532 Z" fill="#5BA8F5"/>
+    <path d="M240 525 L326 540 M240 600 L326 585 M760 525 L674 540 M760 600 L674 585" fill="none" stroke="#FFF5DF" stroke-width="26" stroke-linecap="round"/>
+  </g>
+</svg>

@@ -1,0 +1,107 @@
+name: Android normal application lifecycle
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/android-lifecycle.yml'
+      - 'android/**'
+      - 'assets/**'
+      - 'lib/**'
+      - 'pubspec.*'
+      - 'tools/android_lifecycle_runtime/**'
+      - 'tools/android_native_ui/**'
+      - 'tools/billing_runtime/native_dialog.py'
+      - 'tools/android_install/**'
+      - 'tools/incoming_media_runtime/**'
+      - 'tools/android_multi_device/*fixture*'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/android-lifecycle.yml'
+      - 'android/**'
+      - 'assets/**'
+      - 'lib/**'
+      - 'pubspec.*'
+      - 'tools/android_lifecycle_runtime/**'
+      - 'tools/android_native_ui/**'
+      - 'tools/billing_runtime/native_dialog.py'
+      - 'tools/android_install/**'
+      - 'tools/incoming_media_runtime/**'
+      - 'tools/android_multi_device/*fixture*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-lifecycle-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lifecycle:
+    name: HOME, explicit replay and process-restart resume (API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - name: Set up Flutter 3.44.0
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Check lifecycle runner
+        run: |
+          python3 -m unittest tools.android_lifecycle_runtime.test_run tools.android_native_ui.test_observer -v
+          python3 -m tools.android_lifecycle_runtime.run --help
+          bash -n tools/android_lifecycle_runtime/ci.sh
+      - name: Prepare reviewed 90-second media
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh --output build/android-lifecycle-fixture --seconds 90
+      - name: Build normal release-mode application
+        run: >-
+          flutter build apk --release --target=lib/main.dart
+          --dart-define=REVENUECAT_API_KEY=
+      - name: Build independent native accessibility observer
+        run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run native lifecycle acceptance
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/android_lifecycle_runtime/ci.sh
+      - name: Upload lifecycle evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: android-native-lifecycle-${{ github.run_attempt }}
+          path: |
+            build/android-lifecycle-artifacts/
+            build/android-lifecycle-server/
+            build/android-lifecycle-fixture/*.json
+            build/android-lifecycle-fixture/*.tsv
+            build/android-lifecycle-fixture/*.sha256
+            build/android-native-ui/build.json
+            build/android-native-ui/manifest.log
+            build/android-native-ui/verify.log
+          if-no-files-found: warn
+          retention-days: 14

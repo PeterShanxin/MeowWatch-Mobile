@@ -1,0 +1,7 @@
+include: package:flutter_lints/flutter.yaml
+
+# Standalone packages resolve and analyze their own dev dependencies in the
+# required Nearby package contracts CI job.
+analyzer:
+  exclude:
+    - packages/**

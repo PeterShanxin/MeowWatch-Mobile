@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>MeowWatch Mobile — Live Development Showcase</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <p class="eyebrow">MEOWWATCH MOBILE</p>
+        <h1>Live development showcase</h1>
+      </div>
+      <div class="recording-controls">
+        <div id="recordingBadge" class="badge waiting">Preparing recorder…</div>
+        <button id="stopRecording" type="button" disabled>Stop safely</button>
+      </div>
+    </header>
+    <main>
+      <section class="stage-panel">
+        <canvas id="stage" width="1280" height="720" aria-label="Live Android device composite, explicitly selected captured native evidence, labeled Flutter test-renderer preview, or waiting state"></canvas>
+        <p class="disclosure">This page records only this showcase canvas. It cannot see the desktop, other windows, microphone, or work completed before the page opened.</p>
+        <div class="preview-controls">
+          <label for="previewState">No-ADB canvas source</label>
+          <select id="previewState" aria-describedby="previewNotice">
+            <option value="off">Waiting state only</option>
+            <option value="home">Home</option>
+            <option value="onboarding">Onboarding</option>
+            <option value="player" selected>Player</option>
+          </select>
+          <span id="previewNotice">Checking Flutter test-renderer previews…</span>
+        </div>
+        <section id="capturedControls" class="captured-controls" hidden aria-label="Captured evidence playback">
+          <p id="capturedLabel" role="status"></p>
+          <p id="capturedMetadata"></p>
+          <div class="captured-actions">
+            <button id="returnToLive" type="button">Return to live / preview</button>
+            <a id="fullEvidence" target="_blank" rel="noopener noreferrer">Open full recording evidence</a>
+          </div>
+          <div id="capturedVideoControls" class="captured-actions" hidden>
+            <button id="toggleCapturedPlayback" type="button">Play</button>
+            <label for="capturedSeek">Recording position</label>
+            <input id="capturedSeek" type="range" min="0" max="0" step="0.1" value="0" disabled />
+            <output id="capturedTime" for="capturedSeek">0:00 / 0:00</output>
+          </div>
+          <p class="disclosure">Captured evidence is replayed, never live. Canvas recording remains a silent 2 fps development record; use the original file for full recording evidence. Selection does not indicate a passing test.</p>
+          <video id="capturedVideo" hidden muted playsinline preload="metadata"></video>
+        </section>
+      </section>
+      <aside>
+        <section>
+          <p class="eyebrow">CURRENT STATE</p>
+          <h2 id="headline">Loading verified progress…</h2>
+          <ol id="timeline"></ol>
+        </section>
+        <section>
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">CI EVIDENCE</p>
+              <h2>Captured native output</h2>
+            </div>
+            <button id="refreshEvidence" type="button">Refresh</button>
+          </div>
+          <div id="evidence" class="evidence-empty">No CI screenshots or video downloaded yet.</div>
+        </section>
+      </aside>
+    </main>
+    <script src="/app.js"></script>
+  </body>
+</html>

@@ -1,0 +1,252 @@
+# MeowWatch Mobile — 118-second review demo
+
+## Current assembled preview
+
+The complete 118-second Review Preview is now available in the Codex browser.
+It uses original 5137e58 Together recordings and 2fc38317 Local/purchase
+recordings. All 3,540 frames decode and all eleven pinned input hashes match;
+29 output samples and six full-resolution images were inspected. This is a
+mixed-build review edit. Sparse native motion, final visual review and physical
+acceptance remain open. The 30 fps export preserves the original held frames.
+
+Local file: `.local/deliverables/demo-5137e58/MeowWatch-Mobile-Review-Preview-118s-v1.mp4`.
+SHA-256: `731806b6778c5a897430db0bc90cd08b2ea69ac926dcc530eb68ef84b4de119c`.
+
+| Output seconds | Source interval | What the actual shot shows |
+| --- | --- | --- |
+| 0–6 | Branded graphic | Opening title |
+| 6–10 | Phone 000: 28–32 s | Original onboarding tail, Home and Start; no tablet before it is ready |
+| 10–17 | Paired common clock: 45–52 s | Joining through the real invite sheet |
+| 17–58 | Paired common clock: 67.5–108.5 s | Continuous controls, chat and heart at 1× |
+| 58–69 | Local 02: 87–98 s | Already-restored pause at 1:13, explicit Play and progress to 1:20 |
+| 69–79.8 | Purchase 1: 54.8–65.6 s | Paywall and native Test Store cancellation |
+| 79.8–90.6 | Purchase 2: 3.7–14.5 s | Failure feedback, retry and native success |
+| 90.6–98.4 | Purchase 2: 18.2–26 s | Same-active-customer Restore and appearance selection |
+| 98.4–105 | Purchase 2: 38.6–45.2 s | Glass Aurora playback and Movie night reaction |
+| 105–111 | Purchase 3: 4.5–10.5 s | A distinct second paid room in Cinema Noir |
+| 111–118 | Branded graphic | Public repository and closing |
+
+Paired shots use the original shared clock and 0.017622-second tablet offset,
+without crossing recording gaps. Complete device frames and runtime disclosures
+are retained. Local Home/restart/selection and the failed-purchase button tap
+precede their selected excerpts. These cuts do not imply one uninterrupted
+session, one build, physical devices or a real charge.
+
+The earlier 110-second allocation below is a historical plan. Its source notes
+remain useful; the table above is the current assembled EDL. Production Together
+at 5137e58 now passes both complete drivers and independent functional audit.
+Compact-capture comparison 35246511825 at 694b1ac also passes CI, but its motion
+audit has not accepted it as final-film footage. See [the current ledger](STATUS.md).
+
+## Earlier chapter plan and source notes
+
+> **Recording status (2026-09-18): review previews, not a final film.** The
+> current purchase chapter is the **42-second preview**, using the original
+> `2fc3831` recordings from
+> [production purchase 35236920484](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920484).
+> The earlier `300ca2e`
+> [paired Together run 35230867493, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867493)
+> passes and its drivers, native logs and 216.667-second paired evidence film
+> have been independently audited. Those originals have not yet been selected
+> into the final under-two-minute film. The newer `2fc3831`
+> [five-layout journey 35236920763](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920763)
+> passes all five complete drivers, including compact-guide and modal-transition
+> checks. Production purchase also passes with the corrected loading overlay.
+> These are Android emulator results. Production paired playback follow-up
+> remains open; consult [the current ledger](STATUS.md).
+
+The first 50 seconds remain a provisional Together selection; the following
+11-second Local excerpt is selected and verified below. The later
+pause fix at `6c44` passes 704 local app tests and the debug APK build;
+[runtime matrix 35241701885](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35241701885)
+passes all three jobs, with their native artifacts independently audited.
+These are runtime-fixture tests, not production demo footage; the production
+Together follow-up remains pending. The `9e032ba`
+[RevenueCat diagnostic run 35240675074](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35240675074)
+passes same-customer relaunch, accelerated renewals, final expiry and inactive
+Restore. Its retained SDK diagnostics do not supply continuous expiry footage.
+Neither fixture acceptance nor this diagnostic run supplies final demo shots.
+
+## Capture and edit rules
+
+- Target **110 seconds**, 1920 × 1080 at 30 fps; final duration must be under
+  two minutes. Use the selected cat/play brand assets, navy background, cream
+  captions and restrained blue accents.
+- Use original native recording segments from accepted runs. The browser
+  showcase and continuous development recording are separate deliverables.
+- Fit each complete capture proportionally inside a simple device frame.
+  Keep labels and captions outside app pixels: no crop, zoom, replacement UI,
+  simulated motion or overlays inside the captured screen.
+- Keep footage at **1× speed**. Use direct cuts for omitted waits and separate
+  sessions. The default export is **silent with short captions**; narration is
+  optional and must be genuinely recorded. No background music is required.
+- Label emulator sources accurately, including **Phone · Host**, **Tablet ·
+  Guest** and **Android emulators · approximate recording alignment · 1×**.
+  Align paired segments using their shared schema-v2/v3 timing manifest; never
+  move one device independently to make playback appear synchronized. A proof interval
+  must be covered by both originals without a recording gap or segment boundary.
+- Retain actual participant names, messages, dialogs and test choices. Use
+  licensed demo media and avoid personal information. Do not replace visible
+  test names with invented people or describe a protocol peer as a filmed device.
+
+The [submission compositor](../tools/submission_demo/README.md) enforces the
+supported framing and timing contract. Its manifest records source runs, full
+commits, hashes and source ranges; human inspection still establishes whether
+this footage and its claims are acceptable.
+
+## Shot-by-shot plan
+
+Times below are planned final output times; the allocation remains provisional
+until the audited paired originals are selected and the complete film is
+reviewed. Purchase source points match the 42-second preview below. Screenshots are state anchors,
+not motion sources.
+
+| Time | Actual footage | Short caption / optional narration | Acceptance boundary |
+| --- | --- | --- | --- |
+| **0:00–0:06** | Branded title card, optionally with a real home screenshot. | **MeowWatch Mobile** / **Movie night, even when you're miles apart.** | Identify the title as graphics and the screenshot as a still. |
+| **0:06–0:19** | Phone taps **Start a room**; tablet enters its invite in **Join a room**. Hold both participant names. | “Start a room. Join from the invite. No account setup.” | `300ca2e` paired CI and independent artifact audit pass; final shot selection remains. The driver decodes an invitation image and types the result into the real sheet; this does not film camera QR scanning. |
+| **0:19–0:39** | Paired native video: host Play, Pause and seek, followed by guest control and host response. | **Play · Pause · Seek** / **Either person can control** | Retain at least one continuous cause-and-response interval at 1×. Both decoded surfaces and accepted native convergence results are required; no invented drift counter. |
+| **0:39–0:50** | Guest sends the actual movie-night chat, host receives and replies; guest sends a heart and host shows it. | “Chat and reactions keep the shared moment beside the movie.” | Both production UI social paths must pass. Preserve the recorded names and message text. |
+| **0:50–1:01** | `local-lifecycle-2`, **87.0–98.0**: already-restored Local Mode video is paused at **1:13** → explicit Play → the same video advances to **1:20**. | **Your place, remembered** / “Resume when you're ready.” | Continuous 11-second, 1× excerpt from accepted `2fc38317` [normal lifecycle 35236920517](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920517). Home, process restart and the Continue Watching selection occurred before this cut; they are not shown. Do not imply autoplay or history from the preceding Together room. |
+| **1:01–1:11.8** | `purchase-1`, **54.8–65.6**: production paywall → native Test Store dialog → Cancel and cancellation result. | **More movie nights** / “Plus adds unlimited hosting. Cancelling keeps you free.” | One native Android player plus a headless TLS peer. The original run proves the consumed free host; this selected shot starts at the paywall. |
+| **1:11.8–1:22.6** | `purchase-2`, **3.7–14.5**: failed-purchase message → retry → native valid purchase → brief active Plus page. | **Make room for movie night** / “Retry the test purchase and unlock MeowWatch Plus.” | Disclose **RevenueCat Test Store · no real charge**. The failed-purchase button tap is outside the cut. The active heading occupies 1.0 second, initially with a spinner; enabled Done occupies only 7/30 second. |
+| **1:22.6–1:30.4** | `purchase-2`, **18.2–26.0**: Settings → Restore → active confirmation → Glass Aurora selected and saved. | **Your Plus, still here** / “Restore the same customer, then choose Glass Aurora.” | A longer readable active-state confirmation. Cache-invalidated restore retains the same already-active customer; it does not prove lost-identity or reinstall recovery. |
+| **1:30.4–1:37** | `purchase-2`, **38.6–45.2**: first paid room plays in Glass Aurora → Movie night picker → clapperboard reaction. | **A reaction worth sharing** / “Glass Aurora, real playback and a Movie night reaction.” | The accepted TLS peer receipt confirms delivery. Keep the original reaction and technical participant labels. |
+| **1:37–1:43** | `purchase-3`, **4.5–10.5**: a distinct second paid room in Cinema Noir → Play and continuing video. | **Another room. More movie night.** / “A second paid room, with Cinema Noir.” | Direct cut into a later native segment; retain the room identity and advancing player without implying continuous setup. |
+| **1:43–1:50** | Seven-second branded closing card. | **Watch together, wherever you are.** / **Android-first · Open source · AGPL-3.0-only** / **github.com/PeterShanxin/MeowWatch-Mobile** | Use the final public source URL. Do not claim submission readiness or physical-device testing in the film. |
+
+Together and social selection can use the independently audited `300ca2e`
+recording, with its real names and source details retained. The older
+ANR-obscured `35212468221` footage remains unsuitable. Purchase shots total
+**42 seconds** at 1×: 10.8 + 10.8 + 7.8 + 6.6 + 6.0. Together/Local uses the
+first provisional 61 seconds, purchase ends at 103 seconds, and the seven-second
+closing ends at **110 seconds**, strictly under two minutes. Use clear editorial
+cuts between Together, Local and purchase takes.
+
+## Selected Local Mode source
+
+The selected source is `native/lifecycle-02.mp4` from API 35 Android x86_64
+emulator run `35236920517`, with source commit
+`2fc38317f96efa2b15239b6be3dfedce9264987c`. It uses the normal release
+`lib/main.dart` entrypoint. Source SHA-256 is
+`ce64f2b55dc1c888a04cca9c8a7a88e005e504b4d96eed51977d62c7b81efaf1`.
+Keep source ID `local-lifecycle-2`, its complete 432 × 960 frame and the exact
+PTS interval **[87.000, 98.000)** in the final EDL.
+
+The local selection package
+`.local/verification/local-preview-2fc3831-selection/` contains
+`local-restored-play-11s.mp4`, original key frames and `provenance.json`.
+The excerpt is exactly 330 frames at 30 fps and 11.000 seconds; SHA-256 is
+`1f943c0cf926e427ab3ac642fabd3068787ba9ca697e75a609c29bb95b5ad040`.
+Full decoding passes. The original variable-rate pictures are sampled on the
+same 1× clock for 30 fps output, without crop, resizing, reordering or generated
+motion. Final composition may fit the entire frame proportionally.
+
+At original PTS 87.119189 the player is paused at 1:13; at 89.828578 the Play
+control has changed to Pause; at 97.919589 the same video has advanced to 1:20.
+The full accepted run proves saved/history/restored position 73 seconds and
+no autoplay after process restart. This excerpt starts after restoration and
+does not show the Home screen, process restart or history selection. The
+five-layout journey is not substituted here: its restored fixture stays paused
+before the test switches to a different Sintel sample. The old `f8fdd62` Local
+take is no longer selected. This is a verified excerpt, not acceptance of the
+complete final film or physical-device behavior.
+
+## Current purchase review preview
+
+The local package `.local/deliverables/purchase-preview-2fc3831/` contains
+`MeowWatch-Purchase-Review-Preview-42s.mp4`, the exact
+`purchase-review-preview-42s.edl.json`, renderer manifest, hashes,
+`preview-provenance.json` and `review.md`. The film's SHA-256 is
+`b0cdadd718b5782e99af65ee1fb4ff18b43dcee6bfeff6140a0bc0198263a50d`.
+It has 1,260 frames, a 1920 × 1080 / 30 fps canvas and no audio. The unmodified
+repository compositor fits complete phone content into a 450 × 975 area
+(rounded content 450 × 974); 24px disclosures remain outside app pixels.
+
+Full sequential decoding and pinned-input hash checks pass. All 1,260 output
+phone frames were compared against the original held frame at their 1× source
+clock; this scaled, lossy correspondence check is not pixel identity. Visual
+review covered 53 output samples across every second and cut boundary, plus six
+full-resolution images. A Codex browser playback spot-check inspected the actual
+Restore/active screen. A subsequent browser replay ran from 0:00 through 0:42
+without seeking or pausing, with screenshots observed at 0, 14, 28, 39 and 42
+seconds. This is uninterrupted playback with sampled visual inspection, not
+continuous visual inspection of every frame or final-film acceptance.
+
+In the new original, the active heading runs from source PTS 13.471111 to
+14.500333 (1.029222 seconds), initially with a spinner. Enabled Done starts at
+14.264567 and lasts 0.235766 seconds. The selected cut retains 1.0 second of the
+heading and 7/30 second of Done, then uses genuine Settings confirmation. It
+does not freeze or slow the successful state. Cozy and Glass Aurora loading-text
+corrections have fresh proof in this `2fc3831` source. Test Store, same-customer
+restore and headless-peer disclosures remain visible in their relevant shots.
+
+This preview's [2fc3831 purchase run](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35236920484)
+passes 12 stages, one free and two paid hosts, real Test Store outcomes and
+same-customer restore, with 98.8717% recording coverage. The separate `2fc3831`
+expiry gate fails: active Restore follows an inactive sample, with insufficient
+retained post-restore data to establish the cause. Its `9e032ba` diagnostic run
+passes same-customer relaunch and final expiry with inactive Restore. It does
+not reproduce or establish the cause of the earlier anomaly. Neither expiry
+nor process-relaunch footage appears in this purchase chapter.
+
+For historical context, the older `300ca2e`
+[relaunch/expiry run 35230867563](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35230867563)
+passes: the real purchase renews through 14:31:44Z, expires at 14:36:44Z,
+and fresh SDK data at 14:36:55.873Z is inactive; restore at 14:36:56.001Z remains
+inactive for the same customer. Those audited SDK receipts are not continuous
+expiry-wait video and do not change the newer failed gate's recorded outcome.
+
+The earlier 43-second v1 and 40.2-second v2 remain historical previews from
+`9b7e9ed`, [purchase run 35212468110](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468110).
+The v2 package at `.local/deliverables/purchase-preview-9b7e9ed-v2/` preserves its
+own EDL and checks. It avoided an old loading-text defect and showed a shorter
+active heading; neither its source ranges nor its acceptance are assigned to
+the current 42-second chapter.
+
+## Pinned purchase sources
+
+All three sources are full-frame **480 × 1040** recordings from API 35
+`sdk_gphone64_x86_64`, run `35236920484`, attempt 1, artifact directory
+`production-purchase-1/production-purchase-artifacts/20260917T150501Z-d66f50ff`.
+Their full source commit is `2fc38317f96efa2b15239b6be3dfedce9264987c`.
+Timecodes above are source PTS seconds; all selected durations are whole 30 fps
+frame counts. Put these hashes and the downloaded original paths in the final
+EDL; the tool's example EDL remains an unaccepted placeholder.
+
+| Source ID | Original file | SHA-256 |
+| --- | --- | --- |
+| `purchase-1` | `journey-001.mp4` | `99b4835bcf44cb9895cc481708525c32ee9cf3fba8b21de9896ea414228bf638` |
+| `purchase-2` | `journey-002.mp4` | `0ee714253249f18fb6cfa6e5a9bc42bbd6ea9df2a35223b7b120b8dce1e4a311` |
+| `purchase-3` | `journey-003.mp4` | `47a8f5e1efd73d7bab74d2c45316a66e1e10ff76f37ac5c5e127003bfdc2a311` |
+
+The recorder reports **1.068/0.738-second** gaps between segments. Keep those
+original timing records; source PTS and host command times are distinct clocks.
+The five selected ranges remain inside individual original files and use direct
+cuts for omitted actions and waits. They do not bridge either gap as a continuous
+proof action. The selected third range ends at PTS 10.5, before black teardown.
+
+## Nearby and Cast
+
+Neither feature is in the current 110-second cut. Nearby may enter a revised
+edit only after actual Android-to-Windows discovery, explicit pairing and
+playback control pass with the companion build available. Cast requires actual
+receiver playback proof. A picker, same-device transport probe or Windows-only
+test does not satisfy either gate. Omitting footage does not close the product's
+outstanding acceptance criteria.
+
+## Final recording acceptance
+
+- [ ] Accepted production create/join, two-way playback control, chat and
+  reaction footage shows both independent Android runtimes.
+- [ ] Local footage visibly shows the accepted restored position and explicit
+  Play, without implying that this cut includes Home or restart; all chosen
+  footage names its actual accepted build and runtime.
+- [ ] One accepted purchase journey proves quota, native Test Store success,
+  entitlement and two distinct paid sessions. Restore copy matches its scope.
+- [ ] Original segments, timing manifests, source hashes and the authored edit
+  decision list are retained; every paired proof interval has full coverage.
+- [ ] Final export is watched end-to-end, readable, under two minutes and free
+  of misleading runtime or purchase claims. Any narration and media are cleared.
+- [ ] The required 1179 × 2556 submission screenshot is an original unframed
+  native PNG, not an extracted or upscaled frame from the 1080p film.

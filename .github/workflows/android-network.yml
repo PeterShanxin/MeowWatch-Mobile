@@ -1,0 +1,94 @@
+name: Android real network interruption
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/android-network.yml'
+      - 'integration_test/network_interruption_test.dart'
+      - 'test_driver/network_interruption_driver.dart'
+      - 'tools/android_network_runtime/**'
+      - 'tools/android_lifecycle_runtime/**'
+      - 'tools/android_install/**'
+      - 'tools/android_native_ui/**'
+      - 'tools/native_capture/**'
+      - 'tools/android_multi_device/*fixture*'
+      - 'lib/**'
+      - 'android/**'
+      - 'pubspec.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-network-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  network:
+    name: MainApp radio loss and recovery (one API 35 AVD)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      NETWORK_RUN_ID: network_${{ github.run_id }}_${{ github.run_attempt }}
+      NETWORK_AVD_NAME: meowwatch_network_${{ github.run_id }}_${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify radio ownership and evidence contracts
+        run: |
+          python3 -m unittest discover -s tools/android_network_runtime -p 'test_*.py'
+          bash -n tools/android_network_runtime/ci.sh
+      - name: Prepare native playback fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh --output build/android-network-fixture --seconds 90
+      - name: Build the MainApp network acceptance APK
+        run: >-
+          flutter build apk --debug --target=integration_test/network_interruption_test.dart
+          --dart-define=NETWORK_RUN_ID=${{ env.NETWORK_RUN_ID }}
+      - name: Build independent native accessibility observer
+        run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Interrupt only the dedicated AVD network and record recovery
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          avd-name: ${{ env.NETWORK_AVD_NAME }}
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/android_network_runtime/ci.sh
+      - name: Retain original UI, video, network states and teardown
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: android-network-${{ github.run_attempt }}
+          path: |
+            build/android-network-artifacts/
+            build/android-network-fixture-server/
+            build/android-network-fixture/*.sha256
+            build/android-network-fixture/*.ffprobe.json
+            build/android-network-fixture/fixture-provenance.tsv
+            build/android-install-artifacts/storage-readiness.log
+            build/android-native-ui/build.json
+            build/android-native-ui/manifest.log
+            build/android-native-ui/verify.log
+          retention-days: 14

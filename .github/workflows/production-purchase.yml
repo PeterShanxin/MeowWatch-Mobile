@@ -1,0 +1,81 @@
+name: Production UI purchase journey
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - 'tools/native_capture/**'
+      - '.github/workflows/production-purchase.yml'
+      - 'integration_test/purchase_journey_test.dart'
+      - 'tools/production_purchase_runtime/**'
+      - 'tools/billing_runtime/**'
+      - 'tools/hosting_purchase/run_hosting_purchase.py'
+      - 'tools/android_multi_device/*fixture*'
+      - 'lib/**'
+      - 'android/**'
+      - 'assets/**'
+      - 'pubspec.*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-purchase-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  purchase:
+    name: MainApp Test Store, themes and hosting (API 35 emulator)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify native driver and evidence contracts
+        run: |
+          python3 -m unittest discover -s tools/billing_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/production_purchase_runtime -p 'test_*.py'
+          bash -n tools/production_purchase_runtime/ci.sh
+      - name: Prepare native media fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          ffprobe -version
+          bash tools/android_multi_device/prepare_fixture.sh
+      - name: Build production purchase journey APK
+        run: >-
+          flutter build apk --debug --target=integration_test/purchase_journey_test.dart
+          --dart-define=PURCHASE_JOURNEY_VIDEO_URL=http://10.0.2.2:18765/sync-fixture.mp4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Record clean MainApp purchase and hosting journey
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/production_purchase_runtime/ci.sh
+      - name: Retain real UI, native dialog and segmented video evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: production-purchase-${{ github.run_attempt }}
+          path: |
+            build/production-purchase-artifacts/
+            build/production-purchase-fixture-server/
+          retention-days: 14

@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    package="com.meowwatch.native_ui_observer"
+    android:versionCode="1"
+    android:versionName="1.0">
+    <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="35" />
+    <application android:label="MeowWatch native UI observer"
+        android:debuggable="true" android:testOnly="true" android:allowBackup="false"
+        android:hasCode="true" />
+    <!-- Instrumentation must never target or restart the application under test. -->
+    <instrumentation android:name=".SnapshotInstrumentation"
+        android:targetPackage="com.meowwatch.native_ui_observer"
+        android:functionalTest="false" android:handleProfiling="false" />
+</manifest>

@@ -45,25 +45,33 @@ the [emulator's skin resolver](https://android.googlesource.com/platform/externa
 checks `skin.path` before falling back to the configured LCD size.
 
 Before read-only admission, a separate `prepare_sdk_setup.py` step may recover
-one Google SDK Setup ANR per task-created emulator within a shared 90-second
+one eligible system ANR per task-created emulator within a shared 90-second
 budget. It verifies the actual AVD name, debuggable emulator properties and
 absence of MeowWatch. Recovery additionally requires completed boot/provisioning, a uniquely focused
 `com.google.android.googlesdksetup` ANR window and a matching `am_anr` event.
+The separate Launcher case is restricted to Linux x86_64 runners and a measured
+API 35 x86_64 guest. It requires the exact system package
+`com.google.android.apps.nexuslauncher`, user-0 package UID, live process UID/PID
+matching the latest Launcher ANR, and resolved/focused Home equal to that
+package's `NexusLauncherActivity`. A same-named non-system package or another
+Home component cannot qualify. The two cases share one recovery allowance per
+device; historical SDK Setup events cannot authorize a second recovery.
 Both devices pass these safety checks before either is changed. Normal screens
 receive no mutation, including Home with historical GMS or other ANR events.
 Normal provisioning with unresolved Home or Settings FallbackHome also receives
 no mutation and proceeds to the existing read-only gate's bounded wait.
 All well-formed user-0 ANR history remains in the evidence; unrelated history
-never authorizes SDK recovery. Ambiguous state, another package's current ANR
+never authorizes recovery. Ambiguous state, another package's current ANR
 window, installed MeowWatch or an unverified device fails preparation.
 
 An eligible recovery saves the original PNG and window/event evidence, rechecks
-the same conditions, and force-stops only that exact SDK setup package once.
+the same conditions, and force-stops only the eligible exact package once.
 Android dismisses the ANR window asynchronously; only that original window ID
 may retire during bounded observation. The old window must disappear before
 the single HOME intent is sent to the verified launcher. Both settling phases
 share a 30-second window, and final success requires Home owning both focus
-fields with no remaining ANR window. It retains every command outcome,
+fields with no remaining ANR window. Launcher recovery also requires the same
+system UID and a new live Launcher PID. It retains every command outcome,
 before/after snapshot and original ANR event. Failure or uncertainty is never
 retried. Any new, changed or missing ANR history between confirmation and the
 post-recovery checks stops further mutation. No package is disabled, log cleared,
@@ -100,6 +108,27 @@ python3 -m unittest tools.android_multi_device.test_device_readiness -v
 
 ## Hosted Ubuntu sequence
 
+The production workflow prepares SDK packages once, before media generation and
+APK compilation. `prepare_sdk_packages.py` invokes the existing selected SDK's
+`sdkmanager` with `--sdk_root` and `--verbose` for `platform-tools`, `emulator`,
+`platforms;android-35` and `system-images;android-35;google_apis;x86_64`. It records
+tool metadata/version, exact arguments, original stdout/stderr bytes, exit or
+timeout outcome and free disk space in `sdk-preparation/`. A failed or uncertain
+install stops that run; there is no retry, cache removal or tool-version change.
+Successful installation must also have matching `package.xml` paths, image
+API/tag/ABI properties and nonempty required tool/image files. This validates
+installed metadata and file presence, not an independent archive checksum or
+bootability; emulator acceleration, boot and read-only admission remain required.
+
+The launcher never installs packages. It validates the selected SDK before any
+emulator command and uses executables only from that SDK. In the production
+workflow, `MEOWWATCH_ANDROID_SDK_PREPARATION` points to a receipt bound to the
+GitHub run, attempt, head, SDK root and installed metadata. The launcher rejects
+stale or changed receipts and saves `sdk-validation.json`. Existing callers may
+omit the receipt when they have already installed the exact packages; they still
+must pass the same file/metadata validation. Installation diagnostics improve
+the evidence for ZIP failures; they do not establish their underlying cause.
+
 Generate the long-form media fixture and build both role-specific APKs serially
 before starting the AVDs so compilation does not compete with two emulators for
 CPU and RAM. Enable KVM and export `ANDROID_SDK_ROOT` before the final command.
@@ -107,6 +136,10 @@ The generated output directories must be empty at the start; the scripts refuse
 stale files instead of mixing them into a later run.
 
 ```sh
+python3 -m tools.android_multi_device.prepare_sdk_packages prepare \
+  --sdk-root "$ANDROID_SDK_ROOT" \
+  --output build/android-multi-device/sdk-preparation
+export MEOWWATCH_ANDROID_SDK_PREPARATION="$PWD/build/android-multi-device/sdk-preparation/result.json"
 room="mw-ci-${GITHUB_RUN_ID:-local}-$(date -u +%s)"
 bash tools/android_multi_device/prepare_fixture.sh
 bash tools/android_multi_device/build_together_apks.sh \

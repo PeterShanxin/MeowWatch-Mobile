@@ -48,6 +48,7 @@ class FakeADB:
         self.async_retire = False
         self.after_stop_replaced_window = False
         self.stopped = False
+        self.recovery_package = SETUP_PACKAGE
         self.late_after_stop = False
         self.bad_png = False
         self.timeout = False
@@ -83,7 +84,7 @@ class FakeADB:
                 values = deepcopy(values)
                 values["anr"] += "\n" + GMS_HISTORY
             out = raw(values).encode()
-        elif arguments == ["shell", f"am force-stop --user 0 {SETUP_PACKAGE}"]:
+        elif arguments == ["shell", f"am force-stop --user 0 {self.recovery_package}"]:
             self.stopped = True
             if self.force_timeout:
                 raise subprocess.TimeoutExpired(command, kwargs["timeout"], output=b"uncertain outcome")
@@ -92,9 +93,10 @@ class FakeADB:
             elif not self.keep_dialog:
                 values["window"] = state(False)["window"]
             if self.async_retire:
-                values["window"] += f"\nWindow{{8423e07 u0 Application Not Responding: {SETUP_PACKAGE}}}"
+                window_id = "865019b" if self.recovery_package != SETUP_PACKAGE else "8423e07"
+                values["window"] += f"\nWindow{{{window_id} u0 Application Not Responding: {self.recovery_package}}}"
             if self.after_stop_replaced_window:
-                values["window"] += f"\nWindow{{bbbb u0 Application Not Responding: {SETUP_PACKAGE}}}"
+                values["window"] += f"\nWindow{{bbbb u0 Application Not Responding: {self.recovery_package}}}"
             if self.after_stop_other_anr:
                 values["anr"] += "\n" + EVENT.replace(SETUP_PACKAGE, "com.google.android.gms")
         elif arguments[0] == "shell" and arguments[1].startswith("am start -W --user 0"):

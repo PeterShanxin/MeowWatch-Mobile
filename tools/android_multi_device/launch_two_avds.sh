@@ -9,6 +9,8 @@ Creates and launches a clean Pixel 6 phone AVD on emulator-5554 and a clean
 Pixel Tablet AVD on emulator-5556 using fixed, resource-limited dual-player CI
 displays: 720x1600@280 and 1280x800@160. The output directory receives emulator
 logs, measured cold-boot readiness and session.env for recording and cleanup.
+Required API 35 packages must already be prepared; this launcher only validates
+them. MEOWWATCH_ANDROID_SDK_PREPARATION optionally binds a preparation receipt.
 EOF
 }
 
@@ -34,21 +36,17 @@ fi
 
 resolve_tool() {
   local preferred="$1"
-  local fallback="$2"
   if [[ -x "$preferred" ]]; then
     printf '%s\n' "$preferred"
-  elif command -v "$fallback" >/dev/null 2>&1; then
-    command -v "$fallback"
   else
-    echo "Required Android tool not found: $fallback" >&2
+    echo "Required executable not found in the selected Android SDK: $preferred" >&2
     exit 2
   fi
 }
 
-sdkmanager="$(resolve_tool "$sdk_root/cmdline-tools/latest/bin/sdkmanager" sdkmanager)"
-avdmanager="$(resolve_tool "$sdk_root/cmdline-tools/latest/bin/avdmanager" avdmanager)"
-emulator="$(resolve_tool "$sdk_root/emulator/emulator" emulator)"
-adb="$(resolve_tool "$sdk_root/platform-tools/adb" adb)"
+avdmanager="$(resolve_tool "$sdk_root/cmdline-tools/latest/bin/avdmanager")"
+emulator="$(resolve_tool "$sdk_root/emulator/emulator")"
+adb="$(resolve_tool "$sdk_root/platform-tools/adb")"
 
 if [[ "$(uname -s)" != "Linux" || "$(uname -m)" != "x86_64" ]]; then
   echo 'This launcher is intentionally limited to Linux x86_64 hosted runners.' >&2
@@ -59,10 +57,15 @@ if [[ ! -r /dev/kvm || ! -w /dev/kvm ]]; then
   exit 2
 fi
 
-"$emulator" -accel-check | tee "$session_dir/acceleration.txt"
-
 system_image='system-images;android-35;google_apis;x86_64'
-"$sdkmanager" 'platform-tools' 'emulator' 'platforms;android-35' "$system_image"
+sdk_verification=(--sdk-root "$sdk_root")
+if [[ -n "${MEOWWATCH_ANDROID_SDK_PREPARATION:-}" ]]; then
+  sdk_verification+=(--preparation-report "$MEOWWATCH_ANDROID_SDK_PREPARATION")
+fi
+python3 -m tools.android_multi_device.prepare_sdk_packages verify "${sdk_verification[@]}" \
+  > "$session_dir/sdk-validation.json"
+
+"$emulator" -accel-check | tee "$session_dir/acceleration.txt"
 
 device_list="$session_dir/avdmanager-devices.txt"
 "$avdmanager" list device > "$device_list"

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""One explicitly scoped SDK Setup recovery before the read-only admission gate."""
+"""One exact system-package recovery before the read-only admission gate."""
 
 from __future__ import annotations
 
@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 import hashlib
 import json
 from pathlib import Path
+import platform
 import re
 import shlex
 import subprocess
@@ -18,6 +19,8 @@ from tools.android_multi_device.device_readiness import (
 )
 
 SETUP_PACKAGE = "com.google.android.googlesdksetup"
+LAUNCHER_PACKAGE = "com.google.android.apps.nexuslauncher"
+LAUNCHER_HOME = f"{LAUNCHER_PACKAGE}/{LAUNCHER_PACKAGE}.NexusLauncherActivity"
 APP_PACKAGE = "com.meowwatch.meowwatch_mobile"
 BUDGET_SECONDS = 90
 QUERIES = {
@@ -33,9 +36,43 @@ QUERIES = {
 }
 ANR_WINDOW = re.compile(r"Window\{([0-9a-f]+) u0 Application Not Responding: ([A-Za-z0-9_.]+)\}")
 ANR_EVENT = re.compile(r"^\s*\d+\.\d+\s+\d+\s+\d+\s+I\s+am_anr\s*:\s*\[0,([1-9]\d*),([A-Za-z0-9_.]+),-?\d+,.+\]$")
+LAUNCHER_QUERIES = {
+    "launcher_system_package": f"pm list packages -s -U --user 0 {LAUNCHER_PACKAGE}",
+    "launcher_processes": "ps -A -o PID,UID,NAME",
+    "launcher_api": "getprop ro.build.version.sdk",
+    "launcher_abi": "getprop ro.product.cpu.abi",
+}
 
 
-def inspect_state(raw: str, expected_avd: str, avd_raw: str, *, retiring_window=None) -> dict:
+def launcher_identity(raw: str | None) -> dict:
+    if raw is None:
+        raise MeasurementError("system Launcher identity evidence is missing")
+    sections = parse_sections(raw, LAUNCHER_QUERIES)
+    if (require_output(sections, "launcher_api") != "35"
+            or require_output(sections, "launcher_abi") != "x86_64"):
+        raise MeasurementError("Launcher recovery requires the API 35 x86_64 runtime")
+    package = require_output(sections, "launcher_system_package")
+    match = re.fullmatch(r"package:" + re.escape(LAUNCHER_PACKAGE) + r" uid:([1-9]\d*)", package)
+    if match is None or not 10000 <= int(match[1]) < 100000:
+        raise MeasurementError("NexusLauncher is not an unambiguous user-0 system app")
+    uid = int(match[1])
+    rows = require_output(sections, "launcher_processes").splitlines()
+    if not rows or rows[0].split() != ["PID", "UID", "NAME"]:
+        raise MeasurementError("Launcher process identity measurement is malformed")
+    processes = []
+    for row in rows[1:]:
+        fields = row.split()
+        if len(fields) != 3 or not fields[0].isdigit() or not fields[1].isdigit():
+            raise MeasurementError("Launcher process identity measurement is malformed")
+        if fields[2] == LAUNCHER_PACKAGE:
+            processes.append((int(fields[0]), int(fields[1])))
+    if len(processes) > 1 or any(pid <= 0 or process_uid != uid for pid, process_uid in processes):
+        raise MeasurementError("Launcher PID/UID ownership is ambiguous")
+    return {"uid": uid, "pid": processes[0][0] if processes else None}
+
+
+def inspect_state(raw: str, expected_avd: str, avd_raw: str, *, retiring_window=None,
+                  retiring_package=SETUP_PACKAGE, launcher_raw=None) -> dict:
     if avd_raw.splitlines() != [expected_avd, "OK"]:
         raise MeasurementError("serial does not identify this task's expected AVD")
     sections = parse_sections(raw, QUERIES)
@@ -63,30 +100,44 @@ def inspect_state(raw: str, expected_avd: str, avd_raw: str, *, retiring_window=
     windows = set(ANR_WINDOW.findall(values["window"]))
     if len(windows) > 1:
         raise MeasurementError("multiple ANR windows make SDK recovery ambiguous")
-    if any(package != SETUP_PACKAGE for _, package in windows):
-        raise MeasurementError("another package has a current ANR window; no SDK recovery is permitted")
+    if any(package not in (SETUP_PACKAGE, LAUNCHER_PACKAGE) for _, package in windows):
+        raise MeasurementError("another package has a current ANR window; no system recovery is permitted")
     # Unknown dialog formats cannot qualify through a loose package substring.
-    if re.search(r"Application Not Responding|Application Error:|AppNotRespondingDialog|AppErrorDialog",
+    if re.search(r"Application Not Responding|Application Error:|AppNotRespondingDialog|AppErrorDialog|PermissionDialog",
                  ANR_WINDOW.sub("", values["window"]), re.I):
         raise MeasurementError("unrecognized system error dialog; no SDK recovery is permitted")
     focused_anr = ANR_WINDOW.fullmatch(focus[0].strip())
-    eligible = bool(focused_anr and windows == {(focused_anr[1], SETUP_PACKAGE)})
-    if retiring_window is not None and windows and windows != {(retiring_window, SETUP_PACKAGE)}:
+    eligible = bool(focused_anr and windows == {(focused_anr[1], focused_anr[2])})
+    if retiring_window is not None and windows and windows != {(retiring_window, retiring_package)}:
         raise MeasurementError("SDK ANR window changed after recovery; no further mutation is permitted")
     if retiring_window is None and windows and not eligible:
         raise MeasurementError("SDK ANR window does not uniquely own current focus")
+    recovery_package = focused_anr[2] if eligible else None
+    target = retiring_package if retiring_window is not None else recovery_package
+    identity = None
     if eligible or retiring_window is not None:
         if home is None or any(name in home.lower() for name in ("googlesdksetup", "fallbackhome")):
             raise MeasurementError("Home does not resolve to an unambiguous launcher")
         if any(values[name] != "1" for name in ("boot", "provisioned", "setup")):
             raise MeasurementError("boot and provisioning must complete before SDK recovery")
-        if not any(event["package"] == SETUP_PACKAGE for event in events):
-            raise MeasurementError("focused SDK ANR does not have a matching am_anr event")
+        matching_events = [event for event in events if event["package"] == target]
+        if not matching_events:
+            raise MeasurementError("focused system ANR does not have a matching am_anr event")
         if retiring_window is None and component(focused_app[0]) != home:
             raise MeasurementError("completed SDK setup has not handed focus ownership to Home")
+        if target == LAUNCHER_PACKAGE:
+            if platform.system() != "Linux" or platform.machine() != "x86_64":
+                raise MeasurementError("Launcher recovery is limited to Linux x86_64 emulator runners")
+            if home != LAUNCHER_HOME:
+                raise MeasurementError("NexusLauncher does not own the exact resolved Home component")
+            identity = launcher_identity(launcher_raw)
+            if retiring_window is None and identity["pid"] != matching_events[-1]["pid"]:
+                raise MeasurementError("current Launcher PID does not match its latest ANR event")
     return {"eligible": eligible, "resolvedHome": home, "focusedWindow": focus[0].strip(),
             "focusedApplication": focused_app[0].strip(), "anrEvents": events,
-            "sdkAnrWindow": next(iter(windows))[0] if windows else None,
+            "anrWindow": next(iter(windows))[0] if windows else None,
+            "sdkAnrWindow": next(iter(windows))[0] if windows and target == SETUP_PACKAGE else None,
+            "recoveryPackage": recovery_package, "launcherIdentity": identity,
             "homeFocused": home is not None and component(focus[0]) == home and component(focused_app[0]) == home,
             "bootCompleted": values["boot"], "provisioned": values["provisioned"],
             "userSetupComplete": values["setup"], "appInstalled": False, "verifiedAvd": expected_avd}
@@ -117,7 +168,7 @@ class Preparation:
                     "stderr": (error.stderr or b"").decode("utf-8", errors="replace"),
                     "stdout": None if binary else (error.stdout or b"").decode("utf-8", errors="replace")}, error.stdout or b""
 
-    def snapshot(self, serial, avd, name, *, retiring_window=None, deadline=None):
+    def snapshot(self, serial, avd, name, *, retiring_window=None, retiring_package=SETUP_PACKAGE, deadline=None):
         folder = self.output / serial
         folder.mkdir(exist_ok=True)
         record = {"name": name, "utc": datetime.now(timezone.utc).isoformat(), "commands": {}}
@@ -126,6 +177,15 @@ class Preparation:
                 record["commands"][key], _ = self.command(serial, args, deadline=deadline)
                 if record["commands"][key]["exitCode"] != 0:
                     raise MeasurementError(f"{key} command failed; no recovery is permitted")
+            launcher_raw = None
+            raw = record["commands"]["state"]["stdout"]
+            if (retiring_window is not None and retiring_package == LAUNCHER_PACKAGE
+                    or f"Application Not Responding: {LAUNCHER_PACKAGE}" in raw):
+                record["commands"]["launcher"], _ = self.command(
+                    serial, ["shell", section_script(LAUNCHER_QUERIES)], deadline=deadline)
+                if record["commands"]["launcher"]["exitCode"] != 0:
+                    raise MeasurementError("Launcher identity command failed; no recovery is permitted")
+                launcher_raw = record["commands"]["launcher"]["stdout"]
             screenshot, pixels = self.command(serial, ["exec-out", "screencap", "-p"], binary=True, deadline=deadline)
             record["commands"]["screenshot"] = screenshot
             # Preserve original bytes even when screenshot validation fails.
@@ -137,7 +197,8 @@ class Preparation:
                     or not pixels.endswith(b"\x00\x00\x00\x00IEND\xaeB\x60\x82")):
                 raise MeasurementError("original PNG could not be retained; no recovery is permitted")
             record["state"] = inspect_state(record["commands"]["state"]["stdout"], avd,
-                                             record["commands"]["avd"]["stdout"], retiring_window=retiring_window)
+                                             record["commands"]["avd"]["stdout"], retiring_window=retiring_window,
+                                             retiring_package=retiring_package, launcher_raw=launcher_raw)
             return record["state"]
         finally:
             (folder / f"{name}.json").write_text(json.dumps(record, indent=2) + "\n", encoding="utf-8")
@@ -157,24 +218,30 @@ class Preparation:
         confirmed = self.snapshot(serial, avd, "confirmed-before-recovery")
         if confirmed != before:
             raise MeasurementError("SDK recovery preconditions changed; no mutation is permitted")
-        self.mutate(serial, "force-stop-attempt", ["shell", f"am force-stop --user 0 {SETUP_PACKAGE}"])
+        package = before["recoveryPackage"]
+        if package not in (SETUP_PACKAGE, LAUNCHER_PACKAGE):
+            raise MeasurementError("system recovery has no exact permitted package")
+        self.mutate(serial, "force-stop-attempt", ["shell", f"am force-stop --user 0 {package}"])
         limit = min(self.deadline, self.clock() + 30)
 
         def observe(name):
-            after = self.snapshot(serial, avd, name, retiring_window=before["sdkAnrWindow"], deadline=limit)
+            after = self.snapshot(serial, avd, name, retiring_window=before["anrWindow"],
+                                  retiring_package=package, deadline=limit)
             if after["anrEvents"] != before["anrEvents"] or after["resolvedHome"] != before["resolvedHome"]:
                 raise MeasurementError("ANR events or Home changed after recovery; no further mutation is permitted")
+            if package == LAUNCHER_PACKAGE and after["launcherIdentity"]["uid"] != before["launcherIdentity"]["uid"]:
+                raise MeasurementError("system Launcher UID changed after recovery")
             return after
 
         # Android dismisses ANR dialogs asynchronously. Observe only the original
         # window retiring; never give a different dialog the same authorization.
         stopped = observe("after-force-stop")
         index = 0
-        while stopped["sdkAnrWindow"] is not None and self.clock() < limit:
+        while stopped["anrWindow"] is not None and self.clock() < limit:
             self.sleep(min(1, max(0, limit - self.clock())))
             stopped = observe(f"after-force-stop-settle-{index:02}")
             index += 1
-        if stopped["sdkAnrWindow"] is not None or self.clock() >= limit:
+        if stopped["anrWindow"] is not None or self.clock() >= limit:
             raise MeasurementError("SDK ANR window did not retire after the single force-stop")
         self.mutate(serial, "home-attempt", ["shell", "am start -W --user 0 -a android.intent.action.MAIN "
                                              "-c android.intent.category.HOME -n " + shlex.quote(before["resolvedHome"])],
@@ -182,8 +249,11 @@ class Preparation:
         index = 0
         while self.clock() < limit:
             after = observe(f"after-home-{index:02}")
-            if after["homeFocused"] and after["sdkAnrWindow"] is None:
-                return {"status": "recovered-once", "before": before, "after": after}
+            if after["homeFocused"] and after["anrWindow"] is None:
+                if (package == LAUNCHER_PACKAGE
+                        and after["launcherIdentity"]["pid"] in (None, before["launcherIdentity"]["pid"])):
+                    raise MeasurementError("Home focus has no verified new system Launcher process")
+                return {"status": "recovered-once", "package": package, "before": before, "after": after}
             index += 1
             self.sleep(min(1, max(0, limit - self.clock())))
         raise MeasurementError("Home did not regain focus after the single SDK recovery")
@@ -202,7 +272,7 @@ def prepare(adb, devices, output, *, execute=subprocess.run, clock=time.monotoni
             if before["eligible"]:
                 report["devices"][serial] = runner.recover(serial, avd, before)
             else:
-                report["devices"][serial] = {"status": "not-needed", "reason": "no current SDK Setup ANR; no mutation", "before": before}
+                report["devices"][serial] = {"status": "not-needed", "reason": "no current eligible system ANR; no mutation", "before": before}
         report["status"] = "prepared"
     except (MeasurementError, OSError) as error:
         report["reason"] = str(error)

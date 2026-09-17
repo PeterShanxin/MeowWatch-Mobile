@@ -28,6 +28,7 @@ class FakeAdb:
         self.calls = []
         self.fail_once = None
         self.pid = b""
+        self.installed = True
 
     def run(self, *args, **kwargs):
         self.calls.append(args)
@@ -47,6 +48,8 @@ class FakeAdb:
             value = b""
         elif args == ("shell", "pidof", PACKAGE):
             value = self.pid
+        elif args == ("shell", "pm", "list", "packages", "--user", "0", PACKAGE):
+            value = f"package:{PACKAGE}\n".encode() if self.installed else b""
         else:
             value = b""
         return subprocess.CompletedProcess(args, 0, value, b"")
@@ -282,6 +285,73 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaises(RuntimeFailure):
                 runner.stop_test_app()
             self.assertNotIn(("shell", "am", "force-stop", PACKAGE), runner.adb.calls)
+
+    def test_early_failed_teardown_preserves_first_failure_without_crediting_phases(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.android_pid = 456
+            runner.phase_index = 2
+            marker = {"runId": RUN_ID, "phase": "teardown-complete", "pid": 456,
+                      "passed": False, "failure": {"stage": "initial-playback",
+                      "message": "Both native decoders did not advance in initial"}}
+            with self.assertRaisesRegex(RuntimeFailure, "integration failed during initial-playback"):
+                runner.observe_checkpoint(marker)
+            self.assertEqual(runner.phase_index, 2)
+            self.assertEqual(runner.events[-1]["failure"], marker["failure"])
+            self.assertFalse(any(call[:2] == ("shell", "svc") for call in runner.adb.calls))
+
+    def test_early_successful_teardown_and_wrong_pid_failure_cannot_bypass_protocol(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.android_pid = 456
+            runner.phase_index = 2
+            for changes in ({"passed": True, "pid": 456}, {"passed": False, "pid": 789}):
+                with self.subTest(changes=changes), self.assertRaises(RuntimeFailure):
+                    runner.observe_checkpoint({"runId": RUN_ID, "phase": "teardown-complete", **changes})
+                self.assertEqual(runner.phase_index, 2)
+                self.assertEqual(runner.events, [])
+
+    def test_failed_teardown_without_new_diagnostics_still_names_last_completed_phase(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.phase_index = 2
+            with self.assertRaisesRegex(RuntimeFailure, "failed after players-ready"):
+                runner.observe_checkpoint({"runId": RUN_ID, "phase": "teardown-complete",
+                                           "pid": 456, "passed": False})
+            self.assertEqual(runner.phase_index, 2)
+
+    def test_uninstalled_integration_app_has_no_remaining_ack_sandbox(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.installed = False
+            path = f"files/network-{RUN_ID}-recording-ready"
+            runner.remove_ack(path)
+            self.assertFalse(any(call[:2] == ("shell", "run-as") for call in runner.adb.calls))
+            self.assertEqual(runner.events[-1]["status"], "app-already-uninstalled")
+            self.assertEqual(runner.events[-1]["path"], path)
+
+    def test_installed_app_ack_is_removed_and_query_or_removal_errors_are_not_hidden(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            path = f"files/network-{RUN_ID}-recording-ready"
+            runner.remove_ack(path)
+            self.assertIn(("shell", "run-as", PACKAGE, "rm", "-f", path), runner.adb.calls)
+            run = runner.adb.run
+            for failing in (("shell", "pm"), ("shell", "run-as")):
+                def fail(*args, **kwargs):
+                    if args[:2] == failing:
+                        raise RuntimeFailure("native cleanup command failed")
+                    return run(*args, **kwargs)
+                with self.subTest(failing=failing), patch.object(runner.adb, "run", side_effect=fail):
+                    with self.assertRaisesRegex(RuntimeFailure, "native cleanup command failed"):
+                        runner.remove_ack(path)
 
 
 if __name__ == "__main__":

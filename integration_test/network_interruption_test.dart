@@ -50,17 +50,38 @@ void main() {
       final subscriptions = <StreamSubscription<dynamic>>[];
       final clients = <SyncplayClient>[];
       final peerErrors = <String>[];
+      final protocolTrace = <Map<String, Object?>>[];
+      void trace(String role, String line) {
+        final entry = {
+          'role': role,
+          'atUtc': DateTime.now().toUtc().toIso8601String(),
+          'line': line,
+        };
+        // The full trace remains in logcat; retain the most recent traffic in
+        // result.json as well, including when an assertion fails before outage.
+        if (protocolTrace.length == 600) protocolTrace.removeAt(0);
+        protocolTrace.add(entry);
+        debugPrintSynchronously('NETWORK_SYNC ${jsonEncode(entry)}');
+      }
+
       final billing = RevenueCatBillingService(apiKey: revenueCatPublicKey);
       // Two decoders share this test process. Production phones keep their
       // default exclusive audio policy; this does not model two devices.
       final phone = LocalMobileTarget(mixWithOthers: true);
       final peerTarget = LocalMobileTarget(mixWithOthers: true);
-      final peer = SyncplayClient();
+      final peer = SyncplayClient(onLog: (line) => trace('guest', line));
       final peerBridge = PlaybackSyncBridge(
         target: peerTarget,
         sync: peer,
         authorizePlayback: () async => true,
-        onError: (error) => peerErrors.add(error.toString()),
+        onError: (error) {
+          peerErrors.add(error.toString());
+          observations.add({
+            'phase': 'peer-command-error',
+            'atUtc': DateTime.now().toUtc().toIso8601String(),
+            'error': error.toString(),
+          });
+        },
       );
       final hosting = LocalHostingAccessPolicy(
         store: FileHostingQuotaStore(quotaFile),
@@ -72,7 +93,7 @@ void main() {
         hosting: hosting,
         phone: phone,
         createSyncClient: () {
-          final client = SyncplayClient();
+          final client = SyncplayClient(onLog: (line) => trace('host', line));
           clients.add(client);
           subscriptions.add(
             client.connectionState.listen((state) {
@@ -89,6 +110,8 @@ void main() {
       );
       final nativeScreenshots = NativeScreenshots(binding);
       var completed = false;
+      var stage = 'bootstrap';
+      Map<String, Object?>? failure;
       final teardownErrors = <String>[];
 
       Future<void> screenshot(String phase) async {
@@ -103,6 +126,7 @@ void main() {
       }
 
       Future<void> checkpoint(String phase, String acknowledgement) async {
+        stage = '$phase / awaiting $acknowledgement';
         debugPrintSynchronously(
           'NETWORK_CHECKPOINT ${jsonEncode({'runId': _runId, 'phase': phase, 'pid': pid})}',
         );
@@ -152,6 +176,7 @@ void main() {
           'production home',
         );
         await checkpoint('app-ready', 'bootstrap-observed');
+        stage = 'host-starttls';
         await _tap(tester, find.byKey(const Key('start-room-button')));
         await _wait(
           tester,
@@ -162,6 +187,7 @@ void main() {
         final room = app.room!;
         expect(room.isHost, isTrue);
         final guestName = 'NetworkPeer $tag';
+        stage = 'guest-starttls';
         expect(
           await peer
               .connectUntilJoin(
@@ -179,6 +205,7 @@ void main() {
           () => app.peers.contains(peer.username),
           'real peer',
         );
+        stage = 'host-media-load';
         await _tap(tester, find.widgetWithText(TextButton, 'Video'));
         await _wait(
           tester,
@@ -201,6 +228,7 @@ void main() {
         );
         final media = phone.snapshot.media!;
         expect(media.uri, Uri.parse(_videoUrl));
+        stage = 'guest-media-load';
         await peerBridge.load(media).timeout(const Duration(seconds: 70));
         final hostController = phone.controller;
         final guestController = peerTarget.controller;
@@ -211,6 +239,7 @@ void main() {
           greaterThan(const Duration(seconds: 80)),
         );
         await checkpoint('players-ready', 'recording-ready');
+        stage = 'initial-playback';
         await _playControl(tester, play: true);
         await _advancing(
           tester,
@@ -239,6 +268,7 @@ void main() {
         verified.add('initial_real_tls_native_playback_and_consumed_host');
         await checkpoint('initial-ready', 'network-disabled');
 
+        stage = 'offline-proof-and-auto-pause';
         await _probe(
           address!,
           room.config.port,
@@ -292,6 +322,7 @@ void main() {
         verified.add('physical_avd_network_unreachable_and_visible_auto_pause');
         await checkpoint('offline-confirmed', 'network-restored');
 
+        stage = 'automatic-reconnect-without-autoplay';
         await _wait(
           tester,
           () =>
@@ -342,6 +373,7 @@ void main() {
         verified.add('same_room_media_controllers_quota_and_no_autoplay');
         await checkpoint('reconnected-confirmed', 'controls-ready');
 
+        stage = 'explicit-play-after-reconnect';
         await _playControl(tester, play: true);
         await _advancing(
           tester,
@@ -352,6 +384,7 @@ void main() {
           observations,
           'explicit-play-after-reconnect',
         );
+        stage = 'explicit-pause-after-reconnect';
         await _playControl(tester, play: false);
         await _paused(
           tester,
@@ -362,6 +395,7 @@ void main() {
           observations,
           'explicit-pause-after-reconnect',
         );
+        stage = 'explicit-seek-after-reconnect';
         final slider = find.byType(Slider).hitTestable().first;
         await _wait(
           tester,
@@ -414,6 +448,23 @@ void main() {
         verified.add('explicit_production_play_pause_seek_and_real_peer_sync');
         await checkpoint('recovery-confirmed', 'evidence-complete');
         completed = true;
+      } catch (error, stack) {
+        failure = {
+          'stage': stage,
+          'atUtc': DateTime.now().toUtc().toIso8601String(),
+          'message': error.toString(),
+          'stackTrace': stack.toString(),
+          'host': _playerEvidence(phone, app.playRequested),
+          'guest': _playerEvidence(peerTarget, peerBridge.playRequested),
+          'hostConnection': app.connection.status.name,
+          'guestConnection': peer.lastConnectionState?.status.name,
+          'hostRoomState': _roomEvidence(
+            clients.isEmpty ? null : clients.last.lastObservedRoomState,
+          ),
+          'guestRoomState': _roomEvidence(peer.lastObservedRoomState),
+          'peerErrors': List<String>.of(peerErrors),
+        };
+        rethrow;
       } finally {
         Future<void> cleanup(
           String name,
@@ -443,11 +494,25 @@ void main() {
           'passed': completed && teardownErrors.isEmpty,
           'verified': verified,
           'observations': observations,
+          'protocolTrace': protocolTrace,
+          'peerErrors': peerErrors,
+          'failure': failure,
           'screenshots': screenshots,
           'teardownErrors': teardownErrors,
         };
+        // Logcat truncates long lines. Keep this coordination marker bounded;
+        // result.json retains the complete failure, samples, and stack trace.
+        final message = failure?['message']?.toString().split('\n').first ?? '';
+        final terminalFailure = failure == null
+            ? null
+            : {
+                'stage': failure['stage'],
+                'message': message.length > 400
+                    ? '${message.substring(0, 400)}...'
+                    : message,
+              };
         debugPrintSynchronously(
-          'NETWORK_CHECKPOINT ${jsonEncode({'runId': _runId, 'phase': 'teardown-complete', 'pid': pid, 'passed': completed && teardownErrors.isEmpty})}',
+          'NETWORK_CHECKPOINT ${jsonEncode({'runId': _runId, 'phase': 'teardown-complete', 'pid': pid, 'passed': completed && teardownErrors.isEmpty, 'failure': terminalFailure})}',
         );
         expect(teardownErrors, isEmpty);
       }
@@ -463,6 +528,45 @@ Map<String, Object?> _connection(String role, SyncConnectionState state) => {
   'atUtc': DateTime.now().toUtc().toIso8601String(),
   'message': state.message,
 };
+
+Map<String, Object?> _playerEvidence(
+  LocalMobileTarget target,
+  bool playRequested,
+) {
+  final snapshot = target.snapshot;
+  final value = target.controller?.value;
+  return {
+    'playRequested': playRequested,
+    'targetPlayRequested': target.playRequested,
+    'snapshot': {
+      'positionMs': snapshot.position.inMilliseconds,
+      'durationMs': snapshot.duration.inMilliseconds,
+      'playing': snapshot.playing,
+      'buffering': snapshot.buffering,
+      'connection': snapshot.connection.name,
+      'error': snapshot.error,
+    },
+    'controller': value == null
+        ? null
+        : {
+            'positionMs': value.position.inMilliseconds,
+            'playing': value.isPlaying,
+            'buffering': value.isBuffering,
+            'initialized': value.isInitialized,
+            'completed': value.isCompleted,
+            'error': value.errorDescription,
+          },
+  };
+}
+
+Map<String, Object?>? _roomEvidence(PeerPlayState? state) => state == null
+    ? null
+    : {
+        'positionMs': state.position.inMilliseconds,
+        'paused': state.paused,
+        'doSeek': state.doSeek,
+        'setBy': state.setBy,
+      };
 
 Future<String?> _probe(
   String address,
@@ -573,6 +677,14 @@ Future<void> _advancing(
 ) async {
   final start = await _nativePositions(host, guest);
   final samples = <Map<String, Object?>>[];
+  final evidence = <String, Object?>{
+    'phase': phase,
+    'startedAtUtc': DateTime.now().toUtc().toIso8601String(),
+    'startNativeMs': start,
+    'nativeAdvancementSamples': samples,
+    'converged': false,
+  };
+  observations.add(evidence);
   final clock = Stopwatch()..start();
   while (clock.elapsed < const Duration(seconds: 30)) {
     final positions = await _nativePositions(host, guest);
@@ -585,18 +697,23 @@ Future<void> _advancing(
       'elapsedMs': clock.elapsedMilliseconds,
       'nativeMs': positions,
       'playing': playing,
+      'host': _playerEvidence(host, app.playRequested),
+      'guest': _playerEvidence(guest, bridge.playRequested),
+      'guestRoomState': _roomEvidence(bridge.sync.lastObservedRoomState),
     });
     if (playing &&
         positions[0] > start[0] + 1500 &&
         positions[1] > start[1] + 1500 &&
         (positions[0] - positions[1]).abs() < 1000) {
-      observations.add({'phase': phase, 'nativeAdvancementSamples': samples});
+      evidence['converged'] = true;
+      evidence['convergedElapsedMs'] = clock.elapsedMilliseconds;
       return;
     }
     await tester.pump(const Duration(milliseconds: 200));
   }
   throw TestFailure(
-    'Both native decoders did not advance in $phase: ${jsonEncode(samples)}',
+    'Both native decoders did not advance in $phase. '
+    'Full native advancement samples are retained in result.json.',
   );
 }
 
@@ -612,6 +729,13 @@ Future<void> _paused(
 }) async {
   final clock = Stopwatch()..start();
   final samples = <Map<String, Object?>>[];
+  final evidence = <String, Object?>{
+    'phase': phase,
+    'startedAtUtc': DateTime.now().toUtc().toIso8601String(),
+    'samples': samples,
+    'converged': false,
+  };
+  observations.add(evidence);
   Stopwatch? stable;
   List<int>? first;
   var count = 0;
@@ -632,18 +756,19 @@ Future<void> _paused(
       'elapsedMs': clock.elapsedMilliseconds,
       'nativeMs': position,
       'paused': paused,
+      'host': _playerEvidence(host, app.playRequested),
+      'guest': _playerEvidence(guest, bridge.playRequested),
+      'guestRoomState': _roomEvidence(bridge.sync.lastObservedRoomState),
     });
     if (settled) {
       first ??= position;
       stable ??= Stopwatch()..start();
       count++;
       if (count >= 9 && stable.elapsed >= const Duration(milliseconds: 800)) {
-        observations.add({
-          'phase': phase,
-          'stableSamples': count,
-          'stableElapsedMs': stable.elapsedMilliseconds,
-          'samples': samples,
-        });
+        evidence['stableSamples'] = count;
+        evidence['stableElapsedMs'] = stable.elapsedMilliseconds;
+        evidence['converged'] = true;
+        evidence['convergedElapsedMs'] = clock.elapsedMilliseconds;
         return;
       }
     } else {
@@ -654,6 +779,7 @@ Future<void> _paused(
     await tester.pump(const Duration(milliseconds: 100));
   }
   throw TestFailure(
-    'Native pause did not settle in $phase: ${jsonEncode(samples)}',
+    'Native pause did not settle in $phase. '
+    'Full native pause samples are retained in result.json.',
   );
 }

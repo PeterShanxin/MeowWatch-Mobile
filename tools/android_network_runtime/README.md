@@ -42,6 +42,17 @@ coverage. App/TLS/decoder teardown, original-radio restoration and evidence
 cleanup must all succeed. A timeout, incomplete evidence, failed restore, wrong
 AVD/PID, restart, or unexpected checkpoint fails the gate.
 
+Failed app teardown is a terminal failure even when earlier acceptance phases
+were not reached; it does not credit those phases or obscure the app assertion
+with a checkpoint-order error. `result.json` retains the first failure's stage,
+stack, both playback intents, controller/snapshot buffering and error states,
+and all native position samples collected before convergence or timeout. Raw
+redacted Syncplay traffic and follow decisions are retained in logcat, with the
+last 600 entries also in the result. No playback or outage tolerance is changed
+for diagnostics. If Flutter's driver already uninstalled its integration APK,
+a successful Android package query establishes that its acknowledgement sandbox
+is gone; query failures and failed removal from an installed app still fail cleanup.
+
 The workflow builds a unique APK with `NETWORK_RUN_ID` and creates an AVD named
 `NETWORK_AVD_NAME`. `tools/android_network_runtime/ci.sh` starts/stops only its
 owned fixture server and runs the Python orchestrator. The orchestrator requires

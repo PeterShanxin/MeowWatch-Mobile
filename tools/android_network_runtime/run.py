@@ -246,6 +246,18 @@ class Runner:
 
     def remove_ack(self, path: str) -> None:
         require_owned_avd(self.adb, self.avd_name)
+        # flutter drive uninstalls its integration APK when it exits. A
+        # successful package query establishes that its sandbox is already gone;
+        # a failed query or an installed app's failed rm must still fail cleanup.
+        installed = self.adb.run("shell", "pm", "list", "packages", "--user", "0", PACKAGE)
+        packages = installed.stdout.decode("utf-8").splitlines()
+        if installed.stderr.strip() or any(
+                re.fullmatch(r"package:[A-Za-z0-9_.]+", line) is None for line in packages):
+            raise RuntimeFailure("cannot establish whether the integration app is still installed")
+        if f"package:{PACKAGE}" not in packages:
+            self.event({"operation": "remove-ack", "path": path,
+                        "status": "app-already-uninstalled", "packageQuery": packages})
+            return
         self.adb.run("shell", "run-as", PACKAGE, "rm", "-f", path)
 
     def remove_device_evidence(self) -> None:
@@ -276,7 +288,8 @@ class Runner:
 
     def observe_checkpoint(self, value: dict) -> None:
         phase = value["phase"]
-        if self.phase_index >= len(PHASES) or phase != PHASES[self.phase_index]:
+        failed_teardown = phase == "teardown-complete" and value.get("passed") is False
+        if not failed_teardown and (self.phase_index >= len(PHASES) or phase != PHASES[self.phase_index]):
             raise RuntimeFailure(f"duplicate or out-of-order checkpoint: {phase}")
         current = self.adb.run("shell", "pidof", PACKAGE).stdout.strip()
         if current != str(value["pid"]).encode("ascii"):
@@ -285,6 +298,14 @@ class Runner:
             raise RuntimeFailure("MainApp restarted; this is a same-process network gate")
         self.android_pid = value["pid"]
         self.event({"operation": "checkpoint", **value})
+        if failed_teardown:
+            # finally runs after any app assertion failure. Retain that first
+            # failure without crediting phases the test never reached.
+            failure = value.get("failure")
+            if isinstance(failure, dict) and failure.get("stage") and failure.get("message"):
+                raise RuntimeFailure(f"integration failed during {failure['stage']}: {failure['message']}")
+            previous = PHASES[self.phase_index - 1] if self.phase_index else "startup"
+            raise RuntimeFailure(f"integration test failed after {previous}; see flutter-drive.log and result.json")
         self.phase_index += 1
         if phase == "app-ready":
             self.capture(phase)

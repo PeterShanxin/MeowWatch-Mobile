@@ -3,8 +3,10 @@
 > **Recording status (2026-09-17): final acceptance pending.** The Local Mode
 > and Continue Watching journey passes across five native API 35 emulator
 > viewports at `f8fdd62` in [run 35191578190](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35191578190).
-> Production purchase footage passes all ten stages at `feaeb77` in
-> [run 35194003110](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35194003110).
+> Production purchase passes all ten stages at `70575be` in
+> [run 35199455085](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35199455085).
+> Its free-host raw interval is obscured by Google SDK setup's ANR; later clean
+> quota, purchase, restore and paid-host clips have been identified separately.
 > Final production Together acceptance and the edited film remain pending.
 
 ## Capture and edit rules
@@ -46,7 +48,7 @@ MP4s after acceptance; screenshots are state anchors, not motion sources.
 | **0:19–0:39** | Paired native video: host Play, Pause and seek, followed by guest control and host response. | **Play · Pause · Seek** / **Either person can control** | Retain at least one continuous cause-and-response interval at 1×. Both decoded surfaces and accepted native convergence results are required; no invented drift counter. |
 | **0:39–0:50** | Guest sends the actual movie-night chat, host receives and replies; guest sends a heart and host shows it. | “Chat and reactions keep the shared moment beside the movie.” | Both production UI social paths must pass. Preserve the recorded names and message text. |
 | **0:50–1:01** | Separate Local Mode take: brief real playback, then Home → **Continue Watching** → saved video at its recorded position. | **Your place, remembered** / “Local Mode works when you just want a player.” | The `f8fdd62` native journey passes. Its restored video is paused; do not imply automatic playback or that this local history belongs to the preceding Together room. |
-| **1:01–1:09** | The purchase journey's free hosted playback, then leave → start another room → actual quota paywall. | **Host more movie nights** / “Joining stays free. One hosted session a day is included.” | Use one accepted production purchase run for this and all following Plus shots. Show one phone: its headless TLS peer is not a second decoded screen. |
+| **1:01–1:09** | Clean quota-paywall interval after the native cancellation result. | **Host more movie nights** / “Joining stays free. One hosted session a day is included.” | The accepted session ledger proves the free session was consumed; its moving free-host footage is obscured and must not be presented as clean. Use this same accepted run for the following Plus shots. Its headless TLS peer is not a filmed device. |
 | **1:09–1:23** | Monthly purchase CTA → native RevenueCat Test Store success dialog → real success action → paywall closes and hosting unlocks. | **RevenueCat Test Store · sandbox purchase** / “MeowWatch Plus unlocks unlimited hosting.” | Keep the actual dialog readable for at least three seconds. Select the success attempt after cancellation/failure; retain those earlier outcomes in the evidence package. A recording gap through the proof action requires a new take. |
 | **1:23–1:36** | First paid room playing → leave → start again → second distinct paid room playing. | **Another room. And another.** | Show both room identities and native progress. The accepted session ledger must prove two distinct paid Together Sessions; an empty automatically retried room is not a metered session. |
 | **1:36–1:44** | Clearly cut Settings insert: **Restore purchases** → active Plus result → Appearance → **Cinema Noir** applied. | “Restore checks your purchase. Plus also sets the mood with Cinema Noir.” | These earlier shots are editorially reordered. Restore checks an already-active customer; it does not prove recovery after lost access or reinstall. If unreadable in eight seconds, hold the theme and retain restore in the evidence package. |

@@ -16,32 +16,32 @@
   },
   "source": {
     "repository": "PeterShanxin/MeowWatch-Mobile",
-    "commit": "feaeb77a02c6f3274e78caf861ddf62a2253e219",
-    "githubRunId": 35194003110,
-    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35194003110",
-    "githubJobId": 105112827335,
+    "commit": "70575be5c9d1cc89f25ff0b6ee68451380eb9056",
+    "githubRunId": 35199455085,
+    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35199455085",
+    "githubJobId": 105130437986,
     "artifactName": "production-purchase-1",
-    "artifactId": 10485676616,
-    "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/free-home.png",
-    "artifactRunId": "20260917T072818Z-3ca4cf66",
+    "artifactId": 10488215223,
+    "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/free-home.png",
+    "artifactRunId": "20260917T083130Z-0d631bd0",
     "sourceDocuments": [
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/run.json",
-        "sha256": "df868d18daafc3ba896b3f943c68ea8d1d52f942005edfc98963160b65340a48"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/run.json",
+        "sha256": "30746a346fde0390fe9328841a66b1a4f593a0e6d2b020a26dba886487b7c55d"
       },
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/result.json",
-        "sha256": "20f010a36ded53397fe894e1fd383472840b1664de2acfdb672d006ab5969a1d"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/result.json",
+        "sha256": "61d05685bc03d285997c2f4e4fbf47d456b52a5b5f9fe1d60e345d4ba9690c04"
       }
     ],
     "recordings": [
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/journey-001.mp4",
-        "sha256": "232e10360adbc2b3829876e3796b7ebea4c756d09c9fcf551efa5ea043755333"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/journey-001.mp4",
+        "sha256": "c30c3425e2cb7924d53b8af6dae01f98ca2360c5b7a7d8195dbbf1a1bca49522"
       },
       {
-        "artifactRelativePath": "production-purchase-artifacts/20260917T072818Z-3ca4cf66/journey-002.mp4",
-        "sha256": "7023b6b3d3faafc4a5ff8d9f46529282a068e765e967c19c0007522317ad6a4d"
+        "artifactRelativePath": "production-purchase-artifacts/20260917T083130Z-0d631bd0/journey-002.mp4",
+        "sha256": "f9a2f4e56bbc8d9401ebe8b93f351f253537c1c3dbc357aee64c6d7113ee2a40"
       }
     ]
   },
@@ -59,7 +59,7 @@
     ],
     "displayConfiguration": "The emulator display was configured to 1179x2556 before native capture; the exported PNG was not resized.",
     "appEntrypoint": "Production MainApp",
-    "apkSha256": "0251abe9f9df09fdc60c8c4ea80c2c6d4826bb28116a62d89fa86f961bf25513",
+    "apkSha256": "793c4b1a72b36bb56166251f9c7a9d928e2776cd4745fcf9f01037e817fec1b7",
     "cleanInstall": true,
     "peerBoundary": "Android MainApp; one native player and independent headless TLS peer in one process"
   },
@@ -108,6 +108,7 @@
       "selectedViaUiAndPersisted": true,
       "theme": "cinemaNoir"
     },
-    "interpretation": "The screenshot establishes the rendered native free-customer home screen. Its source workflow completed the ten recorded emulator acceptance stages, including one free host, two paid hosts, native Test Store cancel/failure/success, same-customer restore after cache invalidation, and premium theme persistence. This run does not establish physical-device rendering or reinstall/lost-identity recovery."
+    "interpretation": "The clean, unobscured free-home capture was visually inspected and establishes the rendered native free-customer home screen. Its source workflow completed the ten recorded emulator acceptance stages, including one free host, two paid hosts, native Test Store cancel/failure/success, same-customer restore after cache invalidation, and premium theme persistence. This run does not establish physical-device rendering or reinstall/lost-identity recovery.",
+    "recordingCaveat": "This is screenshot provenance, not a claim of clean continuous demo footage. Integration review identified a com.google.android.googlesdksetup ANR overlay in raw journey-001.mp4 at approximately 29-43 seconds; the selected original free-home PNG is unobscured. Raw segment rotation and transfer gaps also remain."
   }
 }

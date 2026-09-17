@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:integration_test/integration_test.dart';
@@ -69,8 +70,14 @@ void main() {
 
       final isHost = _role == 'host';
       final peerRole = isHost ? 'guest' : 'host';
-      final name = isHost ? 'Production Host' : 'Production Guest';
-      final peerName = isHost ? 'Production Guest' : 'Production Host';
+      // Public Syncplay servers reserve names across rooms. Parallel baseline
+      // and candidate runs must not force each other's participants to rename.
+      final nameSuffix = sha256
+          .convert(utf8.encode(_runId))
+          .toString()
+          .substring(0, 16);
+      final name = '${isHost ? 'Host' : 'Guest'} $nameSuffix';
+      final peerName = '${isHost ? 'Guest' : 'Host'} $nameSuffix';
       final screenshots = <String>[];
       final verified = <String>[];
       final observations = <Map<String, Object?>>[];
@@ -807,6 +814,8 @@ void main() {
         'role': _role,
         'entryRoute': isHost ? 'start-room-button' : 'join-room-sheet',
         'coordinationRunId': _runId,
+        'requestedParticipantName': name,
+        'expectedPeerName': peerName,
         'initialRoom': <String, Object>{
           'id': originalRoom.id,
           'room': originalRoom.config.room,

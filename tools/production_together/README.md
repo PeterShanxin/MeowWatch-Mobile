@@ -37,6 +37,11 @@ Compile both roles with the same rendezvous values:
 --dart-define=TOGETHER_COORDINATION_URL=http://10.0.2.2:18766/invite
 ```
 
+Each role enters a run-specific display name through onboarding, within the
+24-character product limit. Public Syncplay servers reserve usernames across
+rooms, so separate concurrent workflows must also use different run IDs to
+avoid server-side renames. The final ledger records both expected names.
+
 The contract is deliberately small:
 
 - `PUT /invite?run=<run-id>` with JSON

@@ -53,6 +53,29 @@ for diagnostics. If Flutter's driver already uninstalled its integration APK,
 a successful Android package query establishes that its acknowledgement sandbox
 is gone; query failures and failed removal from an installed app still fail cleanup.
 
+Each native position read emits bounded `NETWORK_NATIVE_POSITION` start/end
+records with the run and admitted app PID, phase, baseline/advancing/paused stage,
+host/guest role, native player ID, per-phase read index, UTC times, monotonic
+elapsed milliseconds, outcome and the unchanged 5000 ms timeout. Reads remain
+sequential (host, then guest). An error is rethrown with its original stack; a
+timed-out read is never retried or replaced with the controller's cached position.
+The advancement observation exists before its first baseline read, so a baseline
+timeout still retains its role and timing. `result.json` keeps the last 512 reads
+per phase plus total/dropped counts; raw logcat retains every emitted record.
+
+After log capture stops, the runner creates `native-position-reads.json` solely
+from that existing log. It accepts only the same run/PID and known phase/role/stage
+fields, retains the last 4096 records with truncation/rejection counts, and pairs
+start/end only for the same read identity and controller. Pending starts and ends
+without a matching start in the retained tail are explicit; a missing end does
+not establish a native timeout. Missing logs/PID or indexing errors are reported
+as unavailable diagnostics in `gate.json`; they cannot replace the first failure
+or affect the gate verdict. No additional device query, signal, capture, position
+read or success-path wait is introduced. The original 30-second advancement,
+pause/outage thresholds and live frame policy remain unchanged. These timings
+locate an observed wait; they do not establish whether Android, the platform
+channel or Dart scheduling caused it.
+
 The workflow builds a unique APK with `NETWORK_RUN_ID` and creates an AVD named
 `NETWORK_AVD_NAME`. `tools/android_network_runtime/ci.sh` starts/stops only its
 owned fixture server and runs the Python orchestrator. The orchestrator requires

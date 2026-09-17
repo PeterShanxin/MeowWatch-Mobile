@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from tools.android_network_runtime.run import (
     PACKAGE, PHASES, REQUIRED, Radios, Runner, RuntimeFailure,
-    parse_checkpoint, parse_radio, require_owned_avd, validate_result,
+    native_position_diagnostics, parse_checkpoint, parse_radio, require_owned_avd, validate_result,
 )
 
 
@@ -160,6 +160,104 @@ def result():
                 {"phase": "probe-restored", "address": "192.0.2.1", "port": 8997, "reachable": True}]}
 
 
+def position_record(**changes):
+    return {"runId": RUN_ID, "pid": 456, "phase": "initial", "readStage": "baseline",
+            "readIndex": 1, "role": "host", "controllerId": 7,
+            "startedAtUtc": "2026-09-18T00:00:00.000Z", "timeoutMs": 5000,
+            "event": "start", "status": "pending", **changes}
+
+
+class NativePositionDiagnosticTests(unittest.TestCase):
+    def summarize(self, root, records, app_pid=456):
+        path = root / "logcat.txt"
+        text = "unrelated native output\n" + "".join(
+            "I/flutter: NETWORK_NATIVE_POSITION " + json.dumps(record) + "\n" for record in records)
+        path.write_text(text, encoding="utf-8")
+        evidence = native_position_diagnostics(path, RUN_ID, app_pid)
+        self.assertEqual(path.read_text(encoding="utf-8"), text)
+        return evidence
+
+    def test_first_baseline_timeout_is_retained_without_result_or_later_reads(self):
+        start = position_record()
+        end = position_record(event="end", status="timeout", elapsedMs=5013,
+                              endedAtUtc="2026-09-18T00:00:05.013Z",
+                              error="TimeoutException after 0:00:05.000000: Future not completed")
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = self.summarize(Path(directory), [start, end])
+        self.assertEqual(evidence["acceptedRecords"], 2)
+        self.assertEqual(evidence["rejectedRecords"], 0)
+        self.assertEqual(evidence["records"][-1], {"logcatLine": 3, **end})
+        self.assertEqual(evidence["pendingReadsInRetainedTail"], [])
+        self.assertEqual(evidence["unpairedEndsInRetainedTail"], [])
+
+    def test_interrupted_start_is_pending_not_inferred_as_a_timeout(self):
+        with tempfile.TemporaryDirectory() as directory:
+            evidence = self.summarize(Path(directory), [position_record()])
+        self.assertEqual(len(evidence["pendingReadsInRetainedTail"]), 1)
+        pending = evidence["pendingReadsInRetainedTail"][0]
+        self.assertEqual(pending["status"], "pending")
+        self.assertNotIn("elapsedMs", pending)
+        self.assertNotIn("positionMs", pending)
+
+    def test_foreign_or_unbounded_records_cannot_complete_an_owned_start(self):
+        end = position_record(event="end", status="success", elapsedMs=4, positionMs=123,
+                              endedAtUtc="2026-09-18T00:00:00.004Z")
+        changes = ({"runId": "other"}, {"pid": 789}, {"pid": True},
+                   {"phase": "unknown"}, {"phase": []}, {"role": "unknown"},
+                   {"readStage": "paused"}, {"controllerId": "7"}, {"controllerId": 2**63},
+                   {"readIndex": 1000001}, {"timeoutMs": 6000}, {"error": "x" * 401},
+                   {"logcatLine": 1}, {"startedAtUtc": "x" * 41})
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            evidence = self.summarize(path, [position_record(), *({**end, **item} for item in changes)])
+        self.assertEqual(evidence["acceptedRecords"], 1)
+        self.assertEqual(evidence["rejectedRecords"], len(changes))
+        self.assertEqual(len(evidence["pendingReadsInRetainedTail"]), 1)
+
+    def test_different_role_or_controller_end_does_not_pair_with_start(self):
+        for changes in ({"role": "guest"}, {"controllerId": 8}):
+            end = position_record(event="end", status="success", elapsedMs=4, positionMs=123,
+                                  endedAtUtc="2026-09-18T00:00:00.004Z", **changes)
+            with self.subTest(changes=changes), tempfile.TemporaryDirectory() as directory:
+                evidence = self.summarize(Path(directory), [position_record(), end])
+            self.assertEqual(len(evidence["pendingReadsInRetainedTail"]), 1)
+            self.assertEqual(len(evidence["unpairedEndsInRetainedTail"]), 1)
+
+    def test_retention_limit_is_explicit_and_does_not_invent_missing_starts(self):
+        records = []
+        for index in range(1, 4):
+            records.extend([position_record(readIndex=index), position_record(
+                readIndex=index, event="end", status="success", elapsedMs=4, positionMs=index,
+                endedAtUtc="2026-09-18T00:00:00.004Z")])
+        with tempfile.TemporaryDirectory() as directory, \
+                patch("tools.android_network_runtime.run.POSITION_RECORD_LIMIT", 3):
+            evidence = self.summarize(Path(directory), records)
+        self.assertEqual(evidence["acceptedRecords"], 6)
+        self.assertEqual(evidence["droppedRecords"], 3)
+        self.assertEqual(len(evidence["records"]), 3)
+        self.assertEqual(evidence["pendingReadsInRetainedTail"], [])
+        self.assertEqual(evidence["unpairedEndsInRetainedTail"][0]["readIndex"], 2)
+
+    def test_malformed_records_are_diagnostic_metadata_and_do_not_hide_valid_tail(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "logcat.txt"
+            path.write_text("NETWORK_NATIVE_POSITION {broken\n" * 22
+                            + "NETWORK_NATIVE_POSITION " + json.dumps(position_record()) + "\n",
+                            encoding="utf-8")
+            evidence = native_position_diagnostics(path, RUN_ID, 456)
+        self.assertEqual(evidence["rejectedRecords"], 22)
+        self.assertEqual(len(evidence["rejectionSamples"]), 20)
+        self.assertEqual(evidence["acceptedRecords"], 1)
+
+    def test_missing_log_or_unverified_pid_is_not_reported_as_zero_native_reads(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory)
+            self.assertEqual(native_position_diagnostics(path / "missing", RUN_ID, 456)["status"], "unavailable")
+            evidence = self.summarize(path, [position_record()], app_pid=None)
+        self.assertEqual(evidence["status"], "unavailable")
+        self.assertEqual(evidence["records"], [])
+
+
 class EvidenceTests(unittest.TestCase):
     def test_checkpoint_requires_run_id_pid_and_known_phase(self):
         self.assertIsNone(parse_checkpoint("unrelated native output", RUN_ID))
@@ -248,6 +346,32 @@ class EvidenceTests(unittest.TestCase):
             self.assertIn("RuntimeFailure: driver failed while offline", gate["errors"])
             restored = [event for event in runner.events if event.get("operation") == "restore"]
             self.assertEqual(len(restored), 1)
+
+    def test_offline_diagnostic_failure_never_changes_gate_errors_or_touches_device(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            for errors in ([], ["TimeoutException: original position read failure"]):
+                runner.errors = errors.copy()
+                with patch("tools.android_network_runtime.run.native_position_diagnostics",
+                           side_effect=OSError("raw log could not be indexed")):
+                    evidence = runner.write_position_diagnostics()
+                self.assertEqual(evidence["status"], "unavailable")
+                self.assertEqual(runner.errors, errors)
+                self.assertEqual(runner.adb.calls, [])
+
+    def test_failed_gate_keeps_original_failure_when_diagnostic_indexing_also_fails(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            with patch.object(runner, "capture"), \
+                    patch.object(runner, "start_processes", side_effect=RuntimeFailure("original read timeout")), \
+                    patch("tools.android_network_runtime.run.native_position_diagnostics",
+                          side_effect=ValueError("diagnostic parser failed")), \
+                    patch("tools.android_network_runtime.run.ARTIFACT_ROOT", Path(directory) / "storage"):
+                self.assertFalse(runner.run())
+            gate = json.loads((runner.output / "gate.json").read_text())
+            self.assertEqual(gate["errors"], ["RuntimeFailure: original read timeout"])
+            self.assertEqual(gate["completedPhases"], [])
+            self.assertEqual(gate["nativePositionDiagnostics"]["status"], "unavailable")
 
     def test_finally_restore_failure_is_recorded_and_fails_gate(self):
         with tempfile.TemporaryDirectory() as directory:

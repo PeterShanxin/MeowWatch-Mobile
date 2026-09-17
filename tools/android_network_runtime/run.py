@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+from collections import deque
 import hashlib
 import json
 import os
@@ -33,6 +34,19 @@ REQUIRED = {
 RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
 AVD_NAME = re.compile(r"meowwatch_network_[A-Za-z0-9_]{1,80}")
 MARKER = "NETWORK_CHECKPOINT "
+POSITION_MARKER = "NETWORK_NATIVE_POSITION "
+POSITION_RECORD_LIMIT = 4096
+POSITION_PHASES = {
+    "initial": ("baseline", "advancing"),
+    "explicit-play-after-reconnect": ("baseline", "advancing"),
+    "offline": ("paused",),
+    "reconnected-without-autoplay": ("paused",),
+    "explicit-pause-after-reconnect": ("paused",),
+    "explicit-seek-after-reconnect": ("paused",),
+}
+POSITION_FIELDS = {"runId", "pid", "phase", "readStage", "readIndex", "role",
+                   "controllerId", "startedAtUtc", "timeoutMs", "status", "event",
+                   "endedAtUtc", "elapsedMs", "positionMs", "error"}
 
 
 def parse_checkpoint(line: str, run_id: str) -> dict | None:
@@ -47,6 +61,81 @@ def parse_checkpoint(line: str, run_id: str) -> dict | None:
     if value.get("phase") not in PHASES or type(value.get("pid")) is not int or value["pid"] <= 0:
         raise RuntimeFailure("invalid network checkpoint phase or Android PID")
     return value
+
+
+def native_position_diagnostics(path: Path, run_id: str, app_pid: int | None) -> dict:
+    """Index existing logs only; these records never grant acceptance credit."""
+    evidence = {"runId": run_id, "applicationPid": app_pid, "source": path.name,
+                "recordLimit": POSITION_RECORD_LIMIT, "records": [],
+                "acceptedRecords": 0, "droppedRecords": 0, "rejectedRecords": 0,
+                "rejectionSamples": [], "pendingReadsInRetainedTail": [],
+                "unpairedEndsInRetainedTail": []}
+    if not path.is_file() or app_pid is None:
+        return {**evidence, "status": "unavailable",
+                "reason": "raw logcat or checkpoint-verified app PID is unavailable"}
+    records: deque[dict] = deque(maxlen=POSITION_RECORD_LIMIT)
+    with path.open(encoding="utf-8", errors="replace") as log:
+        for line_number, line in enumerate(log, 1):
+            if POSITION_MARKER not in line:
+                continue
+            try:
+                payload = line.split(POSITION_MARKER, 1)[1].strip()
+                if len(payload) > 4096:
+                    raise ValueError("oversized position record")
+                value = json.loads(payload)
+                if not isinstance(value, dict) or value.get("runId") != run_id:
+                    raise ValueError("position record belongs to another run")
+                if type(value.get("pid")) is not int or value["pid"] != app_pid:
+                    raise ValueError("position record PID was not admitted by a checkpoint")
+                phase = value.get("phase")
+                if (set(value) - POSITION_FIELDS or value.get("role") not in ("host", "guest")
+                        or not isinstance(phase, str) or phase not in POSITION_PHASES
+                        or value.get("readStage") not in POSITION_PHASES[phase]
+                        or type(value.get("readIndex")) is not int or not 1 <= value["readIndex"] <= 1000000
+                        or (value.get("controllerId") is not None
+                            and (type(value["controllerId"]) is not int
+                                 or not -1 <= value["controllerId"] < 2**63))
+                        or type(value.get("timeoutMs")) is not int or value["timeoutMs"] != 5000
+                        or ("error" in value and (not isinstance(value["error"], str)
+                                                 or len(value["error"]) > 400))):
+                    raise ValueError("invalid position read identity or timeout")
+                if value.get("event") == "start":
+                    if value.get("status") != "pending":
+                        raise ValueError("invalid position start status")
+                elif value.get("event") == "end":
+                    if (value.get("status") not in ("success", "timeout", "error")
+                            or type(value.get("elapsedMs")) is not int or not 0 <= value["elapsedMs"] < 2**63
+                            or (value["status"] == "success"
+                                and type(value.get("positionMs")) is not int)):
+                        raise ValueError("invalid position completion")
+                else:
+                    raise ValueError("invalid position event")
+                timestamps = ("startedAtUtc", "endedAtUtc") if value["event"] == "end" else ("startedAtUtc",)
+                if any(not isinstance(value.get(key), str) or not 1 <= len(value[key]) <= 40
+                       for key in timestamps):
+                    raise ValueError("missing position timestamp")
+                records.append({"logcatLine": line_number, **value})
+                evidence["acceptedRecords"] += 1
+            except (TypeError, ValueError) as error:
+                evidence["rejectedRecords"] += 1
+                if len(evidence["rejectionSamples"]) < 20:
+                    evidence["rejectionSamples"].append({"logcatLine": line_number,
+                                                         "reason": str(error)[:160]})
+    # A start without an end is an interrupted observation, never an inferred
+    # native timeout. Raw logcat remains authoritative beyond this bounded tail.
+    pending = {}
+    unpaired_ends = []
+    for record in records:
+        key = tuple(record.get(field) for field in (
+            "phase", "readIndex", "role", "controllerId", "readStage", "startedAtUtc"))
+        if record["event"] == "start":
+            pending[key] = record
+        elif pending.pop(key, None) is None:
+            unpaired_ends.append(record)
+    return {**evidence, "status": "indexed", "records": list(records),
+            "droppedRecords": evidence["acceptedRecords"] - len(records),
+            "pendingReadsInRetainedTail": list(pending.values()),
+            "unpairedEndsInRetainedTail": unpaired_ends}
 
 
 def require_owned_avd(adb: Adb, avd_name: str) -> None:
@@ -188,6 +277,16 @@ class Runner:
     def event(self, value: dict) -> None:
         self.events.append({"atMonotonic": time.monotonic(), **value})
         self.write("events.json", self.events)
+
+    def write_position_diagnostics(self) -> dict:
+        try:
+            value = native_position_diagnostics(self.output / "logcat.txt", self.run_id, self.android_pid)
+            self.write("native-position-reads.json", value)
+            return {key: value[key] for key in ("status", "acceptedRecords", "rejectedRecords", "droppedRecords")}
+        except Exception as error:
+            # Optional offline indexing must not replace the original failure or
+            # turn a successful native gate into a diagnostic parser failure.
+            return {"status": "unavailable", "error": f"{type(error).__name__}: {error}"[:400]}
 
     def capture(self, phase: str) -> None:
         require_owned_avd(self.adb, self.avd_name)
@@ -439,6 +538,7 @@ class Runner:
                 thread.join(timeout=5)
                 if thread.is_alive():
                     self.errors.append("owned evidence reader did not stop")
+            position_diagnostics = self.write_position_diagnostics()
             cleanup("remove-owned-native-ui-observer", self.remove_observer)
             if self.android_pid is not None:
                 cleanup("force-stop-owned-test-app", self.stop_test_app)
@@ -453,7 +553,8 @@ class Runner:
             })
             self.write("gate.json", {"passed": not self.errors, "errors": self.errors,
                                      "runtime": RUNTIME, "completedPhases": list(PHASES[:self.phase_index]),
-                                     "originalRadios": self.radios.initial})
+                                     "originalRadios": self.radios.initial,
+                                     "nativePositionDiagnostics": position_diagnostics})
         return not self.errors
 
 

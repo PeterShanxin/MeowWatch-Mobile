@@ -657,14 +657,70 @@ Future<void> _playControl(WidgetTester tester, {required bool play}) async {
 Future<List<int>> _nativePositions(
   LocalMobileTarget host,
   LocalMobileTarget guest,
+  Map<String, Object?> evidence,
+  String readStage,
 ) async => [
-  (await host.controller!.position.timeout(
-    const Duration(seconds: 5),
-  ))!.inMilliseconds,
-  (await guest.controller!.position.timeout(
-    const Duration(seconds: 5),
-  ))!.inMilliseconds,
+  await _nativePosition(host, 'host', evidence, readStage),
+  await _nativePosition(guest, 'guest', evidence, readStage),
 ];
+
+Future<int> _nativePosition(
+  LocalMobileTarget target,
+  String role,
+  Map<String, Object?> evidence,
+  String readStage,
+) async {
+  final controller = target.controller;
+  final reads =
+      evidence.putIfAbsent(
+            'nativePositionReads',
+            () => <Map<String, Object?>>[],
+          )
+          as List<Map<String, Object?>>;
+  final index = (evidence['nativePositionReadCount'] as int? ?? 0) + 1;
+  evidence['nativePositionReadCount'] = index;
+  evidence['nativePositionReadsDropped'] = index > 512 ? index - 512 : 0;
+  if (reads.length == 512) reads.removeAt(0);
+  final read = <String, Object?>{
+    'runId': _runId,
+    'pid': pid,
+    'phase': evidence['phase'],
+    'readStage': readStage,
+    'readIndex': index,
+    'role': role,
+    'controllerId': controller?.playerId,
+    'startedAtUtc': DateTime.now().toUtc().toIso8601String(),
+    'timeoutMs': 5000,
+    'status': 'pending',
+  };
+  // Retain the pending read before awaiting even the first baseline sample.
+  // Full bounded start/end records also survive in raw logcat if teardown fails.
+  reads.add(read);
+  debugPrintSynchronously(
+    'NETWORK_NATIVE_POSITION ${jsonEncode({...read, 'event': 'start'})}',
+  );
+  final clock = Stopwatch()..start();
+  try {
+    final position = (await controller!.position.timeout(
+      const Duration(seconds: 5),
+    ))!.inMilliseconds;
+    read['status'] = 'success';
+    read['positionMs'] = position;
+    return position;
+  } catch (error) {
+    read['status'] = error is TimeoutException ? 'timeout' : 'error';
+    final message = error.toString().split('\n').first;
+    read['error'] = message.length > 400 ? message.substring(0, 400) : message;
+    rethrow;
+  } finally {
+    clock.stop();
+    read['endedAtUtc'] = DateTime.now().toUtc().toIso8601String();
+    read['elapsedMs'] = clock.elapsedMilliseconds;
+    debugPrintSynchronously(
+      'NETWORK_NATIVE_POSITION ${jsonEncode({...read, 'event': 'end'})}',
+    );
+  }
+}
 
 Future<void> _advancing(
   WidgetTester tester,
@@ -675,19 +731,25 @@ Future<void> _advancing(
   List<Map<String, Object?>> observations,
   String phase,
 ) async {
-  final start = await _nativePositions(host, guest);
   final samples = <Map<String, Object?>>[];
   final evidence = <String, Object?>{
     'phase': phase,
     'startedAtUtc': DateTime.now().toUtc().toIso8601String(),
-    'startNativeMs': start,
+    'startNativeMs': null,
     'nativeAdvancementSamples': samples,
     'converged': false,
   };
   observations.add(evidence);
+  final start = await _nativePositions(host, guest, evidence, 'baseline');
+  evidence['startNativeMs'] = start;
   final clock = Stopwatch()..start();
   while (clock.elapsed < const Duration(seconds: 30)) {
-    final positions = await _nativePositions(host, guest);
+    final positions = await _nativePositions(
+      host,
+      guest,
+      evidence,
+      'advancing',
+    );
     final playing =
         app.playRequested &&
         bridge.playRequested &&
@@ -740,7 +802,7 @@ Future<void> _paused(
   List<int>? first;
   var count = 0;
   while (clock.elapsed < const Duration(seconds: 45)) {
-    final position = await _nativePositions(host, guest);
+    final position = await _nativePositions(host, guest, evidence, 'paused');
     final paused =
         !app.playRequested &&
         !bridge.playRequested &&

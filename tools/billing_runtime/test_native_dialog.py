@@ -422,10 +422,14 @@ class OrchestratorTests(unittest.TestCase):
     def test_google_sdk_setup_anr_recovery_is_bounded_to_two_closes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch(
             "native_dialog.NativeRecording"
-        ), patch("native_dialog.time.sleep"):
+        ), patch("native_dialog.time.sleep"), patch(
+            # Permit a third observation before expiring the stage, so the
+            # recovery limit (not filesystem speed) must refuse the third tap.
+            "native_dialog.time.monotonic", side_effect=[0, 0, 0, 0, 0.02]
+        ):
             adb = RecoveringFakeAdb(always_anr=True, setup_anr_active=True)
             controller = DialogOrchestrator(adb, Path(temporary), stage_timeout=0.01)
-            with self.assertRaises(UnsafeDialog):
+            with self.assertRaisesRegex(UnsafeDialog, "System ANR recovery limit reached"):
                 controller.perform("cancel")
             taps = [
                 command
@@ -438,10 +442,12 @@ class OrchestratorTests(unittest.TestCase):
     def test_launcher_anr_recovery_is_bounded_to_two_closes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary, patch(
             "native_dialog.NativeRecording"
-        ), patch("native_dialog.time.sleep"):
+        ), patch("native_dialog.time.sleep"), patch(
+            "native_dialog.time.monotonic", side_effect=[0, 0, 0, 0, 0.02]
+        ):
             adb = RecoveringFakeAdb(always_anr=True)
             controller = DialogOrchestrator(adb, Path(temporary), stage_timeout=0.01)
-            with self.assertRaises(UnsafeDialog):
+            with self.assertRaisesRegex(UnsafeDialog, "System ANR recovery limit reached"):
                 controller.perform("cancel")
             taps = [
                 command

@@ -236,8 +236,9 @@ an interrupted run before starting another test.
 Save the `RC_SMOKE_RESULT` JSON line, including its SHA-256 `customerHash`.
 Integration test drivers can also read the same data under
 `reportData.revenueCatTestStore`. The evidence includes the actual localized
-price, verified steps, timestamps, and entitlement expiration when available;
-it omits the SDK key and raw customer ID.
+price, verified steps, timestamps, and the original purchased entitlement's
+product, active/sandbox state, original/latest purchase dates and expiration.
+It omits the SDK key and raw customer ID.
 
 For a separate process-relaunch/restore check, stop the app and run against the
 same installed app data before the entitlement expires:
@@ -260,6 +261,22 @@ inactive. It never changes the device clock or grants/revokes entitlements in
 test code. RevenueCat currently documents a five-minute renewal interval and
 approximately 25 minutes total for monthly Test Store subscriptions; verify the
 actual entitlement response rather than inferring expiry from elapsed time.
+
+The [relaunch journey runner](../tools/billing_runtime/README.md#process-relaunch-and-real-expiration-journey)
+now includes this expiry acceptance after the native purchase matrix and real
+process relaunch. It builds `expiry_wait` for the same hashed customer, then
+runs bounded three-minute SDK polling segments with cache invalidation before
+each refresh. Active Plus is reported only as pending. Final acceptance checks
+the original purchase's identity and dates against the SDK's historical inactive
+entitlement, then requires cache-invalidated restore to keep it inactive. The
+original purchase snapshot and all observed renewal/expiration timestamps are
+retained; an elapsed timer alone never passes.
+
+The default expiry wait is 35 minutes, the whole runner is bounded to 55 minutes
+plus short cleanup, and CI allows 65 minutes including setup. Deadline or network
+failure remains a failed gate with progress artifacts. This new expiry phase
+has not yet been accepted on Android; existing matrix/relaunch results establish
+only their recorded checks. No production access is manually granted or revoked.
 
 These device modes are executable acceptance checks, not evidence that they
 have already passed. They do not test the app's paywall visuals, real-money

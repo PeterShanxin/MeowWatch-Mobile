@@ -115,7 +115,7 @@ carry the original `REVENUECAT_EXPECT_CUSTOMER_HASH`, described in
 separate process-stop evidence. The runner does not prove Google Play billing,
 the production paywall UI, or cross-device identity recovery.
 
-## Process relaunch journey
+## Process relaunch and real expiration journey
 
 `run_relaunch_journey.py` closes the missing process boundary in one bounded
 Test Store run. It drives the real matrix APK with the guarded native dialogs,
@@ -127,11 +127,37 @@ load active Plus. Immediately before restore, the integration test invalidates
 RevenueCat customer-info cache; Test Store restore then performs its documented
 customer-info query and must keep Plus active for the same hashed customer.
 
-The runner records both APK hashes and both PIDs. This proves same-customer SDK
-entitlement and restore behavior across an Android process relaunch and a
-replacement debug APK install. It does not prove uninstall/reinstall recovery,
-lost anonymous identity recovery, Google Play restore, or a physical device.
-No Test Store expiry wait is part of this gate.
+After relaunch, the runner builds `expiry_wait` with the same customer hash and
+waits for the purchased monthly entitlement to actually expire. Each segment
+polls the real SDK about every 30 seconds for up to three minutes, invalidating
+customer-info cache before every refresh. Segments fit the existing bounded
+driver; a successful segment that still has Plus reports `expiryPending: true`
+and cannot pass the journey. Repeated segments preserve installed app data and
+use the same expiry APK. Network/test failures are not retried as pending.
+
+Acceptance requires the same customer hash, entitlement/product and original
+purchase date as the initial successful purchase. Renewal and expiration dates
+are retained from the SDK, and may advance normally. The final historical
+entitlement must be inactive, with a past expiration and a customer-info response
+at or after that expiration. Cache-invalidated restore must still return the
+same inactive entitlement. No clock changes, dashboard grants/revocations, or
+fabricated customer data are used. The separate `expired` mode retains its
+immediate strict assertion; it does not wait or accept active Plus.
+
+The default expiry wait is 35 minutes, configurable with
+`--expiry-timeout-seconds` from 300 to 2400. The runner bounds the full journey
+to 55 minutes, with short cleanup afterward; CI allows 65 minutes including
+setup/build. RevenueCat documents about 25 minutes for a monthly Test Store
+subscription, but elapsed time never proves expiry. A deadline with Plus still
+active fails and preserves the observations.
+
+The runner records all three APK hashes, both relaunch PIDs and entitlement
+snapshots. A passing run establishes same-customer SDK relaunch and expiration
+behavior through replacement debug APK installs. It does not prove
+uninstall/reinstall recovery, lost anonymous identity recovery, Google Play
+restore, a physical device, or production paywall/hosting UI. The new expiry
+phase still requires native execution; earlier matrix/relaunch passes do not
+establish expiration acceptance.
 
 The standalone `billing-relaunch.yml` workflow builds the matrix APK before
 starting its API 35 emulator, then runs:
@@ -144,9 +170,15 @@ python3 tools/billing_runtime/run_relaunch_journey.py \
 ```
 
 Artifacts are written under `build/billing-relaunch-artifacts/<run-id>/`.
-The nested matrix/relaunch driver results remain under
-`build/billing-runtime-artifacts/`; neither surface contains the raw RevenueCat
-customer identifier.
+`run.json` updates after each phase and completed expiry segment, with
+`passed: false` and `expiryVerified: false` until the final assertions succeed.
+`expiry-01/`, `expiry-02/`, etc. retain each segment's drive log and report;
+`RC_SMOKE_EXPIRY_OBSERVATION` lines retain intermediate SDK snapshots while a
+segment is running. Nested driver results also remain under
+`build/billing-runtime-artifacts/`. Customer identity is stored only as SHA-256;
+reports omit the SDK key and raw RevenueCat customer identifier. Purchase-dialog
+recordings cover the matrix; the expiry phase is SDK/state evidence, not a
+continuous recorded production UI journey.
 
 ## Test the guard without a device
 
@@ -163,4 +195,5 @@ Official source references, checked for the implemented dialog contract:
 - [Android Test Store dialog implementation](https://github.com/RevenueCat/purchases-android/blob/main/purchases/src/main/kotlin/com/revenuecat/purchases/simulatedstore/SimulatedStoreBillingWrapper.kt)
 - [Native AlertDialog helper](https://github.com/RevenueCat/purchases-android/blob/main/purchases/src/main/kotlin/com/revenuecat/purchases/utils/AlertDialogHelper.kt)
 - [RevenueCat native Android testing guide](https://www.revenuecat.com/blog/engineering/testing-test-store)
+- [Test Store renewal and expiration schedule](https://www.revenuecat.com/docs/test-and-launch/sandbox/test-store#subscription-renewals-and-expiration)
 - [Android display focus dump](https://android.googlesource.com/platform/frameworks/base/+/android15-release/services/core/java/com/android/server/wm/DisplayContent.java)

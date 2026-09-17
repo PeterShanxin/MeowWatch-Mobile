@@ -1,4 +1,4 @@
-name: RevenueCat process relaunch
+name: RevenueCat process relaunch and expiration
 
 on:
   workflow_dispatch:
@@ -21,9 +21,9 @@ concurrency:
 
 jobs:
   relaunch:
-    name: Test Store same-customer process relaunch (API 35)
+    name: Test Store same-customer relaunch and real expiration (API 35)
     runs-on: ubuntu-24.04
-    timeout-minutes: 35
+    timeout-minutes: 65
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -34,7 +34,7 @@ jobs:
           cache: true
           pub-cache: true
       - run: flutter pub get --enforce-lockfile
-      - name: Verify relaunch gate contracts
+      - name: Verify relaunch and expiration gate contracts
         run: |
           dart format --output=none --set-exit-if-changed \
             integration_test/billing_smoke_test.dart \
@@ -55,7 +55,7 @@ jobs:
           echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
           sudo udevadm control --reload-rules
           sudo udevadm trigger --name-match=kvm
-      - name: Purchase, force-stop and verify real SDK relaunch
+      - name: Purchase, relaunch, wait for real expiration and restore inactive
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
         env:
           REVENUECAT_TEST_STORE_KEY: test_gjKDzmyNmHmuDfibegUnKQKTpRh

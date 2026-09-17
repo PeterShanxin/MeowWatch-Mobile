@@ -42,7 +42,7 @@ void main() {
             'This test must never initiate a production-store purchase.',
       );
       expect(
-        const {'smoke', 'matrix', 'relaunch', 'expired'},
+        const {'smoke', 'matrix', 'relaunch', 'expired', 'expiry_wait'},
         contains(_mode),
         reason: 'Unsupported REVENUECAT_TEST_MODE.',
       );
@@ -164,6 +164,7 @@ void main() {
         );
         _expectSuccess(purchased, 'native Test Store purchase');
         _expectActivePlus(billing);
+        evidence['purchasedEntitlement'] = _entitlementEvidence(billing);
         verified.add('purchase_activates_plus');
         await _freshCustomer(billing);
         _expectActivePlus(billing);
@@ -182,7 +183,9 @@ void main() {
             .entitlements
             .active[_entitlement]!
             .expirationDate;
-      } else if (_mode == 'relaunch' || _mode == 'expired') {
+      } else if (_mode == 'relaunch' ||
+          _mode == 'expired' ||
+          _mode == 'expiry_wait') {
         expect(
           _expectedCustomerHash,
           matches(RegExp(r'^[a-f0-9]{64}$')),
@@ -192,43 +195,78 @@ void main() {
         );
         expect(customerHash, _expectedCustomerHash);
 
+        var expiryPending = false;
+        if (_mode == 'expiry_wait') {
+          // Each segment fits the unchanged ten-minute host driver. The host
+          // enforces the overall wait and never treats a pending segment as
+          // expiration acceptance. Every observation comes from the real SDK.
+          final observations = <Map<String, Object?>>[];
+          evidence['expiryObservations'] = observations;
+          final waiting = Stopwatch()..start();
+          do {
+            await _freshCustomer(billing);
+            expect(_customerHash(billing), customerHash);
+            final observation = _entitlementEvidence(billing);
+            observations.add(observation);
+            debugPrint(
+              'RC_SMOKE_EXPIRY_OBSERVATION ${jsonEncode(observation)}',
+            );
+            if (!billing.isPlus) break;
+            _expectActivePlus(billing);
+            if (waiting.elapsed >= const Duration(minutes: 3)) break;
+            stage.value =
+                'Waiting for real Test Store expiration\n'
+                'Plus is still active; ${observations.length} fresh SDK checks';
+            await tester.pump();
+            await Future<void>.delayed(const Duration(seconds: 30));
+          } while (true);
+          waiting.stop();
+          expiryPending = billing.isPlus;
+          evidence['expiryPending'] = expiryPending;
+          verified.add('expiry_polling_fresh_customer');
+        }
+
         if (_mode == 'relaunch') {
           _expectActivePlus(billing);
           verified.add('same_customer_plus_after_process_relaunch');
-        } else {
-          expect(billing.isPlus, isFalse);
-          final expired = billing.customerInfo!.entitlements.all[_entitlement];
-          expect(
-            expired,
-            isNotNull,
-            reason: 'Must be a previously purchased entitlement.',
-          );
-          expect(expired!.isActive, isFalse);
-          expect(expired.productIdentifier, _product);
-          final expiration = DateTime.tryParse(expired.expirationDate ?? '');
-          expect(expiration, isNotNull);
-          expect(expiration!.isBefore(DateTime.now().toUtc()), isTrue);
+        } else if (!expiryPending) {
+          // `expired` remains an immediate strict assertion, with no wait or
+          // active-entitlement fallback.
+          _expectExpiredPlus(billing);
           verified.add('same_customer_entitlement_expired');
-          evidence['expirationDate'] = expired.expirationDate;
+          evidence['expiredEntitlement'] = _entitlementEvidence(billing);
+          evidence['expirationDate'] = billing
+              .customerInfo!
+              .entitlements
+              .all[_entitlement]!
+              .expirationDate;
         }
 
-        // Test Store restore resolves customer info rather than replaying a
-        // platform transaction. Invalidate immediately before the SDK call so
-        // this assertion cannot pass from the process's persisted memory cache.
-        await Purchases.invalidateCustomerInfoCache().timeout(_networkTimeout);
-        verified.add('restore_cache_invalidated');
-        _expectSuccess(
-          await billing.restore().timeout(_networkTimeout),
-          'restore in $_mode state',
-        );
-        expect(billing.isPlus, _mode == 'relaunch');
-        expect(_customerHash(billing), customerHash);
-        verified.add('restore_$_mode');
+        if (!expiryPending) {
+          // Test Store restore queries customer info, not platform history.
+          await Purchases.invalidateCustomerInfoCache().timeout(
+            _networkTimeout,
+          );
+          verified.add('restore_cache_invalidated');
+          _expectSuccess(
+            await billing.restore().timeout(_networkTimeout),
+            'restore in $_mode state',
+          );
+          expect(billing.isPlus, _mode == 'relaunch');
+          expect(_customerHash(billing), customerHash);
+          if (_mode != 'relaunch') _expectExpiredPlus(billing);
+          evidence['restoredEntitlement'] = _entitlementEvidence(billing);
+          verified.add(
+            _mode == 'relaunch' ? 'restore_relaunch' : 'restore_expired',
+          );
+        }
       }
 
       evidence['finalPlus'] = billing.isPlus;
       evidence['completedAtUtc'] = DateTime.now().toUtc().toIso8601String();
-      stage.value = 'RevenueCat $_mode checks passed';
+      stage.value = evidence['expiryPending'] == true
+          ? 'Still waiting for real expiration; no expiry pass recorded'
+          : 'RevenueCat $_mode checks passed';
       await tester.pump();
       // Persist stdout in the host run evidence; reportData is also available
       // to an integration_test driver. Neither contains the public SDK key.
@@ -260,6 +298,42 @@ void _expectActivePlus(RevenueCatBillingService billing) {
   expect(entitlement!.isActive, isTrue);
   expect(entitlement.isSandbox, isTrue);
   expect(entitlement.productIdentifier, _product);
+}
+
+void _expectExpiredPlus(RevenueCatBillingService billing) {
+  expect(billing.isPlus, isFalse);
+  final entitlement = billing.customerInfo!.entitlements.all[_entitlement];
+  expect(
+    entitlement,
+    isNotNull,
+    reason: 'Must be a previously purchased entitlement.',
+  );
+  expect(entitlement!.isActive, isFalse);
+  expect(entitlement.isSandbox, isTrue);
+  expect(entitlement.productIdentifier, _product);
+  final expiration = DateTime.tryParse(entitlement.expirationDate ?? '');
+  expect(expiration, isNotNull);
+  expect(expiration!.isBefore(DateTime.now().toUtc()), isTrue);
+  final requested = DateTime.parse(billing.customerInfo!.requestDate);
+  expect(expiration.isAfter(requested), isFalse);
+}
+
+Map<String, Object?> _entitlementEvidence(RevenueCatBillingService billing) {
+  final info = billing.customerInfo!;
+  final entitlement = info.entitlements.all[_entitlement];
+  expect(entitlement, isNotNull, reason: 'Purchased entitlement must persist.');
+  return <String, Object?>{
+    'customerHash': _customerHash(billing),
+    'customerRequestDate': info.requestDate,
+    'observedAtUtc': DateTime.now().toUtc().toIso8601String(),
+    'identifier': entitlement!.identifier,
+    'productIdentifier': entitlement.productIdentifier,
+    'isActive': entitlement.isActive,
+    'isSandbox': entitlement.isSandbox,
+    'originalPurchaseDate': entitlement.originalPurchaseDate,
+    'latestPurchaseDate': entitlement.latestPurchaseDate,
+    'expirationDate': entitlement.expirationDate,
+  };
 }
 
 Future<void> _freshCustomer(RevenueCatBillingService billing) async {

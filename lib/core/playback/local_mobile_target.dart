@@ -17,6 +17,8 @@ class LocalMobileTarget extends PlaybackTarget {
   PlaybackSnapshot _snapshot = const PlaybackSnapshot();
   final _states = StreamController<PlaybackSnapshot>.broadcast();
   int _loadGeneration = 0;
+  int _positionGeneration = 0;
+  Duration? _pausedPosition;
   bool _closed = false;
   bool _playRequested = false;
 
@@ -51,6 +53,8 @@ class LocalMobileTarget extends PlaybackTarget {
     Duration position = Duration.zero,
   }) async {
     final generation = ++_loadGeneration;
+    _positionGeneration++;
+    _pausedPosition = null;
     _playRequested = false;
     final old = _controller;
     _controller = null;
@@ -120,7 +124,9 @@ class LocalMobileTarget extends PlaybackTarget {
     _publish(
       PlaybackSnapshot(
         media: _snapshot.media,
-        position: value.position,
+        // A position poll started before pause can complete after the final
+        // native pause read. Keep that confirmed position until a new command.
+        position: _pausedPosition ?? value.position,
         duration: value.duration,
         playing: value.isPlaying,
         buffering: value.isBuffering,
@@ -137,19 +143,53 @@ class LocalMobileTarget extends PlaybackTarget {
   @override
   Future<void> play() async {
     if (!_snapshot.ready) throw StateError('Open a video before playing.');
+    _positionGeneration++;
+    final controller = _controller!;
+    final pausedPosition = _pausedPosition;
+    if (pausedPosition != null) {
+      // Resume from the confirmed pause cache, even if an old poll arrived.
+      // Updating the controller value does not seek the native player.
+      controller.value = controller.value.copyWith(position: pausedPosition);
+    }
+    _pausedPosition = null;
     _playRequested = true;
-    await _controller!.play();
+    await controller.play();
   }
 
   @override
   Future<void> pause() async {
+    final generation = ++_positionGeneration;
+    final controller = _controller;
     _playRequested = false;
-    await _controller?.pause();
+    if (controller == null) return;
+    await controller.pause();
+    if (_closed ||
+        generation != _positionGeneration ||
+        !identical(controller, _controller)) {
+      return;
+    }
+    // video_player stops polling on pause without refreshing value.position.
+    // Publish the stopped native position before the sync bridge broadcasts it.
+    final position = await controller.position;
+    if (_closed ||
+        generation != _positionGeneration ||
+        !identical(controller, _controller) ||
+        position == null) {
+      return;
+    }
+    _pausedPosition = position < Duration.zero
+        ? Duration.zero
+        : position > controller.value.duration
+        ? controller.value.duration
+        : position;
+    _onPlayerChanged();
   }
 
   @override
   Future<void> seek(Duration position) async {
     if (!_snapshot.ready) return;
+    _positionGeneration++;
+    _pausedPosition = null;
     await _controller!.seekTo(
       position < Duration.zero
           ? Duration.zero
@@ -164,6 +204,8 @@ class LocalMobileTarget extends PlaybackTarget {
     if (_closed) return;
     _closed = true;
     _loadGeneration++;
+    _positionGeneration++;
+    _pausedPosition = null;
     await _controller?.dispose();
     _controller = null;
     await _states.close();

@@ -6,7 +6,10 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
 import 'package:meowwatch_mobile/core/playback/local_mobile_target.dart';
 import 'package:meowwatch_mobile/core/playback/playback_target.dart';
+import 'package:meowwatch_mobile/core/session/playback_sync_bridge.dart';
 import 'package:video_player_platform_interface/video_player_platform_interface.dart';
+
+import '../../support/sync_playback_fakes.dart';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -40,6 +43,120 @@ void main() {
     final target = LocalMobileTarget(mixWithOthers: mixWithOthers);
     targets.add(target);
     return target;
+  }
+
+  test(
+    'pause broadcasts the stopped native position despite a late poll',
+    () async {
+      final target = createTarget();
+      final sync = SyncTestCore();
+      final bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () async => true,
+      )..start();
+      final oldPoll = Completer<Duration>();
+      final pollStarted = Completer<void>();
+      const cachedPosition = Duration(milliseconds: 3668);
+      const stoppedPosition = Duration(milliseconds: 4109);
+      try {
+        await bridge.load(_media('pause-position'));
+        await bridge.seek(cachedPosition);
+        platform.nextPosition = oldPoll;
+        platform.positionRequested = pollStarted;
+        await bridge.play();
+        await pollStarted.future.timeout(const Duration(seconds: 5));
+        expect(target.snapshot.position, cachedPosition);
+
+        platform.positionOnPause = stoppedPosition;
+        final changesBeforePause = sync.changes.length;
+        await bridge.pause();
+        expect(target.snapshot.playing, isFalse);
+        expect(target.snapshot.position, stoppedPosition);
+        expect(sync.published.last.position, stoppedPosition);
+        expect(sync.published.last.paused, isTrue);
+        expect(sync.changes.length, changesBeforePause + 1);
+
+        oldPoll.complete(cachedPosition);
+        await _flushEvents();
+        expect(target.controller!.value.position, cachedPosition);
+        expect(target.snapshot.position, stoppedPosition);
+        expect(sync.published.last.position, stoppedPosition);
+        expect(sync.changes.length, changesBeforePause + 1);
+        await bridge.play();
+        expect(target.snapshot.position, stoppedPosition);
+        expect(sync.published.last.position, stoppedPosition);
+        expect(sync.published.last.paused, isFalse);
+      } finally {
+        if (!oldPoll.isCompleted) oldPoll.complete(cachedPosition);
+        await _flushEvents();
+        await bridge.dispose();
+        await sync.dispose();
+      }
+    },
+  );
+
+  test('pause beyond the duration still replays from the beginning', () async {
+    final target = createTarget();
+    await target.load(_media('completed'));
+    final duration = target.snapshot.duration;
+    platform.positionOnPause = duration + const Duration(milliseconds: 250);
+
+    await target.pause();
+    expect(target.snapshot.position, duration);
+    expect(target.snapshot.playing, isFalse);
+    await target.play();
+    expect(target.snapshot.position, Duration.zero);
+    expect(await target.controller!.position, Duration.zero);
+    expect(target.snapshot.playing, isTrue);
+  });
+
+  test('pause clamps a negative native position to zero', () async {
+    final target = createTarget();
+    await target.load(_media('negative-position'));
+    platform.positionOnPause = const Duration(milliseconds: -50);
+
+    await target.pause();
+    expect(target.snapshot.position, Duration.zero);
+    expect(target.snapshot.playing, isFalse);
+  });
+
+  for (final nextCommand in ['seek', 'play', 'load', 'close']) {
+    test('late pause position cannot overwrite a newer $nextCommand', () async {
+      final target = createTarget();
+      await target.load(_media('first'));
+      await target.seek(const Duration(milliseconds: 3668));
+      final position = Completer<Duration>();
+      final readStarted = Completer<void>();
+      platform.nextPosition = position;
+      platform.positionRequested = readStarted;
+      final pausing = target.pause();
+      try {
+        await readStarted.future.timeout(const Duration(seconds: 5));
+        switch (nextCommand) {
+          case 'seek':
+            await target.seek(const Duration(seconds: 8));
+          case 'play':
+            await target.play();
+          case 'load':
+            await target.load(
+              _media('second'),
+              position: const Duration(seconds: 8),
+            );
+          case 'close':
+            await target.close();
+        }
+        final accepted = target.snapshot;
+        position.complete(const Duration(milliseconds: 4109));
+        await pausing;
+        expect(target.snapshot.media, same(accepted.media));
+        expect(target.snapshot.position, accepted.position);
+        expect(target.snapshot.playing, accepted.playing);
+      } finally {
+        if (!position.isCompleted) position.complete(Duration.zero);
+        await pausing;
+      }
+    });
   }
 
   test('native creation uses each target audio policy after reload', () async {
@@ -167,6 +284,7 @@ MediaItem _media(String name) => MediaItem(
 
 final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   final Map<int, StreamController<VideoEvent>> _events = {};
+  final Map<int, Duration> _positions = {};
   final List<VideoPlayerOptions?> options = [];
   final List<bool> mixModesAtCreation = [];
   bool _mixWithOthers = false;
@@ -174,6 +292,9 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   int? _activePlayerId;
   int playCalls = 0;
   int pauseCalls = 0;
+  Duration? positionOnPause;
+  Completer<Duration>? nextPosition;
+  Completer<void>? positionRequested;
 
   @override
   Future<void> init() async {}
@@ -193,6 +314,7 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
       ),
     );
     _events[playerId] = events;
+    _positions[playerId] = Duration.zero;
     return playerId;
   }
 
@@ -221,13 +343,23 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   @override
   Future<void> pause(int playerId) async {
     pauseCalls++;
+    if (positionOnPause != null) _positions[playerId] = positionOnPause!;
   }
 
   @override
-  Future<void> seekTo(int playerId, Duration position) async {}
+  Future<void> seekTo(int playerId, Duration position) async {
+    _positions[playerId] = position;
+  }
 
   @override
-  Future<Duration> getPosition(int playerId) async => Duration.zero;
+  Future<Duration> getPosition(int playerId) async {
+    final pending = nextPosition;
+    nextPosition = null;
+    positionRequested?.complete();
+    positionRequested = null;
+    if (pending != null) return pending.future;
+    return _positions[playerId]!;
+  }
 
   @override
   Future<void> setLooping(int playerId, bool looping) async {}

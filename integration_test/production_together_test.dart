@@ -75,7 +75,7 @@ void main() {
       final nameSuffix = sha256
           .convert(utf8.encode(_runId))
           .toString()
-          .substring(0, 16);
+          .substring(0, 10);
       final name = '${isHost ? 'Host' : 'Guest'} $nameSuffix';
       final peerName = '${isHost ? 'Guest' : 'Host'} $nameSuffix';
       final screenshots = <String>[];

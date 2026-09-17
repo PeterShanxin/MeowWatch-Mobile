@@ -14,6 +14,16 @@ Android screenrecord behavior; fresh footage must establish whether reduced
 encoding load improves stalls. CLI callers that omit these options retain
 the original full-resolution, 8 Mbps behavior.
 
+The production journey's manual `compact_capture` option requests a 960-pixel
+maximum edge for both recordings, retaining 3 Mbps and the actual display
+layouts. The default remains 1600/1280. `ci_together.sh` also accepts the
+`MEOWWATCH_PHONE_RECORD_MAX_EDGE` and `MEOWWATCH_TABLET_RECORD_MAX_EDGE`
+environment values through the recorder's existing validation. This is a
+recording-cost comparison: the accepted 5137e58 run's actual playback windows
+contain only about 1–3 captured frames per second. A compact take must pass the
+same product gates and be inspected for motion and legibility before selection;
+lower resolution alone does not prove the cause or cure of sparse native frames.
+
 Before either recorder or the driven command starts, each task-owned Android
 directory must pass an actual `.mp4` creation/removal probe. Preparation uses a
 20-second readiness window with bounded ADB calls and retains failed probes in

@@ -1,11 +1,16 @@
 name: Production phone and tablet journey
-run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }})
+run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }}${{ inputs.compact_capture && ', compact capture' || '' }})
 
 on:
   workflow_dispatch:
     inputs:
       semantics_candidate:
         description: 'Diagnose with the unmerged pinned Flutter semantics patch in a copied SDK'
+        type: boolean
+        required: false
+        default: false
+      compact_capture:
+        description: 'Compare lower recording output size while retaining the native phone/tablet layouts'
         type: boolean
         required: false
         default: false
@@ -97,12 +102,15 @@ jobs:
             --coordination-url http://10.0.2.2:18766/invite \
             --video-url http://10.0.2.2:18765/Bee.mp4
       - name: Record real Start, Join, playback and conversation
+        env:
+          MEOWWATCH_PHONE_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1600' }}
+          MEOWWATCH_TABLET_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1280' }}
         run: bash tools/android_multi_device/ci_together.sh --production-ui
       - name: Upload production screenshots, observations and framed video
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
-          name: production-phone-tablet-${{ github.run_attempt }}${{ inputs.semantics_candidate && '-semantics-candidate' || '' }}
+          name: production-phone-tablet-${{ github.run_attempt }}${{ inputs.semantics_candidate && '-semantics-candidate' || '' }}${{ inputs.compact_capture && '-compact-capture' || '' }}
           path: |
             build/android-multi-device/
             build/production-together-artifacts/

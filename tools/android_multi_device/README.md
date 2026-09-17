@@ -116,6 +116,48 @@ server starts only after this gate, before recording; its TTL remains 900 second
 python3 -m unittest tools.android_multi_device.test_device_readiness -v
 ```
 
+## Media fixture HTTP contract
+
+`start_fixture_server.sh` runs the repository's `fixture_server.py` on
+`127.0.0.1`; emulators still use `10.0.2.2:18765`. It serves only the prepared
+`sync-fixture.mp4` and optional byte-identical `Bee.mp4` alias. Query-bearing
+shared links select the same file; missing videos remain real 404 responses.
+Directory listings, other files, traversal and symlink media are rejected.
+
+GET supports a single closed, open-ended or suffix byte range with 206,
+`Content-Range` and the exact partial `Content-Length`. Invalid, multiple and
+unsatisfied byte ranges return 416 with the full size. Unknown units are ignored.
+HEAD returns full metadata without a body and ignores Range, as required by
+[HTTP semantics](https://www.rfc-editor.org/rfc/rfc9110.html#section-14.2).
+An unmatched If-Range validator falls back to a full response. Each client has
+its own file handle; a cancelled or stalled reader does not block another.
+
+`http-server.log` retains bounded JSON request records: UTC start, safe asset
+name, selected range, status, completed socket-write bytes, monotonic elapsed
+time and cancellation outcome. Query text and arbitrary paths/header values
+are never logged. Bytes describe completed writes, not decoder consumption;
+a failed write may have delivered a partial final chunk. At 4096 records the
+log emits an explicit limit marker and stops adding request records. Server
+readiness and response headers are retained separately from app acceptance.
+
+The server receipt binds its Linux PID to the complete command, fixture directory,
+port and process birth token. Stop refuses a changed identity, rechecks before
+a TERM fallback, and verifies exit; it never stops all Python processes.
+
+This replaces the prior stock Python server's full-file 200 response to seek
+requests. It is a fixture transport experiment, not proof that networking caused
+the captured movie stalls. Native app assertions, fixture bytes and recording
+geometry remain unchanged; fresh original recordings must establish any effect.
+
+```sh
+python3 -m unittest tools.android_multi_device.test_fixture_server \
+  tools.android_multi_device.test_fixture_contract -v
+```
+
+The HTTP contracts run on Windows and Linux. Linux additionally executes real
+start/stop scripts and verifies port-conflict cleanup, refusal of an unrelated
+PID or changed birth token, and successful shutdown of the owned server.
+
 ## Hosted Ubuntu sequence
 
 The production workflow prepares SDK packages once, before media generation and

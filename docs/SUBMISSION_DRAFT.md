@@ -1,6 +1,6 @@
 # MeowWatch Mobile — Devpost submission draft
 
-> **Draft status (2026-09-16): not ready to publish.** Product acceptance,
+> **Draft status (2026-09-17): not ready to publish.** Product acceptance,
 > final recording, entrant eligibility, and submission-form details still have
 > open gates. Bracketed acceptance notes must be resolved before this copy is
 > pasted into Devpost.
@@ -36,8 +36,8 @@ places.
 ## What it does
 
 - Starts or joins a Together Session without requiring an account.
-- Plays supported direct media links on Android; local file selection is built
-  into the product and still awaits its final native acceptance run.
+- Plays supported direct media links and local files selected through the
+  native Android file picker.
 - Coordinates play, pause, and seek through a secure Syncplay room.
 - Keeps participant presence, chat, and reactions beside the video.
 - Saves recent playback progress for **Continue Watching** and also works as a
@@ -53,8 +53,8 @@ managed by RevenueCat.
 **Acceptance notes:** Two independent Android emulators have passed two-way
 native play, pause, seek, and reaction checks, but the complete production UI
 create/join recording is pending. Direct-link local playback and Continue
-Watching have passed the native product journey; Android file-picker execution
-is still pending. The integrated Plus-to-unlimited-hosting native funnel passes
+Watching have passed the native product journey. Native file-picker selection,
+content-URI playback and retained grants/history after a process restart also pass. The integrated Plus-to-unlimited-hosting native funnel passes
 with two real decoders and TLS clients in one Android process; its final
 production UI purchase-and-hosting recording remains pending. Nearby desktop
 control is pending physical Android-to-Windows LAN acceptance. Cast is
@@ -153,7 +153,7 @@ Before submission:
 3. Complete physical Android-to-Windows Nearby pairing and control acceptance,
    then include it only if the recording is stable.
 4. Run a clean-install rehearsal and final lifecycle/product review.
-5. Export the final icon, frame-free required screenshot, public source link,
+5. Package the final icon, frame-free required screenshot, public source link,
    and a public video shorter than two minutes.
 
 Cast will be included only after successful hardware verification. Otherwise it
@@ -167,7 +167,9 @@ will be omitted rather than represented by a simulated or unstable screen.
   third-party branding without permission.
 - [ ] Public repository contains build instructions, assets, provenance, and a
   visible AGPL-3.0-only license; final secret scan passes.
-- [ ] App icon is exactly **1024 × 1024 px**.
+- [x] Final flat cat-and-play [app icon](../assets/brand/meowwatch-1024.png) is
+  exactly **1024 × 1024 px**, opaque and unmasked; platform exports are in the
+  [brand kit](BRAND.md).
 - [ ] At least one screenshot is exactly **1179 × 2556 px** with no device
   frame.
 - [ ] Gallery thumbnail is readable at a 3:2 ratio.

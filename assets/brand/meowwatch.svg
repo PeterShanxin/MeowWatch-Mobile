@@ -1,11 +1,11 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 108 108">
-  <rect width="108" height="108" fill="#EFB38C"/>
-  <g fill="#10141F">
-    <path d="M37 67 C30 63 33 55 40 50 L47 43 C51 39 57 39 61 43 L68 50 C75 55 78 63 71 67 C66 71 60 66 54 66 C48 66 42 71 37 67Z"/>
-    <ellipse cx="33" cy="39" rx="5.5" ry="8" transform="rotate(-25 33 39)"/>
-    <ellipse cx="46" cy="29" rx="5.5" ry="8" transform="rotate(-10 46 29)"/>
-    <ellipse cx="62" cy="29" rx="5.5" ry="8" transform="rotate(10 62 29)"/>
-    <ellipse cx="75" cy="39" rx="5.5" ry="8" transform="rotate(25 75 39)"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1000 1000" role="img" aria-labelledby="title">
+  <title id="title">MeowWatch — balanced cat and play icon</title>
+  <rect width="1000" height="1000" fill="#102A43"/>
+  <g id="mark">
+    <path d="M211 422 C194 358 190 263 206 192 C272 220 328 266 377 311 C460 282 540 282 623 311 C672 266 728 220 794 192 C810 263 806 358 789 422 C826 482 847 550 821 629 C778 758 666 797 500 797 C334 797 222 758 179 629 C153 550 174 482 211 422 Z" fill="none" stroke="#FFF5DF" stroke-width="38" stroke-linejoin="round"/>
+    <path d="M259 275 C253 271 248 275 248 283 L252 367 C252 376 258 379 264 373 L315 330 C321 325 321 320 315 315 Z" fill="#5BA8F5"/>
+    <path d="M741 275 C747 271 752 275 752 283 L748 367 C748 376 742 379 736 373 L685 330 C679 325 679 320 685 315 Z" fill="#5BA8F5"/>
+    <path d="M433 426 C423 420 412 426 412 438 L412 643 C412 655 423 662 433 655 L603 553 C614 547 614 535 603 529 Z" fill="#5BA8F5"/>
+    <path d="M240 525 L326 540 M240 600 L326 585 M760 525 L674 540 M760 600 L674 585" fill="none" stroke="#FFF5DF" stroke-width="28" stroke-linecap="round"/>
   </g>
-  <path d="M49 48 L49 61 L61 54.5Z" fill="#EFB38C"/>
 </svg>

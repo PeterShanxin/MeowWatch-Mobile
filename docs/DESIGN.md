@@ -26,6 +26,7 @@ The bundled DM Sans and DM Serif Display fonts come from the Google Fonts
 repository under the SIL Open Font License. Their complete notices are included
 beside each font in `assets/fonts/`.
 
-The original paw-and-play mark is in `assets/brand/meowwatch.svg`. The 1024px
-submission icon and Android density variants are reproducible with Node.js,
-the `sharp` package, and `node tools/generate_brand.cjs`.
+The final cat-and-play mark uses navy, cream and blue and follows the owner's
+preferred icon reference. See the [brand kit](BRAND.md) for the selected vector,
+three close refinements, Android adaptive/themed resources, desktop ICO and
+small-size variants. Exports are reproducible with `tools/generate_brand.cjs`.

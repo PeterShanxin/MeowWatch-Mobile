@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
 import '../../data/app_repository.dart';
+import '../brand_mark.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -196,20 +197,7 @@ class _HomeHeader extends StatelessWidget {
     final theme = Theme.of(context);
     return Row(
       children: [
-        Container(
-          width: 40,
-          height: 40,
-          alignment: Alignment.center,
-          decoration: BoxDecoration(
-            color: theme.colorScheme.primaryContainer,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Icon(
-            Icons.pets_outlined,
-            color: theme.colorScheme.onPrimaryContainer,
-            semanticLabel: 'MeowWatch',
-          ),
-        ),
+        const MeowWatchMark(size: 40),
         const SizedBox(width: 12),
         Expanded(
           child: Text(

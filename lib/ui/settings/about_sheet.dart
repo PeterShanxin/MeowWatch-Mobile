@@ -2,6 +2,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+import '../brand_mark.dart';
+
 const meowWatchVersion = '0.1.0+1';
 const meowWatchSourceUrl = 'https://github.com/PeterShanxin/MeowWatch-Mobile';
 const meowWatchSyncCoreSourceUrl =
@@ -62,7 +64,7 @@ class AboutSheet extends StatelessWidget {
       applicationName: 'MeowWatch',
       applicationVersion: meowWatchVersion,
       applicationLegalese: 'Licensed under AGPL-3.0-only.',
-      applicationIcon: const Icon(Icons.pets_outlined, size: 54),
+      applicationIcon: const MeowWatchMark(size: 54),
     );
   }
 
@@ -126,11 +128,7 @@ class AboutSheet extends StatelessWidget {
                   _AboutCard(
                     child: Row(
                       children: [
-                        Icon(
-                          Icons.pets_outlined,
-                          size: 42,
-                          color: colors.primary,
-                        ),
+                        const MeowWatchMark(size: 42),
                         const SizedBox(width: 16),
                         const Expanded(
                           child: Column(

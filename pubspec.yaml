@@ -39,6 +39,7 @@ flutter:
   uses-material-design: true
   assets:
     - LICENSE
+    - assets/brand/meowwatch-256.png
     - assets/fonts/DMSans-OFL.txt
     - assets/fonts/DMSerifDisplay-OFL.txt
   fonts:

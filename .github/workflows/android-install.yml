@@ -33,7 +33,7 @@ concurrency:
 
 jobs:
   normal-app:
-    name: Normal ${{ matrix.build-mode }} APK clean install (API 35 x86_64)
+    name: Normal ${{ matrix.build-mode }} APK clean install (API ${{ matrix.api-level }} x86_64)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     strategy:
@@ -41,13 +41,20 @@ jobs:
       matrix:
         include:
           - variant: debug-test-store
+            api-level: 35
             build-mode: debug
             apk-source: build/app/outputs/flutter-apk/app-debug.apk
             apk-name: meowwatch-debug-test-store.apk
           - variant: release-no-billing
+            api-level: 35
             build-mode: release
             apk-source: build/app/outputs/flutter-apk/app-release.apk
             apk-name: meowwatch-debug-key-release.apk
+          - variant: debug-test-store-api29
+            api-level: 29
+            build-mode: debug
+            apk-source: build/app/outputs/flutter-apk/app-debug.apk
+            apk-name: meowwatch-debug-test-store.apk
 
     steps:
       - name: Check out clean repository
@@ -113,7 +120,7 @@ jobs:
       - name: Clean-install and launch the normal application
         uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
-          api-level: 35
+          api-level: ${{ matrix.api-level }}
           target: google_apis
           arch: x86_64
           profile: pixel_6

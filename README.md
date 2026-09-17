@@ -2,6 +2,8 @@
 
 **Movie night, even when you're miles apart.**
 
+<img src="assets/brand/meowwatch-256.png" alt="MeowWatch cat and play icon" width="96" height="96">
+
 Android-first MeowWatch: synchronized playback, conversation, and nearby desktop control for couples, friends, and small groups.
 
 This is the mobile counterpart to [MeowWatch for desktop](https://github.com/PeterShanxin/MeowWatch), with a new touch interface, Android playback, lifecycle handling, and subscription flow. **Active development: not yet submission-ready.** See the [acceptance ledger](docs/STATUS.md) for verified capabilities and remaining work.
@@ -105,5 +107,9 @@ display actual ADB frames or explicitly labeled captured evidence while recordin
 the development canvas.
 
 ## License
+
+The [icon kit](docs/BRAND.md) includes the editable flat cat-and-play mark,
+Android adaptive and themed icons, desktop ICO, and small-size exports. The
+launcher and in-app brand marks use the selected navy, cream and blue design.
 
 [AGPL-3.0-only](LICENSE). Portable desktop code retains its original notices and provenance. Third-party packages retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and Settings → About & licenses in the app.

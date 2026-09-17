@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../app/app_controller.dart';
+import '../brand_mark.dart';
 
 class OnboardingScreen extends StatefulWidget {
   const OnboardingScreen({
@@ -72,19 +73,7 @@ class _OnboardingScreenState extends State<OnboardingScreen> {
                   children: [
                     Align(
                       alignment: Alignment.centerLeft,
-                      child: Container(
-                        width: 54,
-                        height: 54,
-                        decoration: BoxDecoration(
-                          color: theme.colorScheme.primaryContainer,
-                          borderRadius: BorderRadius.circular(17),
-                        ),
-                        child: Icon(
-                          Icons.pets_outlined,
-                          size: 34,
-                          color: theme.colorScheme.onPrimaryContainer,
-                        ),
-                      ),
+                      child: const MeowWatchMark(size: 54),
                     ),
                     const SizedBox(height: 32),
                     Text(

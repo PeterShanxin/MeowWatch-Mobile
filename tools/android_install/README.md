@@ -10,7 +10,9 @@ keys cannot run in release builds. Both APKs are signed with Flutter's Android
 debug key, so they are installable evidence and **are not Play
 production-signed or store-submission-ready**.
 
-Each matrix job uses a fresh API 35 Google APIs x86_64 AVD. The runner removes
+The debug and release jobs use fresh API 35 Google APIs x86_64 AVDs. A further
+debug job uses API 29 to check the adaptive icon and older splash resource path.
+The runner removes
 an existing MeowWatch package if present, performs a non-replacement
 `adb install -t`, and launches the exported normal `MainActivity`. Passing
 requires all of the following:
@@ -25,7 +27,8 @@ requires all of the following:
 - no fatal lines in app-process logcat.
 
 After that clean-install proof, the same installed APK runs the native incoming
-media gate for cold/warm Android `ACTION_SEND` and `ACTION_VIEW` review flows.
+media gate for cold/warm Android `ACTION_SEND` and `ACTION_VIEW` review flows,
+including native room invitations that wait for explicit Join.
 
 The workflow runs:
 

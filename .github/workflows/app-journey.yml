@@ -37,6 +37,10 @@ jobs:
           cache: true
           pub-cache: true
       - run: flutter pub get --enforce-lockfile
+      - name: Check native preflight guards
+        run: |
+          python3 -m unittest discover -s tools/app_journey -p 'test_*.py'
+          bash -n tools/app_journey/run.sh
       - name: Prepare licensed media fixture
         run: |
           sudo apt-get update

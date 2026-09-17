@@ -94,3 +94,19 @@ and user-rotation setting are captured before the first profile and restored on
 success, failure, timeout, or signal. `device-restore.tsv` records each restore
 operation's exit status. A restore or evidence failure fails an otherwise
 successful run.
+
+Before the first native recording, the runner performs one bounded system-ANR
+preflight. On an Android emulator only, it may close exactly one Pixel Launcher
+or Google SDK Setup ANR when the underlying focused activity is exactly Pixel
+Launcher. It requires the exact system title and `android:id/aerr_close`
+control, captures the original XML/window/screenshot, re-observes the dialog
+before tapping, and captures the resulting window and screenshot. The runner
+does not retry this recovery on later profiles.
+
+Every profile also records a read-only ANR assertion immediately before and
+after recording. Any MeowWatch ANR, unrelated package ANR, ambiguous focus,
+later recurrence, or allowlisted ANR over another activity fails the profile
+without receiving input. Recovery and assertion evidence is stored under
+`<profile>/native/system-anr/`. There is no background dialog watcher, so this
+guard does not compete with Flutter or native billing dialog control and does
+not hide a journey failure.

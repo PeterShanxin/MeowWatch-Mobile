@@ -49,7 +49,7 @@ if [[ ! "$profile_timeout" =~ ^[1-9][0-9]*[smh]?$ ]]; then
   echo '--timeout must be a positive GNU timeout duration such as 750s.' >&2
   exit 2
 fi
-for tool in adb flutter timeout sha256sum; do
+for tool in adb flutter python3 timeout sha256sum; do
   if ! command -v "$tool" >/dev/null 2>&1; then
     echo "Required journey tool is unavailable: $tool" >&2
     exit 2
@@ -369,6 +369,18 @@ run_profile() {
     return 4
   fi
 
+  local anr_evidence="$profile_runner/system-anr"
+  if [[ "$profile" == "${profiles[0]}" ]]; then
+    python3 -m tools.app_journey.system_anr_preflight recover \
+      --serial "$serial" \
+      --evidence-dir "$anr_evidence" \
+      --phase preflight || return 10
+  fi
+  python3 -m tools.app_journey.system_anr_preflight assert-clean \
+    --serial "$serial" \
+    --evidence-dir "$anr_evidence" \
+    --phase before-recording || return 10
+
   adb -s "$serial" logcat -c || return 9
   adb -s "$serial" shell wm size > "$profile_runner/wm-size.txt" || return 9
   adb -s "$serial" shell wm density > "$profile_runner/wm-density.txt" || return 9
@@ -419,6 +431,10 @@ run_profile() {
   adb -s "$serial" logcat -d -v threadtime > "$profile_runner/logcat.txt" || capture_status=1
   adb -s "$serial" shell dumpsys display > "$profile_runner/display-after.txt" || capture_status=1
   adb -s "$serial" shell dumpsys window displays > "$profile_runner/window-after.txt" || capture_status=1
+  python3 -m tools.app_journey.system_anr_preflight assert-clean \
+    --serial "$serial" \
+    --evidence-dir "$profile_runner/system-anr" \
+    --phase after-recording || capture_status=1
   adb -s "$serial" shell dumpsys media.codec > "$profile_runner/media-codec.txt" 2>&1
   printf 'media_codec_diagnostic_exit\t%s\n' "$?" >> "$profile_runner/profile.tsv"
   adb -s "$serial" shell dumpsys SurfaceFlinger --list > "$profile_runner/surfaceflinger-layers.txt" 2>&1

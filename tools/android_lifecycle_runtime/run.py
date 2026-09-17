@@ -702,6 +702,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 "lastCompletedUiObservation": runner.last_observation,
                 "preparationAnrRecoveries": runner.preparation_recoveries,
                 "nativeUiObservations": runner.observer.observations,
+                "nativeUiObserverInstallation": runner.observer.installation,
                 "recordings": runner.recordings,
             }
             args.output.joinpath("failure.xml").write_text(runner.last_xml, encoding="utf-8")

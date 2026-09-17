@@ -37,6 +37,25 @@ class Snapshot:
     node_count: int
 
 
+def installation_diagnostics(result: subprocess.CompletedProcess[bytes]) -> dict[str, object]:
+    """Retain recognized installer state without paths or arbitrary raw payloads."""
+    stdout, stderr = result.stdout or b"", result.stderr or b""
+    lines = [line.strip() for line in stdout.decode("utf-8", errors="replace").splitlines() if line.strip()]
+    known_modes = {"Performing Streamed Install": "streamed", "Performing Push Install": "push",
+                   "Performing Incremental Install": "incremental"}
+    modes = [known_modes[line] for line in lines if line in known_modes]
+    error_codes = sorted(set(re.findall(rb"\bINSTALL_(?:FAILED|PARSE_FAILED)_[A-Z0-9_]+\b", stdout + stderr)))
+    return {"requestedMode": "non-incremental", "exitCode": result.returncode,
+            "observedModes": modes, "successLinePresent": "Success" in lines,
+            "terminalSuccess": bool(lines) and lines[-1] == "Success",
+            "incrementalCompletionPresent": any(re.fullmatch(r"Install command complete in \d+ ms", line)
+                                                 for line in lines),
+            "errorCodes": [value.decode("ascii") for value in error_codes],
+            "stdoutBytes": len(stdout), "stderrBytes": len(stderr),
+            "stdoutSha256": hashlib.sha256(stdout).hexdigest(),
+            "stderrSha256": hashlib.sha256(stderr).hexdigest()}
+
+
 def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -> Snapshot:
     """Reject malformed/stale/oversized output without echoing its UI contents."""
     if len(output) > MAX_OUTPUT_BYTES or re.fullmatch(r"[a-f0-9]{32}", nonce) is None:
@@ -111,6 +130,7 @@ class NativeUiObserver:
         self.installed = False
         self.previous_uptime_ms = -1
         self.observations: list[dict[str, object]] = []
+        self.installation: dict[str, object] | None = None
 
     def install(self) -> dict[str, object]:
         if not self.apk.is_file():
@@ -121,8 +141,13 @@ class NativeUiObserver:
         if self.adb.run("shell", "pm", "path", OBSERVER_PACKAGE, check=False).stdout.strip():
             raise ObserverIntegrityFailure("refusing to replace a pre-existing native UI observer")
         self.owns_package = True
-        installed = self.adb.run("install", "-t", str(self.apk), timeout=60).stdout.decode("utf-8", errors="replace")
-        if not install_output_succeeded(installed):
+        # apksigner emits a .idsig sidecar. Without an explicit mode, ADB can
+        # choose incremental delivery and append timing output after Success.
+        # This tiny helper needs a completed ordinary install before inspection.
+        result = self.adb.run("install", "--no-incremental", "-t", str(self.apk), timeout=60, check=False)
+        self.installation = installation_diagnostics(result)
+        installed = result.stdout.decode("utf-8", errors="replace")
+        if result.returncode or not install_output_succeeded(installed):
             raise RuntimeFailure("standalone native UI observer installation failed")
         instrumentation = self.adb.run("shell", "pm", "list", "instrumentation", OBSERVER_PACKAGE).stdout.decode(
             "utf-8", errors="replace")
@@ -132,7 +157,8 @@ class NativeUiObserver:
         self.installed = True
         return {"package": OBSERVER_PACKAGE, "targetPackage": OBSERVER_PACKAGE,
                 "apkSha256": hashlib.sha256(self.apk.read_bytes()).hexdigest(),
-                "method": "UiAutomation.getRootInActiveWindow", "waitForIdle": False}
+                "method": "UiAutomation.getRootInActiveWindow", "waitForIdle": False,
+                "installation": self.installation}
 
     def production_pid(self) -> str:
         pid = self.adb.run("shell", "pidof", PACKAGE, check=False, timeout=10).stdout.decode(

@@ -43,6 +43,14 @@ build-step exit status. The generated test signing key stays under ignored
 installed instrumentation target, and uninstalls only its own helper on cleanup.
 The caller remains responsible for validating exact foreground-window focus.
 
+The helper uses explicit `adb install --no-incremental -t`: the signing tool
+creates an `.apk.idsig` sidecar, which otherwise lets ADB select incremental
+delivery. Incremental success can have a timing line after `Success`; a completed
+ordinary install is required before inspecting instrumentation. Exit status,
+strict terminal `Success` and the installed self-target are all checked.
+Installation diagnostics retain only recognized modes/status/error codes,
+byte counts and output hashes, never raw installer payloads or paths.
+
 Each `am instrument -w -r` request carries a new random 128-bit nonce. The helper
 returns one XML snapshot as Base64 in its instrumentation result, together with
 the nonce, device uptime, protocol version and node count. There is no shared

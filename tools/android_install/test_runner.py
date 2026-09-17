@@ -1,12 +1,15 @@
+import io
+import json
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from tools.android_install.runner import (
     Adb,
+    NativeRecording,
     PACKAGE,
     RuntimeFailure,
     Runner,
@@ -181,6 +184,126 @@ class SetupRecoveryTests(unittest.TestCase):
                 adb.run = run
                 with self.assertRaises(RuntimeFailure):
                     self.runner(adb).launch()
+
+
+class StorageReadinessTests(unittest.TestCase):
+    def test_delayed_mount_and_write_readiness_keep_original_errors(self):
+        adb = Adb("emulator-5554", "storage-test")
+        results = [
+            (1, b""), (1, b"mkdir: No such file or directory"),
+            (0, b""), (1, b"touch: external_primary not ready"), (0, b""), (0, b""),
+        ]
+        commands = []
+        def run(*args, **kwargs):
+            commands.append(args)
+            code, error = results.pop(0)
+            return subprocess.CompletedProcess(args, code, b"", error)
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+        ), patch.object(adb, 'run', side_effect=run), patch(
+            'tools.android_install.runner.time.sleep'
+        ):
+            adb.prepare_storage()
+            self.assertTrue(adb.remote_root_created)
+            self.assertEqual(commands.count(('shell', 'mkdir', adb.remote_root)), 2)
+            self.assertEqual(commands.count(('shell', 'touch', adb.remote_prefix + 'storage-probe.mp4')), 2)
+            log = (Path(temporary) / 'storage-readiness.log').read_text()
+            self.assertIn('No such file or directory', log)
+            self.assertIn('external_primary not ready', log)
+
+    def test_unavailable_storage_has_a_deadline_and_does_not_become_owned(self):
+        adb = Adb("emulator-5554", "storage-test")
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+        ), patch.object(adb, 'run', return_value=subprocess.CompletedProcess([], 1, b'', b'not ready')), patch(
+            'tools.android_install.runner.time.monotonic', side_effect=[0, 0, 21]
+        ), patch('tools.android_install.runner.time.sleep'):
+            with self.assertRaisesRegex(RuntimeFailure, 'not writable within 20 seconds'):
+                adb.prepare_storage()
+            self.assertFalse(adb.remote_root_created)
+            self.assertIn('not ready', (Path(temporary) / 'storage-readiness.log').read_text())
+
+    def test_existing_directory_is_never_reused(self):
+        adb = Adb("emulator-5554", "storage-test")
+        with patch.object(adb, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')) as run:
+            with self.assertRaisesRegex(RuntimeFailure, 'already exists'):
+                adb.prepare_storage()
+            self.assertEqual(run.call_count, 1)
+            self.assertFalse(adb.remote_root_created)
+
+
+class RecordingTests(unittest.TestCase):
+    def test_foreground_exec_keeps_the_announced_pid_as_the_recorder(self):
+        adb = Adb("emulator-5554", "recording-test")
+        process = Mock(stdout=io.StringIO('INSTALL_RECORDER_PID=42\n'))
+        with patch.object(adb, 'run', return_value=subprocess.CompletedProcess([], 0, b'', b'')), patch(
+            'tools.android_install.runner.subprocess.Popen', return_value=process
+        ) as popen:
+            recording = NativeRecording(adb)
+            recording.start()
+            recording.reader.join(timeout=1)
+            self.assertEqual(recording.pid, '42')
+            command = popen.call_args.args[0][-1]
+            self.assertIn('"$$"; exec screenrecord --verbose', command)
+            self.assertNotIn('&', command)
+            self.assertIn('--time-limit 90', command)
+
+    def finish_case(self, *, timeout=False, never_exits=False, decode_status=0, foreign=False, exit_status=0):
+        adb = Adb("emulator-5554", "recording-test")
+        recording = NativeRecording(adb)
+        recording.pid = '42'
+        recording.started_at = 100
+        process = Mock(stdout=None, returncode=exit_status)
+        process.poll.side_effect = [None, None if never_exits or foreign else exit_status]
+        process.wait.side_effect = (
+            [subprocess.TimeoutExpired('adb', 20), subprocess.TimeoutExpired('adb', 62), 0]
+            if never_exits else [subprocess.TimeoutExpired('adb', 20), 0, 0] if timeout else [0, 0]
+        )
+        recording.process = process
+        def run(*args, **kwargs):
+            output = b''
+            if args[:2] == ('exec-out', 'cat'):
+                output = (f"other\0{recording.remote}\0" if foreign else f"screenrecord\0{recording.remote}\0").encode()
+            if args[0] == 'pull':
+                Path(args[2]).write_bytes(b'ftypmoov' + bytes(8192))
+            return subprocess.CompletedProcess(args, 0, output, b'')
+        media_results = [
+            subprocess.CompletedProcess([], 0, b'{"streams":[{"duration":"32.0","width":1080,"height":2400}]}', b''),
+            subprocess.CompletedProcess([], decode_status, b'', b'decode failed' if decode_status else b''),
+        ]
+        return recording, process, patch.object(adb, 'run', side_effect=run), patch(
+            'tools.android_install.runner.subprocess.run', side_effect=media_results
+        )
+
+    def test_slow_sigint_drain_waits_only_the_original_deadline_and_decodes(self):
+        with tempfile.TemporaryDirectory() as temporary, patch(
+            'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+        ), patch('tools.android_install.runner.time.monotonic', side_effect=[125, 148]):
+            recording, process, adb_patch, media_patch = self.finish_case(timeout=True)
+            with adb_patch as adb_run, media_patch as media_run:
+                recording.finish()
+            self.assertEqual([call.kwargs['timeout'] for call in process.wait.call_args_list[:2]], [20, 62])
+            self.assertEqual(sum(call.args[:3] == ('shell', 'kill', '-2') for call in adb_run.call_args_list), 1)
+            self.assertEqual(media_run.call_count, 2)
+            process.terminate.assert_not_called()
+            metadata = json.loads((Path(temporary) / 'recording-metadata.json').read_text())
+            self.assertEqual(metadata['finishRequestedAfterSeconds'], 25)
+            self.assertEqual(metadata['streams'][0]['duration'], '32.0')
+
+    def test_foreign_pid_stuck_recorder_and_bad_decode_still_fail(self):
+        for options, error in (
+            ({'foreign': True}, RuntimeFailure),
+            ({'never_exits': True}, subprocess.TimeoutExpired),
+            ({'decode_status': 1}, RuntimeFailure),
+            ({'exit_status': 1}, RuntimeFailure),
+        ):
+            with self.subTest(options=options), tempfile.TemporaryDirectory() as temporary, patch(
+                'tools.android_install.runner.ARTIFACT_ROOT', Path(temporary)
+            ), patch('tools.android_install.runner.time.monotonic', side_effect=[125, 148]):
+                recording, process, adb_patch, media_patch = self.finish_case(**options)
+                with adb_patch, media_patch, self.assertRaises(error):
+                    recording.finish()
+                self.assertTrue((Path(temporary) / 'screenrecord.log').is_file())
 
 
 class RuntimeContractTests(unittest.TestCase):

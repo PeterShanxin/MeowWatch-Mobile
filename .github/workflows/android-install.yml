@@ -73,6 +73,13 @@ jobs:
       - name: Resolve locked dependencies
         run: flutter pub get --enforce-lockfile
 
+      - name: Prepare recording verification tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          ffmpeg -version
+          ffprobe -version
+
       - name: Check install runner contracts
         run: |
           python3 -m unittest tools.android_install.test_runner

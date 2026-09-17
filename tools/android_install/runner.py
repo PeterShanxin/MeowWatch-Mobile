@@ -267,6 +267,41 @@ class Adb:
         validate_png(value)
         return value
 
+    def prepare_storage(self) -> None:
+        """Wait for this emulator's external storage, retaining failed probes."""
+        if self.run("shell", "test", "-e", self.remote_root, check=False).returncode == 0:
+            raise RuntimeFailure("task-owned Android evidence directory already exists")
+        deadline = time.monotonic() + 20
+        probe = f"{self.remote_prefix}storage-probe.mp4"
+        self.remote_files.append(probe)
+        diagnostics: list[str] = []
+        try:
+            while time.monotonic() < deadline:
+                arguments = ("shell", "touch", probe) if self.remote_root_created else (
+                    "shell", "mkdir", self.remote_root
+                )
+                try:
+                    result = self.run(*arguments, timeout=3, check=False)
+                    diagnostics.append(
+                        f"{' '.join(arguments)}: exit={result.returncode}\n"
+                        + redact_log((result.stdout + result.stderr).decode("utf-8", errors="replace"))
+                        + "\n"
+                    )
+                    if result.returncode == 0:
+                        if self.remote_root_created:
+                            self.run("shell", "rm", "-f", probe)
+                            return
+                        self.remote_root_created = True
+                        continue
+                except subprocess.TimeoutExpired:
+                    diagnostics.append(f"{' '.join(arguments)}: timed out\n")
+                time.sleep(0.5)
+            raise RuntimeFailure("Android evidence storage was not writable within 20 seconds")
+        finally:
+            (ARTIFACT_ROOT / "storage-readiness.log").write_text(
+                "".join(diagnostics), encoding="utf-8"
+            )
+
     def observe(self) -> tuple[str, str]:
         self.observation += 1
         remote = f"{self.remote_prefix}ui-{self.observation}.xml"
@@ -302,6 +337,7 @@ class NativeRecording:
         self.pid: str | None = None
         self.lines: list[str] = []
         self.reader: threading.Thread | None = None
+        self.started_at: float | None = None
 
     def start(self) -> None:
         existing = self.adb.run(
@@ -311,10 +347,10 @@ class NativeRecording:
             raise RuntimeFailure("refusing to interfere with an existing Android screen recorder")
         self.adb.remote_files.append(self.remote)
         command = (
-            f"screenrecord --bit-rate 3000000 --time-limit 90 {self.remote} & "
-            "record_pid=$!; printf 'INSTALL_RECORDER_PID=%s\\n' \"$record_pid\"; "
-            "wait \"$record_pid\""
+            "printf 'INSTALL_RECORDER_PID=%s\\n' \"$$\"; "
+            f"exec screenrecord --verbose --bit-rate 3000000 --time-limit 90 {self.remote}"
         )
+        self.started_at = time.monotonic()
         self.process = subprocess.Popen(
             self.adb.prefix + ["shell", command],
             stdout=subprocess.PIPE,
@@ -343,6 +379,7 @@ class NativeRecording:
     def finish(self) -> None:
         if self.process is None:
             return
+        finish_requested_at = time.monotonic()
         try:
             if self.process.poll() is None:
                 if self.pid is None:
@@ -357,13 +394,55 @@ class NativeRecording:
                 ):
                     raise RuntimeFailure("screen recorder ownership changed")
                 self.adb.run("shell", "kill", "-2", self.pid)
-            self.process.wait(timeout=20)
+            try:
+                self.process.wait(timeout=20)
+            except subprocess.TimeoutExpired:
+                if self.started_at is None:
+                    raise RuntimeFailure("screen recorder start time is missing")
+                self.lines.append("SIGINT drain exceeded 20 seconds; waiting for the original native time limit.\n")
+                if self.pid is not None:
+                    status = self.adb.run(
+                        "exec-out", "cat", f"/proc/{self.pid}/status", timeout=3, check=False
+                    )
+                    self.lines.append(redact_log(status.stdout.decode("utf-8", errors="replace")))
+                remaining = self.started_at + 90 + 20 - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeFailure("screen recorder exceeded its native recording and drain deadline")
+                self.process.wait(timeout=remaining)
+            if self.process.returncode != 0:
+                raise RuntimeFailure("screen recorder did not exit successfully")
             if self.reader is not None:
                 self.reader.join(timeout=10)
                 if self.reader.is_alive():
                     raise RuntimeFailure("screen recorder output reader did not finish")
             self.adb.run("pull", self.remote, str(self.output), timeout=40)
             validate_mp4(self.output.read_bytes())
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries",
+                 "stream=codec_name,width,height,start_time,duration,nb_frames", "-of", "json", str(self.output)],
+                capture_output=True, timeout=15, check=False,
+            )
+            metadata = json.loads(probe.stdout) if probe.returncode == 0 else {}
+            streams = metadata.get("streams", [])
+            if len(streams) != 1 or float(streams[0].get("duration", 0)) <= 0:
+                raise RuntimeFailure("native first-launch recording has no measurable video duration")
+            metadata["finishRequestedAfterSeconds"] = (
+                finish_requested_at - self.started_at if self.started_at is not None else None
+            )
+            metadata["nativeTimeLimitSeconds"] = 90
+            (ARTIFACT_ROOT / "recording-metadata.json").write_text(
+                json.dumps(metadata, indent=2) + "\n", encoding="utf-8"
+            )
+            decoded = subprocess.run(
+                ["ffmpeg", "-hide_banner", "-v", "error", "-xerror", "-i", str(self.output),
+                 "-enc_time_base:v", "demux", "-fps_mode", "passthrough", "-f", "null", "-"],
+                capture_output=True, timeout=60, check=False,
+            )
+            (ARTIFACT_ROOT / "recording-decode.log").write_text(
+                redact_log(decoded.stderr.decode("utf-8", errors="replace")), encoding="utf-8"
+            )
+            if decoded.returncode != 0:
+                raise RuntimeFailure("native first-launch recording could not be decoded completely")
         finally:
             (ARTIFACT_ROOT / "screenrecord.log").write_text(
                 "".join(self.lines), encoding="utf-8"
@@ -447,8 +526,9 @@ class Runner:
         raise AssertionError("launch attempts exhausted")
 
     def prepare(self) -> dict[str, Any]:
-        if shutil.which("adb") is None:
-            raise RuntimeFailure("required tool is unavailable: adb")
+        for tool in ("adb", "ffmpeg", "ffprobe"):
+            if shutil.which(tool) is None:
+                raise RuntimeFailure(f"required tool is unavailable: {tool}")
         if ARTIFACT_ROOT.exists() and any(ARTIFACT_ROOT.iterdir()):
             raise RuntimeFailure(f"artifact directory must start empty: {ARTIFACT_ROOT}")
         ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
@@ -457,13 +537,7 @@ class Runner:
         if state != "device" or qemu != "1":
             raise RuntimeFailure("selected adb serial is not a ready Android emulator")
         self.cleanup_authorized = True
-        remote_exists = self.adb.run(
-            "shell", "test", "-e", self.adb.remote_root, check=False
-        )
-        if remote_exists.returncode == 0:
-            raise RuntimeFailure("task-owned Android evidence directory already exists")
-        self.adb.run("shell", "mkdir", self.adb.remote_root)
-        self.adb.remote_root_created = True
+        self.adb.prepare_storage()
 
         installed = self.adb.run(
             "shell", "pm", "path", PACKAGE, check=False

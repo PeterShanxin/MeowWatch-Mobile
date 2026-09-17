@@ -9,6 +9,7 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_native_ui.observer import (
     COMPONENT, MAX_ATTRIBUTE, MAX_DEPTH, MAX_NODES, MAX_OUTPUT_BYTES, MAX_XML_BYTES,
     NativeUiObserver, OBSERVER_PACKAGE, ObserverIntegrityFailure, parse_snapshot,
+    installation_diagnostics,
 )
 
 
@@ -52,8 +53,11 @@ class FakeAdb:
             output = self.qemu
         elif arguments == ("shell", "pm", "path", OBSERVER_PACKAGE):
             output = b"package:/test.apk" if self.already_installed else b""
-        elif arguments[:2] == ("install", "-t"):
-            output = b"Success"
+        elif arguments[0] == "install":
+            if "--no-incremental" in arguments:
+                output = b"Performing Streamed Install\nSuccess\n"
+            else:
+                output = b"Performing Incremental Install\nSuccess\nInstall command complete in 372 ms\n"
         elif arguments == ("shell", "pm", "list", "instrumentation", OBSERVER_PACKAGE):
             output = f"instrumentation:{COMPONENT} (target={self.target})\n".encode()
         elif arguments == ("shell", "pidof", PACKAGE):
@@ -163,6 +167,46 @@ class NativeObserverTests(unittest.TestCase):
             instrumentation = [args for args in commands if args[:3] == ("shell", "am", "instrument")]
             self.assertEqual(instrumentation[0][-1], COMPONENT)
             self.assertEqual(observer.observations[0]["applicationPid"], 123)
+
+    def test_helper_with_idsig_requires_completed_non_incremental_install(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb()
+            observer = self.helper(Path(directory), adb)
+            observer.apk.with_suffix(".apk.idsig").write_bytes(b"test-only signature sidecar")
+            metadata = observer.install()
+            installs = [arguments for arguments, _ in adb.commands if arguments[0] == "install"]
+            self.assertEqual(installs, [("install", "--no-incremental", "-t", str(observer.apk))])
+            self.assertTrue(observer.installed)
+            self.assertEqual(metadata["installation"]["observedModes"], ["streamed"])
+            self.assertTrue(metadata["installation"]["terminalSuccess"])
+
+    def test_installer_failure_is_retained_safely_and_never_invokes_instrumentation(self):
+        class FailedInstallAdb(FakeAdb):
+            def run(self, *arguments, **kwargs):
+                if arguments[0] == "install":
+                    self.commands.append((arguments, kwargs))
+                    return subprocess.CompletedProcess([], 1, b"Performing Streamed Install\n",
+                                                       b"Failure [INSTALL_FAILED_INVALID_APK: private-value]")
+                return super().run(*arguments, **kwargs)
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FailedInstallAdb()
+            observer = self.helper(Path(directory), adb)
+            with self.assertRaisesRegex(RuntimeFailure, "installation failed"):
+                observer.install()
+            self.assertFalse(observer.installed)
+            self.assertEqual(observer.installation["errorCodes"], ["INSTALL_FAILED_INVALID_APK"])
+            self.assertNotIn("private-value", str(observer.installation))
+            self.assertFalse(any(arguments[:3] == ("shell", "pm", "list") for arguments, _ in adb.commands))
+            observer.cleanup()
+            self.assertFalse(observer.owns_package)
+
+    def test_incremental_completion_is_diagnosed_but_not_accepted_as_terminal_success(self):
+        data = b"Performing Incremental Install\nSuccess\nInstall command complete in 372 ms\n"
+        diagnostics = installation_diagnostics(subprocess.CompletedProcess([], 0, data, b""))
+        self.assertEqual(diagnostics["observedModes"], ["incremental"])
+        self.assertTrue(diagnostics["successLinePresent"])
+        self.assertTrue(diagnostics["incrementalCompletionPresent"])
+        self.assertFalse(diagnostics["terminalSuccess"])
 
     def test_existing_helper_or_physical_device_is_never_replaced(self):
         for adb in (FakeAdb(serial="physical-device"), FakeAdb(qemu=b"0"), FakeAdb(already_installed=True)):

@@ -58,6 +58,20 @@ The original timeout output and `activityManagerWaitTimedOut` flag are retained.
 ADB command timeouts, ambiguous responses, app ANRs and other focused activities
 are not accepted through this path.
 
+Before installation, the runner waits up to 20 seconds for its owned external
+storage directory and an actual MP4 write probe. It retains every failed probe
+in `storage-readiness.log`. An existing evidence directory is never reused.
+
+Native recording runs in the foreground with an explicitly announced PID.
+After the UI checks, the runner verifies ownership and requests a graceful stop.
+If the first 20-second drain expires, it records process diagnostics and waits
+only through the original 90-second native limit plus 20 seconds for finalization.
+A forced termination never passes: the recorder must exit successfully, produce
+a finalized MP4, and pass a complete `ffmpeg` decode. The runner requires
+`ffmpeg` and `ffprobe`; `recording-metadata.json` retains the actual video duration,
+dimensions and the elapsed time when stop was requested. These timings expose
+the captured coverage rather than asserting that every launch frame was captured.
+
 Evidence comes from a public-hosted Android emulator, not a physical device.
 The gate proves clean installation, first launch and native incoming review for
 each APK. The debug artifact contains a real Test Store client configuration,

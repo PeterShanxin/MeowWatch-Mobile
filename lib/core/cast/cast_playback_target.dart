@@ -45,6 +45,8 @@ class CastPlaybackTarget extends PlaybackTarget {
   @override
   PlaybackSnapshot get snapshot => _snapshot;
   @override
+  bool get acceptsExternalPlaybackChanges => true;
+  @override
   Stream<PlaybackSnapshot> get states => _states.stream;
 
   static const unsupportedMessage =

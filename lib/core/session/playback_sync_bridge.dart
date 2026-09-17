@@ -42,6 +42,7 @@ class PlaybackSyncBridge {
   bool _buffering = false;
   Timer? _bufferRecovery;
   bool _externalPlayPending = false;
+  int? _pauseCorrectionSource;
 
   /// Keep the accepted room intent through transient native buffering events.
   bool get playRequested => _hasSource && _publishedPaused == false;
@@ -177,6 +178,14 @@ class PlaybackSyncBridge {
       }
       _resetBuffering();
     }
+    if (state.playing &&
+        _publishedPaused == true &&
+        !target.acceptsExternalPlaybackChanges) {
+      // Phone controls enter through this bridge. A conflicting native play
+      // state is therefore a delayed player/lifecycle echo, not a new intent.
+      _reassertPause();
+      return;
+    }
     final expected = _expected;
     if (expected != null &&
         DateTime.now().difference(_expectedAt) < settleWindow) {
@@ -205,6 +214,42 @@ class PlaybackSyncBridge {
       return;
     }
     _publish(state, changed: false);
+  }
+
+  void _reassertPause() {
+    final source = _sourceGeneration;
+    if (_pauseCorrectionSource == source) return;
+    _pauseCorrectionSource = source;
+    _background(
+      _enqueue(() async {
+        if (!_hasSource ||
+            source != _sourceGeneration ||
+            _publishedPaused != true) {
+          return;
+        }
+        _applying++;
+        try {
+          await target.pause().timeout(commandTimeout);
+          if (!_hasSource ||
+              source != _sourceGeneration ||
+              _publishedPaused != true) {
+            return;
+          }
+          final expected = _expected;
+          if (expected != null && expected.paused) {
+            _acknowledge(expected);
+          } else {
+            _publish(target.snapshot, changed: false, paused: true);
+          }
+        } finally {
+          _applying--;
+        }
+      }).whenComplete(() {
+        if (_pauseCorrectionSource == source) {
+          _pauseCorrectionSource = null;
+        }
+      }),
+    );
   }
 
   void _publish(

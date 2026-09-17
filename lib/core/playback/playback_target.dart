@@ -35,6 +35,13 @@ abstract class PlaybackTarget extends ChangeNotifier {
 
   /// The transport intent can remain playing while a decoder buffers.
   bool get playRequested => snapshot.playing;
+
+  /// Whether receiver-side controls can intentionally change playback.
+  ///
+  /// Phone playback is controlled through the app, while targets such as
+  /// Cast can also be controlled by the receiver or another sender.
+  bool get acceptsExternalPlaybackChanges => false;
+
   Stream<PlaybackSnapshot> get states;
   Future<void> load(MediaItem media, {Duration position = Duration.zero});
   Future<void> play();

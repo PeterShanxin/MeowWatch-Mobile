@@ -127,6 +127,79 @@ void main() {
         return position!;
       }
 
+      Future<
+        ({
+          int convergenceElapsedMs,
+          int maxStableDriftMs,
+          int peerPositionMs,
+          int stableElapsedMs,
+        })
+      >
+      waitStablePeerPause(int expectedPosition, int round) async {
+        const positionToleranceMs = 350;
+        const stableInterval = Duration(milliseconds: 800);
+        const totalDeadline = Duration(seconds: 45);
+        final totalClock = Stopwatch()..start();
+        Stopwatch? stableClock;
+        int? stablePositionMs;
+        var maxStableDriftMs = 0;
+        var stableSamples = 0;
+
+        while (totalClock.elapsed < totalDeadline) {
+          final snapshot = target.snapshot;
+          final positionMs = snapshot.position.inMilliseconds;
+          final authoritativeDriftMs = (positionMs - expectedPosition).abs();
+          final anchorDriftMs = stablePositionMs == null
+              ? 0
+              : (positionMs - stablePositionMs).abs();
+          final stable =
+              !snapshot.playing &&
+              authoritativeDriftMs < positionToleranceMs &&
+              anchorDriftMs < positionToleranceMs;
+
+          if (stable) {
+            stableClock ??= Stopwatch()..start();
+            stablePositionMs ??= positionMs;
+            stableSamples++;
+            if (anchorDriftMs > maxStableDriftMs) {
+              maxStableDriftMs = anchorDriftMs;
+            }
+            // Nine observations include eight 100 ms polling intervals. The
+            // sample count prevents one overloaded pump from masquerading as
+            // a continuously observed stable interval.
+            if (stableClock.elapsed >= stableInterval && stableSamples >= 9) {
+              return (
+                convergenceElapsedMs: totalClock.elapsed.inMilliseconds,
+                maxStableDriftMs: maxStableDriftMs,
+                peerPositionMs: positionMs,
+                stableElapsedMs: stableClock.elapsed.inMilliseconds,
+              );
+            }
+          } else {
+            stableClock?.stop();
+            stableClock = null;
+            stablePositionMs = null;
+            maxStableDriftMs = 0;
+            stableSamples = 0;
+          }
+          await tester.pump(const Duration(milliseconds: 100));
+        }
+
+        final snapshot = target.snapshot;
+        final authoritativeDriftMs =
+            (snapshot.position.inMilliseconds - expectedPosition).abs();
+        throw TestFailure(
+          '$_role: peer pause and authoritative position $round did not '
+          'remain stable for ${stableInterval.inMilliseconds} ms within '
+          '${totalDeadline.inSeconds} s; connected=${app.isConnected}, '
+          'peers=${app.peers}, playing=${snapshot.playing}, '
+          'position=${snapshot.position}, expectedPositionMs=$expectedPosition, '
+          'authoritativeDriftMs=$authoritativeDriftMs, '
+          'stableElapsedMs=${stableClock?.elapsed.inMilliseconds ?? 0}, '
+          'maxStableDriftMs=$maxStableDriftMs, error=${app.message}',
+        );
+      }
+
       await until(
         () => app.peers.isNotEmpty && app.peerFiles.isNotEmpty,
         'peer media and presence',
@@ -194,27 +267,18 @@ void main() {
           await signal('saw play $round');
           final expectedPosition = await waitPausePosition(round);
           // The bridge pauses before applying the room's authoritative seek.
-          // Measure stability only once both native operations have converged.
-          await until(
-            () =>
-                !target.snapshot.playing &&
-                (target.snapshot.position.inMilliseconds - expectedPosition)
-                        .abs() <
-                    350,
-            'peer pause and authoritative position',
-          );
-          final position = target.snapshot.position;
-          await tester.pump(const Duration(milliseconds: 800));
-          expect(
-            (target.snapshot.position - position).inMilliseconds.abs(),
-            lessThan(350),
-          );
+          // A transient matching callback is not convergence. Require the
+          // native player to remain paused and within the original 350 ms
+          // bounds for a continuously observed 800 ms interval.
+          final stability = await waitStablePeerPause(expectedPosition, round);
           observed.add({
             'stage': 'pause-convergence-$round',
             'controllerPositionMs': expectedPosition,
-            'peerPositionMs': target.snapshot.position.inMilliseconds,
-            'driftMs': (target.snapshot.position - position).inMilliseconds
-                .abs(),
+            'peerPositionMs': stability.peerPositionMs,
+            'driftMs': stability.maxStableDriftMs,
+            'convergenceElapsedMs': stability.convergenceElapsedMs,
+            'stableElapsedMs': stability.stableElapsedMs,
+            'maxStableDriftMs': stability.maxStableDriftMs,
             'at': DateTime.now().toUtc().toIso8601String(),
           });
           await capture('paused-peer-$round');

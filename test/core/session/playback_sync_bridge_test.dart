@@ -307,7 +307,110 @@ void main() {
     expect(sync.published.last.paused, isTrue);
   });
 
+  test(
+    'native play echo after expired settle window cannot undo peer pause',
+    () async {
+      await bridge.load(movie);
+      await bridge.dispose();
+      fakeAsync((clock) {
+        var checks = 0;
+        bridge = PlaybackSyncBridge(
+          target: target,
+          sync: sync,
+          authorizePlayback: () async {
+            checks++;
+            return true;
+          },
+          settleWindow: Duration.zero,
+        )..start();
+        unawaited(bridge.markSourceOpen(movie.uri.toString()));
+        clock.flushMicrotasks();
+
+        sync.peer(
+          const PeerPlayState(
+            position: Duration(seconds: 12),
+            paused: true,
+            setBy: 'peer',
+          ),
+        );
+        clock.flushMicrotasks();
+        expect(target.snapshot.position, const Duration(seconds: 12));
+        expect(sync.published.last.paused, isTrue);
+        final playsBeforeEcho = target.commands
+            .where((command) => command == 'play')
+            .length;
+        final pausesBeforeEcho = target.commands
+            .where((command) => command == 'pause')
+            .length;
+
+        emitNative(target, playing: true, buffering: false);
+        emitNative(target, playing: true, buffering: false);
+        emitNative(target, playing: true, buffering: false);
+        clock.flushMicrotasks();
+
+        expect(checks, 0);
+        expect(
+          target.commands.where((command) => command == 'play').length,
+          playsBeforeEcho,
+        );
+        expect(
+          target.commands.where((command) => command == 'pause').length,
+          pausesBeforeEcho + 1,
+        );
+        expect(target.snapshot.playing, isFalse);
+        expect(sync.published.last.paused, isTrue);
+
+        bool? played;
+        unawaited(bridge.play().then((value) => played = value));
+        clock.flushMicrotasks();
+        expect(played, isTrue);
+        expect(checks, 1);
+        expect(target.snapshot.playing, isTrue);
+      });
+    },
+  );
+
+  test('stale pause correction cannot affect a replacement source', () async {
+    await bridge.dispose();
+    await target.close();
+    final gatedTarget = PauseCompletionGatedTarget();
+    target = gatedTarget;
+    bridge = PlaybackSyncBridge(
+      target: target,
+      sync: sync,
+      authorizePlayback: () async => true,
+      onError: errors.add,
+      settleWindow: Duration.zero,
+    )..start();
+    await bridge.load(movie);
+    final pauseCompletion = Completer<void>();
+    gatedTarget.pauseCompletionGate = pauseCompletion;
+
+    emitNative(target, playing: true, buffering: false);
+    await until(() => target.commands.contains('pause'));
+    bridge.beginSourceLoad();
+    await target.load(second);
+    await target.play();
+    final publicationsBeforeCompletion = sync.published.length;
+
+    pauseCompletion.complete();
+    await Future<void>.delayed(Duration.zero);
+
+    expect(target.snapshot.media, second);
+    expect(target.snapshot.playing, isTrue);
+    expect(sync.published.length, publicationsBeforeCompletion);
+  });
+
   test('late external play authorization cannot undo a user pause', () async {
+    await bridge.dispose();
+    await target.close();
+    target = ExternalPlaybackTestTarget();
+    bridge = PlaybackSyncBridge(
+      target: target,
+      sync: sync,
+      authorizePlayback: () => authorize(),
+      onError: errors.add,
+    )..start();
     await bridge.load(movie);
     final gate = Completer<bool>();
     authorize = () => gate.future;
@@ -320,6 +423,50 @@ void main() {
     expect(target.commands, isNot(contains('play')));
     expect(sync.published.every((state) => state.paused), isTrue);
   });
+
+  for (final allowed in [true, false]) {
+    test(
+      'external-capable play after peer pause is quota ${allowed ? 'authorized' : 'blocked'}',
+      () async {
+        await bridge.dispose();
+        await target.close();
+        target = ExternalPlaybackTestTarget();
+        var checks = 0;
+        bridge = PlaybackSyncBridge(
+          target: target,
+          sync: sync,
+          authorizePlayback: () async {
+            checks++;
+            return allowed;
+          },
+          onError: errors.add,
+          settleWindow: Duration.zero,
+        )..start();
+        await bridge.load(movie);
+        sync.peer(
+          const PeerPlayState(
+            position: Duration(seconds: 12),
+            paused: true,
+            setBy: 'peer',
+          ),
+        );
+        await until(() => target.snapshot.position.inSeconds == 12);
+        target.commands.clear();
+
+        emitNative(target, playing: true, buffering: false);
+        await until(() => checks == 1);
+        await Future<void>.delayed(Duration.zero);
+
+        expect(checks, 1);
+        expect(
+          target.commands.where((command) => command == 'play').length,
+          allowed ? 1 : 0,
+        );
+        expect(target.snapshot.playing, allowed);
+        expect(sync.published.last.paused, !allowed);
+      },
+    );
+  }
 
   test(
     'buffering native events cannot pause a real second Syncplay client',
@@ -463,6 +610,23 @@ class BufferingTestTarget extends SyncTestTarget {
   Future<void> seek(Duration position) async {
     await super.seek(position);
     if (bufferCommands) emitNative(this, playing: false, buffering: true);
+  }
+}
+
+class ExternalPlaybackTestTarget extends SyncTestTarget {
+  @override
+  bool get acceptsExternalPlaybackChanges => true;
+}
+
+class PauseCompletionGatedTarget extends SyncTestTarget {
+  Completer<void>? pauseCompletionGate;
+
+  @override
+  Future<void> pause() async {
+    await super.pause();
+    final gate = pauseCompletionGate;
+    pauseCompletionGate = null;
+    await gate?.future;
   }
 }
 

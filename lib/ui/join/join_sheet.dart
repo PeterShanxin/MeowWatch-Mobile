@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../../app/app_controller.dart';
 import '../../core/connect/room_config.dart';
 import '../../core/session/room_invite.dart';
+import '../shared/invitation_scanner.dart';
 
 Future<String?> showJoinSheet(
   BuildContext context, {
@@ -34,8 +35,10 @@ class _JoinSheetState extends State<_JoinSheet> {
   final FocusNode _focusNode = FocusNode();
   String? _error;
   bool _pasting = false;
+  bool _scanning = false;
+  bool _scannedInvite = false;
 
-  bool get _isIncomingInvite => widget.initialInvite != null;
+  bool get _isIncomingInvite => widget.initialInvite != null || _scannedInvite;
 
   @override
   void initState() {
@@ -51,7 +54,7 @@ class _JoinSheetState extends State<_JoinSheet> {
   }
 
   Future<void> _paste() async {
-    if (_pasting) return;
+    if (_pasting || _scanning) return;
     setState(() => _pasting = true);
     try {
       final data = await Clipboard.getData(Clipboard.kTextPlain);
@@ -79,7 +82,28 @@ class _JoinSheetState extends State<_JoinSheet> {
     }
   }
 
+  Future<void> _scan() async {
+    if (_scanning || _pasting) return;
+    setState(() => _scanning = true);
+    try {
+      final invitation = await scanRoomInvitation(context);
+      if (!mounted || invitation == null) return;
+      setState(() {
+        _controller.text = invitation;
+        _controller.selection = TextSelection.collapsed(
+          offset: invitation.length,
+        );
+        _scannedInvite = true;
+        _error = null;
+      });
+      _focusNode.unfocus();
+    } finally {
+      if (mounted) setState(() => _scanning = false);
+    }
+  }
+
   void _submit() {
+    if (_scanning) return;
     final value = _controller.text.trim();
     if (value.isEmpty) {
       setState(() => _error = 'Enter the room code your friend shared.');
@@ -163,7 +187,7 @@ class _JoinSheetState extends State<_JoinSheet> {
                     suffixIcon: IconButton(
                       key: const Key('paste-invite-button'),
                       tooltip: 'Paste from clipboard',
-                      onPressed: _pasting ? null : _paste,
+                      onPressed: _pasting || _scanning ? null : _paste,
                       icon: const Icon(Icons.content_paste_rounded),
                     ),
                   ),
@@ -173,6 +197,15 @@ class _JoinSheetState extends State<_JoinSheet> {
                     }
                   },
                   onSubmitted: (_) => _submit(),
+                ),
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: TextButton.icon(
+                    key: const Key('scan-room-invite-button'),
+                    onPressed: _pasting || _scanning ? null : _scan,
+                    icon: const Icon(Icons.qr_code_scanner_rounded),
+                    label: const Text('Scan invite QR'),
+                  ),
                 ),
                 if (incomingConfig != null) ...[
                   const SizedBox(height: 4),

@@ -69,7 +69,8 @@ See [product specification](docs/PRODUCT_SPEC.md), [delivery goal](docs/GOAL_BRI
 
 1. Open the app and choose the name your room companions will see.
 2. Choose **Start a room**, then share its invitation. A second person opens
-   **Join a room**, or opens the `meowwatch://join` invitation and confirms Join.
+   **Join a room** and pastes the invitation or taps **Scan invite QR**. Opening
+   a `meowwatch://join` link also works. Review the room and server before joining.
 3. Each person opens the same video file or direct video URL. MeowWatch
    synchronizes playback controls; it does not upload or send local video files.
 4. Use Play, Pause and the timeline from either phone. Open Chat for messages

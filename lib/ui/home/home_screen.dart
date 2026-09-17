@@ -475,6 +475,13 @@ class _HistoryCard extends StatelessWidget {
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
                         ),
+                        const SizedBox(height: 4),
+                        Text(
+                          _formatWatchedAt(context, entry.updatedAt),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -612,6 +619,13 @@ class _RecentRoomCard extends StatelessWidget {
                               color: theme.colorScheme.onSurfaceVariant,
                             ),
                           ),
+                          const SizedBox(height: 4),
+                          Text(
+                            _formatWatchedAt(context, entry.updatedAt),
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
+                          ),
                         ],
                       ),
                     ),
@@ -670,6 +684,17 @@ List<WatchHistoryEntry> _recentRoomEntries(
     if (recent.length == 3) break;
   }
   return recent;
+}
+
+String _formatWatchedAt(BuildContext context, DateTime value) {
+  final local = value.toLocal();
+  final strings = MaterialLocalizations.of(context);
+  final date = strings.formatShortDate(local);
+  final time = strings.formatTimeOfDay(
+    TimeOfDay.fromDateTime(local),
+    alwaysUse24HourFormat: MediaQuery.alwaysUse24HourFormatOf(context),
+  );
+  return 'Last watched $date · $time';
 }
 
 String _formatDuration(Duration value) {

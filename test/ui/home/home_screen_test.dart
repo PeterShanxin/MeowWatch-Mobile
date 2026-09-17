@@ -103,6 +103,7 @@ void main() {
     expect(headline.style?.fontSize, 52);
     expect(find.text('Starlight Express'), findsOneWidget);
     expect(find.text('Room quiet-otter · 14:03 of 1:40:00'), findsOneWidget);
+    expect(find.text('Last watched Sep 16, 2026 · 12:00 AM'), findsOneWidget);
     await tester.tap(find.byKey(ValueKey('resume-${entry.key}')));
     await tester.pump();
     expect(resumed, same(entry));

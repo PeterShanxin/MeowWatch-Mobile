@@ -11,6 +11,7 @@ import re
 import signal
 import subprocess
 import time
+from typing import Callable
 import xml.etree.ElementTree as ET
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure, focused_component, verify_build_mode
@@ -20,7 +21,7 @@ from tools.android_lifecycle_runtime.run import (
 )
 from tools.android_native_ui.observer import DEFAULT_APK, ObserverIntegrityFailure
 from tools.billing_runtime.native_dialog import image_size
-from tools.incoming_media_runtime.run import exact, nodes
+from tools.incoming_media_runtime.run import center, exact, nodes
 
 
 @dataclass(frozen=True)
@@ -289,7 +290,8 @@ class Runner(LifecycleRunner):
         self.evidence(phase, state, xml)
         return xml, state, player
 
-    def start_recording(self) -> None:
+    def start_recording(self, *, startup_action: Callable[[float], None] | None = None,
+                        action_name: str | None = None) -> None:
         if self.recording is not None:
             raise RuntimeFailure("stop the owned recorder before starting another orientation segment")
         window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode()
@@ -298,13 +300,21 @@ class Runner(LifecycleRunner):
         self.recording = recording
         self.recordings.append(recording.metadata)
         recording.metadata["displayAtStart"] = asdict(state)
-        recording.start()
+        if action_name is not None:
+            recording.metadata["startupActionName"] = action_name
+        recording.start(startup_action=startup_action)
         if len(self.recordings) > 1:
             recording.metadata["gapAfterPreviousStopSeconds"] = (
                 float(recording.metadata["startedAtMonotonic"])
                 - float(self.recordings[-2]["stopRequestedAtMonotonic"]))
         if display_state(self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode()) != state:
             raise RuntimeFailure("native display changed while the new recording segment was starting")
+
+    def recording_input(self, deadline: float, *arguments: str) -> None:
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeFailure("recording startup action exceeded the original readiness deadline; no input sent")
+        self.adb.run("shell", "input", *arguments, timeout=min(3, remaining))
 
     def stop_for_rotation(self, phase: str) -> None:
         self.finish_recording(required_phase=phase)
@@ -346,9 +356,11 @@ class Runner(LifecycleRunner):
         app_pid = self.pid()
         if not app_pid:
             raise RuntimeFailure("normal player process is absent")
-        self.start_recording()
-        self.tap(button(xml, "Play", "Play together"))
+        coordinates = tuple(map(str, center(button(xml, "Play", "Play together"))))
+        self.start_recording(action_name="normal-play", startup_action=lambda deadline:
+                             self.recording_input(deadline, "tap", *coordinates))
         _, playing = self.sample("03-normal-playing", playing=True)
+        self.recording.observe_startup_result("03-normal-playing")
         time.sleep(3)
         xml, advanced = self.sample("04-normal-advanced", playing=True)
         normal_advance = require_playing_advance(playing, advanced)
@@ -364,13 +376,15 @@ class Runner(LifecycleRunner):
         xml, full, entered = self.system_sample("07-entered-fullscreen", baseline, fullscreen=True, playing=False)
         assert entered is not None
         require_same_paused_player(paused, entered, app_pid, self.pid())
-        self.start_recording()
+        coordinates = tuple(map(str, center(button(xml, "Play", "Play together"))))
+        self.start_recording(action_name="fullscreen-play", startup_action=lambda deadline:
+                             self.recording_input(deadline, "tap", *coordinates))
 
         # Observe the production idle auto-hide, then show the actual controls
         # with one native surface tap. A bounded hidden-state wait cannot
         # distinguish a tap-hide result from the three-second auto-hide timer.
-        self.tap(button(xml, "Play", "Play together"))
         self.system_sample("08-controls-auto-hidden", baseline, fullscreen=True, controls=False)
+        self.recording.observe_startup_result("08-controls-auto-hidden")
         self.center_tap(full)
         fullscreen_advance = self.pause_after_fullscreen_advance(full, entered)
         xml, _, full_paused = self.system_sample("10-fullscreen-paused", baseline, fullscreen=True, playing=False)
@@ -387,9 +401,9 @@ class Runner(LifecycleRunner):
         if len(exact(xml, "Enter full screen", clickable=True)) != 1 or exact(xml, "Exit full screen"):
             raise RuntimeFailure("first system Back did not return to the normal player")
         require_same_paused_player(before_back, after_back, app_pid, self.pid())
-        self.start_recording()
         self.evidence("14-normal-player-restored", restored, xml)
-        self.adb.run("shell", "input", "keyevent", "KEYCODE_BACK")
+        self.start_recording(action_name="return-home", startup_action=lambda deadline:
+                             self.recording_input(deadline, "keyevent", "KEYCODE_BACK"))
         def home(xml: str) -> Display:
             if len(exact(xml, "Start a room", clickable=True)) != 1 or exact(xml, "Enter full screen"):
                 raise RuntimeFailure("second system Back did not leave the normal player")
@@ -399,6 +413,7 @@ class Runner(LifecycleRunner):
             return state
         home_xml, home_state = self.wait("15-normal-return-home", home, timeout=30)
         self.evidence("15-normal-return-home", home_state, home_xml)
+        self.recording.observe_startup_result("15-normal-return-home")
         if self.pid() != app_pid:
             raise RuntimeFailure("normal Back navigation replaced the app process")
         self.finish_recording(required_phase="15-normal-return-home")

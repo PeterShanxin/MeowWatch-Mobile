@@ -295,7 +295,9 @@ class LifecycleRecording:
                                "truncated": len(data) > MAX_CODEC_EVIDENCE_BYTES}
         return stdout if evidence["status"] == "collected" else None
 
-    def start(self) -> None:
+    def start(self, *, startup_action: Callable[[float], None] | None = None) -> None:
+        if self.process is not None or self.finished:
+            raise RuntimeFailure("native recording cannot be started or its startup action repeated")
         self.require_owned_path()
         if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
                 or self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"):
@@ -334,6 +336,44 @@ class LifecycleRecording:
             readiness = {"deadlineAtMonotonic": deadline, "probeAttempts": 0,
                          "timeoutCount": 0, "timeouts": []}
             self.metadata["readinessProbe"] = readiness
+            if startup_action is not None:
+                action: dict[str, object] = {"status": "not-sent", "deadlineAtMonotonic": deadline}
+                self.metadata["startupAction"] = action
+                remaining = deadline - time.monotonic()
+                if remaining <= 0 or self.process.poll() is not None:
+                    raise RuntimeFailure("owned recorder is unavailable before its startup action")
+                raw = self.adb.run("exec-out", "cat", f"/proc/{self.pid}/cmdline",
+                                   timeout=min(3, remaining)).stdout
+                expected = ["--verbose", "--size", f"{width}x{height}", "--bit-rate", "2000000",
+                            "--time-limit", "180", self.remote, ""]
+                command = raw.decode("utf-8", errors="replace").split("\x00")
+                if (len(raw) > 4096 or command[0].rsplit("/", 1)[-1] != "screenrecord"
+                        or command[1:] != expected):
+                    raise RuntimeFailure("native recorder ownership changed before startup action; no action sent")
+                action["ownershipVerifiedAtMonotonic"] = time.monotonic()
+                if float(action["ownershipVerifiedAtMonotonic"]) >= deadline or self.process.poll() is not None:
+                    raise RuntimeFailure("owned recorder is unavailable before its startup action")
+                action["triggerDeviceElapsedSeconds"] = recording_device_elapsed(self.adb.run(
+                    "exec-out", "cat", "/proc/uptime",
+                    timeout=min(3, deadline - float(action["ownershipVerifiedAtMonotonic"]))
+                ).stdout)
+                action["triggerClockSource"] = "Android /proc/uptime immediately before callback dispatch"
+                action_started = time.monotonic()
+                if action_started >= deadline or self.process.poll() is not None:
+                    raise RuntimeFailure("owned recorder is unavailable at startup action dispatch")
+                action.update({"status": "sent", "startedAtMonotonic": action_started,
+                               "ownedRecorderPid": int(self.pid), "beforeMediaReadiness": True})
+                try:
+                    # The callback receives the original launch deadline. It is
+                    # an existing native operation, never a readiness retry.
+                    startup_action(deadline)
+                except Exception as error:
+                    action.update({"status": "uncertain", "errorType": type(error).__name__})
+                    raise RuntimeFailure("native recording startup action failed; refusing to repeat it") from error
+                finally:
+                    action["finishedAtMonotonic"] = time.monotonic()
+                action["status"] = "completed"
+                self.metadata["measurementStart"] = "live picture and device clock after the startup action"
 
             def record_readiness_timeout(operation: str, error: subprocess.TimeoutExpired) -> None:
                 occurred = time.monotonic()
@@ -396,6 +436,18 @@ class LifecycleRecording:
         except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
             self.metadata.update({"status": "failed", "error": str(error)})
             raise
+
+    def observe_startup_result(self, phase: str) -> None:
+        if (self.metadata.get("startupAction", {}).get("status") != "completed"
+                or self.metadata["status"] != "recording"):
+            raise RuntimeFailure("recording startup result requires completed action and real media readiness")
+        if "firstPostActionObservation" in self.metadata:
+            raise RuntimeFailure("the first recording startup observation cannot be replaced")
+        elapsed = recording_device_elapsed(self.adb.run("exec-out", "cat", "/proc/uptime", timeout=3).stdout)
+        self.metadata["firstPostActionObservation"] = {
+            "phase": phase, "deviceElapsedSeconds": elapsed, "observedAtMonotonic": time.monotonic(),
+            "source": "Android /proc/uptime after actual native observation and original screenshot",
+        }
 
     def post_roll(self, phase: str) -> None:
         self.require_owned_path()
@@ -566,6 +618,19 @@ class LifecycleRecording:
                 raise RuntimeFailure("native lifecycle recording could not be decoded completely")
             if frame_clock_error is not None:
                 raise RuntimeFailure("native recording frame-clock evidence is unavailable or invalid") from frame_clock_error
+            if "startupAction" in self.metadata:
+                trigger = float(self.metadata["startupAction"]["triggerDeviceElapsedSeconds"])
+                self.metadata["startupAction"].update({
+                    "firstFrameAfterTriggerSeconds": frame_clock[0] - trigger,
+                    "triggerTimeWithinFrameClock": frame_clock[0] <= trigger <= frame_clock[-1],
+                })
+                observation = self.metadata.get("firstPostActionObservation")
+                if observation is None:
+                    raise RuntimeFailure("native recording is missing its first post-action observation")
+                observation["coveredByFrameClock"] = False
+                require_recorded_observation(frame_clock, float(observation["deviceElapsedSeconds"]),
+                                             float(self.metadata["stopRequestedAtDeviceElapsedSeconds"]))
+                observation["coveredByFrameClock"] = True
             if required_phase is not None:
                 required = self.metadata.get("requiredThroughDeviceElapsedSeconds")
                 if required is None:

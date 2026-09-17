@@ -133,6 +133,28 @@ the added file-query failure; the latter remains separately visible.
 and its first 4096 bytes. If a diagnostic log cannot be written, the write error
 is recorded without replacing that original decode failure or skipping cleanup.
 
+The optional `startup_action` is for a caller's already-planned native operation
+that supplies changing frames while a static-screen MP4 is still buffered. The
+default lifecycle and other callers keep their existing order. When supplied,
+the callback runs once after the launched PID's exact `screenrecord` executable,
+arguments and owned output path are checked. It receives the original launch
+deadline; ownership, the pre-dispatch device clock, the callback and picture/clock
+readiness all share that same twenty-second budget. A failed or uncertain callback
+is retained and never retried; the caller must still stop and collect its owned
+recorder. A completed callback or a live PID is never media readiness.
+
+`startupAction` retains ownership/dispatch/completion host times, the device
+elapsed clock immediately before dispatch and failure details. `startedAtMonotonic`
+and `mediaReadyAtDeviceElapsedSeconds` are still assigned only after a complete
+live picture and device clock are confirmed, **after** the callback. The callback
+instant is not claimed as captured footage. Callers record their first successful
+post-action native observation and screenshot using `observe_startup_result`;
+the finalized original frame clock must cover that observation as well as the
+existing final required observation. Missing or uncovered initial observations
+fail after full decode. The first frame's offset from the dispatch clock is
+diagnostic only: a first frame after a button tap can still capture the subsequently
+verified state. No test requires or fabricates a frame before that tap.
+
 The lower output size is a single-variable recording-cost diagnosis, not a
 confirmed CPU or software-encoder fix. Run `35223362716` at 720 x 1600 recorded
 the required observation at device elapsed 116.29 seconds through a last frame

@@ -194,6 +194,127 @@ class OwnershipTests(unittest.TestCase):
             with self.assertRaises(RuntimeFailure):
                 runner.start_recording()
 
+    def test_startup_native_input_uses_remaining_deadline_and_never_retries_uncertain_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.adb.run = Mock()
+            with patch("tools.android_fullscreen_runtime.run.time.monotonic", return_value=20):
+                with self.assertRaisesRegex(RuntimeFailure, "no input sent"):
+                    runner.recording_input(20, "keyevent", "KEYCODE_BACK")
+            runner.adb.run.assert_not_called()
+            runner.adb.run.side_effect = subprocess.TimeoutExpired("input", 0.5)
+            with patch("tools.android_fullscreen_runtime.run.time.monotonic", return_value=19.5):
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    runner.recording_input(20, "tap", "50", "60")
+            runner.adb.run.assert_called_once_with("shell", "input", "tap", "50", "60", timeout=0.5)
+
+    def test_three_segments_dispatch_only_existing_actions_and_preserve_paused_entry_proof(self):
+        for changed_entry in (False, True):
+            with self.subTest(changed_entry=changed_entry), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                runner.output.mkdir()
+                runner.require_owned_avd = Mock()
+                runner.prepare = Mock(return_value={"application": {}})
+                runner.load_fixture = Mock()
+                runner.pid = Mock(return_value="123")
+                runner.require_entry_pid = Mock()
+                normal = display_state(window())
+                full = display_state(window(width=2400, height=1080, rotation=1, bars=False))
+                runner.last_window = window()
+                events, startup_inputs, first_observations = [], [], []
+                in_startup = [False]
+                normal_xml = "<hierarchy>" + node("Play", (100, 100, 200, 200), clickable=True) + node(
+                    "Enter full screen", (300, 100, 400, 200), clickable=True) + "</hierarchy>"
+                playing_xml = normal_xml.replace('text="Play"', 'text="Pause"')
+                full_xml = fullscreen_player(8, (100, 700, 180, 780)).replace("Pause together", "Play together")
+                home_xml = "<hierarchy>" + node("Start a room", (100, 100, 300, 200), clickable=True) + "</hierarchy>"
+                samples = {
+                    "02-loaded-paused": (normal_xml, Playback(0, 90, False)),
+                    "03-normal-playing": (playing_xml, Playback(2, 90, True)),
+                    "04-normal-advanced": (playing_xml, Playback(6, 90, True)),
+                    "06-fresh-entry-control": (normal_xml, Playback(8, 90, False)),
+                    "12-before-system-back": (full_xml, Playback(12, 90, False)),
+                }
+                def sample(phase, **_kwargs):
+                    runner.phase = phase
+                    events.append(phase)
+                    return samples[phase]
+                runner.sample = Mock(side_effect=sample)
+                def system_sample(phase, _baseline, **kwargs):
+                    runner.phase = phase
+                    events.append(phase)
+                    state = full if kwargs["fullscreen"] else normal
+                    runner.last_window = window(width=state.width, height=state.height, rotation=state.rotation,
+                                                bars=state.status_bar_visible)
+                    position = 8 if phase in ("05-before-fullscreen", "07-entered-fullscreen") else 12
+                    if changed_entry and phase == "07-entered-fullscreen":
+                        position = 0
+                    return (full_xml if kwargs["fullscreen"] else normal_xml), state, Playback(position, 90, False)
+                runner.system_sample = Mock(side_effect=system_sample)
+                runner.evidence = Mock(side_effect=lambda phase, *_: events.append(phase))
+                runner.pause_after_fullscreen_advance = Mock(return_value=2)
+                def wait(phase, check, **_kwargs):
+                    runner.phase = phase
+                    events.append(phase)
+                    runner.last_window = window()
+                    return home_xml, check(home_xml)
+                runner.wait = Mock(side_effect=wait)
+                def command(*arguments, **kwargs):
+                    if arguments == ("shell", "dumpsys", "window", "displays"):
+                        return subprocess.CompletedProcess([], 0, runner.last_window.encode(), b"")
+                    if arguments[:2] == ("shell", "input") and in_startup[0]:
+                        startup_inputs.append((runner.recording.metadata["startupActionName"], arguments[2:]))
+                        self.assertEqual(kwargs["timeout"], 3)
+                    return subprocess.CompletedProcess([], 0, b"", b"")
+                runner.adb.run = Mock(side_effect=command)
+                def make_recording(_adb, _output, index, _size):
+                    recording = Mock()
+                    recording.metadata = {"status": "not-started"}
+                    def start(*, startup_action):
+                        self.assertIsNotNone(startup_action)
+                        events.append(f"owned-{index}")
+                        in_startup[0] = True
+                        try:
+                            startup_action(20)
+                        finally:
+                            in_startup[0] = False
+                        events.append(f"ready-{index}")
+                        recording.metadata.update({"status": "recording", "startedAtMonotonic": index})
+                    recording.start.side_effect = start
+                    recording.finish.side_effect = lambda **_: recording.metadata.update(
+                        {"status": "verified", "stopRequestedAtMonotonic": index + 0.5})
+                    recording.observe_startup_result.side_effect = lambda phase: first_observations.append(phase)
+                    return recording
+                process = Mock()
+                process.poll.return_value = None
+                with patch("tools.android_fullscreen_runtime.run.LifecycleRecording", side_effect=make_recording), patch(
+                    "tools.android_fullscreen_runtime.run.subprocess.Popen", return_value=process,
+                ), patch("tools.android_fullscreen_runtime.run.verify_build_mode", return_value=False), patch(
+                    "tools.android_fullscreen_runtime.run.time.monotonic", return_value=0,
+                ), patch("tools.android_fullscreen_runtime.run.time.sleep"):
+                    try:
+                        if changed_entry:
+                            with self.assertRaisesRegex(RuntimeFailure, "paused playback advanced"):
+                                runner.run()
+                        else:
+                            self.assertTrue(runner.run()["completed"])
+                    finally:
+                        if runner.log_file is not None:
+                            runner.log_file.close()
+                names = [name for name, _ in startup_inputs]
+                if changed_entry:
+                    self.assertEqual(names, ["normal-play"])
+                    self.assertNotIn("owned-2", events)
+                else:
+                    self.assertEqual(names, ["normal-play", "fullscreen-play", "return-home"])
+                    self.assertEqual(startup_inputs[-1][1], ("keyevent", "KEYCODE_BACK"))
+                    self.assertEqual(first_observations, ["03-normal-playing", "08-controls-auto-hidden", "15-normal-return-home"])
+                    self.assertLess(events.index("ready-1"), events.index("03-normal-playing"))
+                    self.assertLess(events.index("07-entered-fullscreen"), events.index("owned-2"))
+                    self.assertLess(events.index("ready-2"), events.index("08-controls-auto-hidden"))
+                    self.assertLess(events.index("14-normal-player-restored"), events.index("owned-3"))
+                    self.assertLess(events.index("ready-3"), events.index("15-normal-return-home"))
+
     def test_fast_observer_waits_for_actual_advance_before_tapping_fresh_pause(self):
         with tempfile.TemporaryDirectory() as directory:
             runner = self.runner(Path(directory))

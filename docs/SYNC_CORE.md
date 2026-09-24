@@ -106,6 +106,9 @@ The target must also isolate outstanding native work when replacing its source.
 The session controller calls `peerLeft()` when the last peer leaves;
 connection loss triggers this pause automatically. A reconnect reannounces the
 confirmed source, and does not itself issue a Play command.
+After an actual loss, all accepted sources require a fresh paused room baseline
+before following a peer Play; explicit local Play also resumes. This guard applies
+to network media, local files and external targets without forcing any reload.
 
 If an accepted network source fails during a real connection outage, a target
 declaring `canReloadAfterConnectionLoss` may reopen that same source once within

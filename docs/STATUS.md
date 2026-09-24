@@ -91,12 +91,24 @@ Check `36066493312` stops in analysis because the new healthy-source assertion
 was placed outside its scenario loop. Its placement is corrected; no app code
 changed for that correction. A separate two-socket-client regression now covers
 a settled non-buffering native interruption pausing Together, suppressing a
-native auto-resume, and accepting explicit Play again. Hosted verification is
-pending; that socket regression does not prove Android focus delivery. The native gate
+native auto-resume, and accepting explicit Play again. Check `36066905521` at
+`4acc75e` passes all 805 app, 87 Nearby and 14 platform tests, analysis, media
+contracts and the secret scan. That socket regression does not prove Android
+focus delivery.
+Source review additionally applies the stale-Play guard to accepted local files
+and external targets, with two added no-rebuild regressions. Only a failed network
+source on a capable local decoder can reopen; the broader guard only protects
+play intent. Those two cases await the next hosted check. The native gate
 now requires ready sources and original failed/loading/ready controller evidence
 for any replacement; healthy controller identity, room and quota stay strict.
 The lightweight network/setup contract suite passes 63 tests with one platform
 skip; no local Flutter build, analysis, test suite or emulator ran.
+Native debug `36066047985` at `f60c77a` stops at `initial-ready`, before either
+radio is disabled: the independent observer cannot produce an active-window
+hierarchy (`root_missing`). Sixteen native position records are retained with
+no rejected/dropped samples; no SDK Setup recovery was used. This does not test
+the source-reopening change and is not a network acceptance pass. Original
+observer and window evidence is retained for diagnosis.
 Repeated identical notices share the original expiry instead of extending it,
 so repeated errors cannot permanently hide controls; a later occurrence after
 dismissal starts a fresh notice. The Local audio-focus runner now retains its

@@ -321,6 +321,29 @@ void main() {
       }
     });
   }
+
+  for (final scenario in ['local file', 'external target']) {
+    test('$scenario rejects pre-outage Play without rebuilding', () async {
+      target.allowRecovery = scenario != 'external target';
+      await open(
+        media: scenario == 'local file'
+            ? MediaItem(uri: Uri.parse('file:///movie.mp4'), title: 'File')
+            : null,
+      );
+      await lose();
+      await reconnect();
+      sync.peer(_play);
+      await Future<void>.delayed(Duration.zero);
+      expect(target.snapshot.playing, isFalse);
+      expect(target.loads.length, 1);
+      expect(authorizations, 0);
+      sync.lastObservedRoomState = _pause;
+      sync.peer(_play);
+      await _until(() => target.snapshot.playing);
+      expect(authorizations, 1);
+      expect(target.loads.length, 1);
+    });
+  }
 }
 
 Future<void> _until(bool Function() condition) async {

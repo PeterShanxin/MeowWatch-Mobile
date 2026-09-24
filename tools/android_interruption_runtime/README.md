@@ -144,5 +144,25 @@ The current-PID resume baseline uses the callback emitted by
 The Android [audio-focus guide](https://developer.android.com/media/optimize/audio-focus)
 documents focus-loss behavior and Android 15's foreground-service requirement.
 
-Status: implemented tooling; fresh native execution and rendered evidence review
-are required before claiming interruption acceptance.
+## Accepted native run
+
+[36063562267](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36063562267)
+at `f56c8e8` passes both Local-mode cases on one API 35 x86_64 AVD using the normal
+release APK. Permanent loss pauses within a measured 1,035 ms upper bound and
+remains at 0:44 after focus release; explicit Play advances again. Transient loss
+pauses within 1,161 ms, holds 1:19, automatically resumes within 4,058 ms of
+release, and then advances ten displayed seconds without a Play tap. These upper
+bounds include complete native UI traversal.
+
+The original 19 focused-window records and 16 UI XML files retain MainApp
+ownership; four critical original PNGs were visually inspected. AudioService
+shows the expected permanent/transient ownership and regain with one unchanged
+foreground app PID. No Activity pause/stop, observer timeout, ANR or preparation
+recovery occurred. Both owned helpers were removed. All three downloaded native
+recording hashes match; cloud decoding and frame coverage checks pass. No local
+video decoding was performed during review.
+
+This proves neither hardware audio output nor a Together interruption. Together
+keeps a propagated room pause until explicit Play, whereas Local mode permits
+the native transient-focus auto-resume. The separate two-client socket regression
+tests that room policy using simulated player events; it is not Android evidence.

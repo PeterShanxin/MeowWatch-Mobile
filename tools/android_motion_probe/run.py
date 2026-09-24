@@ -436,6 +436,7 @@ def main() -> int:
         parser.error("duration must be 20–40 seconds and output must start empty")
     args.output.mkdir(parents=True, exist_ok=True)
     report: dict[str, object] = {"completed": False, "diagnosticOnly": True,
+                                 "requestedDisplayProfile": os.environ.get("MEOWWATCH_CI_DISPLAY_PROFILE", "standard"),
                                  "boundary": "Local-player native motion probe; not Together Session acceptance",
                                  "comparisonBoundary": (
                                      "Both phases target the 10-second Bee interval, but the two Play taps, "

@@ -1,4 +1,5 @@
 from copy import deepcopy
+from fractions import Fraction
 import json
 import os
 from pathlib import Path
@@ -8,7 +9,7 @@ import tempfile
 import unittest
 
 from tools.android_multi_device.device_readiness import (
-    DeviceSampler, METRICS, STATE, MeasurementError, check_physical_geometry,
+    DISPLAY_PROFILES, DeviceSampler, METRICS, STATE, MeasurementError, check_physical_geometry,
     evaluate_window, memory_provenance, parse_metrics, parse_sections, parse_state, run_gate,
 )
 
@@ -61,21 +62,41 @@ class ReadinessTests(unittest.TestCase):
     def test_launcher_aligns_existing_skin_and_lcd_without_changing_other_hardware(self):
         launcher = Path(__file__).with_name("launch_two_avds.sh").read_text()
         program = launcher.split("<<'PY'\n", 1)[1].split("\nPY\n", 1)[0]
-        with tempfile.TemporaryDirectory() as directory:
-            paths = [Path(directory) / f"{role}.ini" for role in ("phone", "tablet")]
-            for path in paths:
-                path.write_text("hw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\n"
-                                "skin.name=pixel_6\nskin.path=/old/skins/pixel_6\nhw.ramSize=3072\n")
-            process = subprocess.run([sys.executable, "-", *map(str, paths)], input=program,
-                                     text=True, capture_output=True, timeout=10)
-            self.assertEqual(process.returncode, 0, process.stderr)
-            for path, geometry, density in zip(paths, ("720x1600", "1280x800"), (280, 160)):
-                values = dict(line.split("=", 1) for line in path.read_text().splitlines())
-                self.assertEqual(values["skin.name"], geometry)
-                self.assertEqual(values["skin.path"], geometry)
-                self.assertEqual(f"{values['hw.lcd.width']}x{values['hw.lcd.height']}", geometry)
-                self.assertEqual(values["hw.lcd.density"], str(density))
-                self.assertEqual(values["hw.ramSize"], "3072")
+        for profile in ("standard", "recording"):
+            with self.subTest(profile=profile), tempfile.TemporaryDirectory() as directory:
+                paths = [Path(directory) / f"{role}.ini" for role in ("phone", "tablet")]
+                for path in paths:
+                    path.write_text("hw.lcd.width=1080\nhw.lcd.height=2400\nhw.lcd.density=420\n"
+                                    "skin.name=pixel_6\nskin.path=/old/skins/pixel_6\nhw.ramSize=3072\n")
+                process = subprocess.run([sys.executable, "-", *map(str, paths)], input=program,
+                                         text=True, capture_output=True, timeout=10,
+                                         env={**os.environ, "MEOWWATCH_CI_DISPLAY_PROFILE": profile})
+                self.assertEqual(process.returncode, 0, process.stderr)
+                for path, role in zip(paths, ("phone", "tablet")):
+                    width, height, density = DISPLAY_PROFILES[profile][role]
+                    geometry = f"{width}x{height}"
+                    values = dict(line.split("=", 1) for line in path.read_text().splitlines())
+                    self.assertEqual(values["skin.name"], geometry)
+                    self.assertEqual(values["skin.path"], geometry)
+                    self.assertEqual(f"{values['hw.lcd.width']}x{values['hw.lcd.height']}", geometry)
+                    self.assertEqual(values["hw.lcd.density"], str(density))
+                    self.assertEqual(values["hw.ramSize"], "3072")
+                    base_width, base_height, base_density = DISPLAY_PROFILES["standard"][role]
+                    self.assertEqual(Fraction(width, density), Fraction(base_width, base_density))
+                    self.assertEqual(Fraction(height, density), Fraction(base_height, base_density))
+
+    def test_recording_geometry_requires_actual_configured_size_and_density(self):
+        self.assertIn("error", check_physical_geometry(sample(), "phone", "recording"))
+        for role in ("phone", "tablet"):
+            value = sample()
+            width, height, density = DISPLAY_PROFILES["recording"][role]
+            value["state"].update(physicalSize=f"{width}x{height}", physicalDensity=density,
+                                  reportedSize=f"Physical size: {width}x{height}",
+                                  reportedDensity=f"Physical density: {density}")
+            self.assertNotIn("error", check_physical_geometry(deepcopy(value), role, "recording"))
+            self.assertIn("error", check_physical_geometry(deepcopy(value), role))
+            value["state"]["reportedSize"] += f"\nOverride size: {width}x{height}"
+            self.assertIn("error", check_physical_geometry(value, role, "recording"))
 
     def test_cli_with_fake_adb_processes_records_ready_and_missing_su_failure(self):
         # Python accepts -s before its script name, so it can act as a real

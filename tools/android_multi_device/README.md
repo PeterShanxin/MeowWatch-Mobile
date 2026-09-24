@@ -50,6 +50,13 @@ while reducing pixel work on the shared software-rendering host. They are a
 resource-limited two-native-player CI configuration, not the independent
 full-resolution five-layout acceptance. Any CPU improvement remains to be
 measured. No `wm` size or density override is applied.
+For recording diagnostics, `MEOWWATCH_CI_DISPLAY_PROFILE=recording` configures
+`432x960@168` and `960x600@120`. Both retain exactly the same logical dp width
+and height as the standard profile, while matching the native capture sizes.
+This reduces rendered pixel work; it does not change production UI or establish
+full-resolution layout acceptance. Readiness still verifies the selected
+physical size/density and rejects any `wm` override. Session and readiness
+receipts identify the selected profile. The launcher's default remains standard.
 The new AVDs also set `skin.name` and `skin.path` to those same `WxH` sizes:
 the [emulator's skin resolver](https://android.googlesource.com/platform/external/qemu/+/refs/heads/emu-master-dev/android/emu/avd/src/android/avd/info.c#1599)
 checks `skin.path` before falling back to the configured LCD size.

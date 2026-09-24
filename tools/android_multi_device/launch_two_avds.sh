@@ -9,6 +9,8 @@ Creates and launches a clean Pixel 6 phone AVD on emulator-5554 and a clean
 Pixel Tablet AVD on emulator-5556 using fixed, resource-limited dual-player CI
 displays: 720x1600@280 and 1280x800@160. The output directory receives emulator
 logs, measured cold-boot readiness and session.env for recording and cleanup.
+MEOWWATCH_CI_DISPLAY_PROFILE=recording uses 432x960@168 and 960x600@120 with
+identical logical layout sizes. The default standard profile stays unchanged.
 Required API 35 packages must already be prepared; this launcher only validates
 them. MEOWWATCH_ANDROID_SDK_PREPARATION optionally binds a preparation receipt.
 EOF
@@ -18,6 +20,10 @@ if [[ "${1:-}" == "--help" || "${1:-}" == "-h" ]]; then
   usage
   exit 0
 fi
+
+display_profile="${MEOWWATCH_CI_DISPLAY_PROFILE:-standard}"
+case "$display_profile" in standard|recording) ;; *) echo 'Unsupported CI display profile' >&2; exit 2 ;; esac
+export MEOWWATCH_CI_DISPLAY_PROFILE="$display_profile"
 
 output_root="${1:-build/android-multi-device}"
 session_id="$(date -u +%Y%m%dT%H%M%SZ)-$$"
@@ -95,9 +101,13 @@ printf 'no\n' | ANDROID_AVD_HOME="$avd_home" "$avdmanager" create avd \
 # runs separately. Resource improvements must be established by measurements.
 python3 - "$avd_home/$phone_avd.avd/config.ini" "$avd_home/$tablet_avd.avd/config.ini" <<'PY'
 from pathlib import Path
+import os
 import sys
+from tools.android_multi_device.device_readiness import DISPLAY_PROFILES
 
-for name, width, height, density in ((sys.argv[1], 720, 1600, 280), (sys.argv[2], 1280, 800, 160)):
+geometry = DISPLAY_PROFILES[os.environ.get("MEOWWATCH_CI_DISPLAY_PROFILE", "standard")]
+for name, role in zip(sys.argv[1:], ("phone", "tablet"), strict=True):
+    width, height, density = geometry[role]
     path = Path(name)
     # The emulator resolves skin.path before skin.name or the LCD-size fallback.
     # Keep both explicit magic-size skins aligned with the physical framebuffer.
@@ -164,6 +174,7 @@ write_session() {
   {
     printf 'SESSION_ID=%q\n' "$session_id"
     printf 'SESSION_DIR=%q\n' "$session_dir"
+    printf 'CI_DISPLAY_PROFILE=%q\n' "$display_profile"
     printf 'SDK_ROOT=%q\n' "$sdk_root"
     printf 'AVD_HOME=%q\n' "$avd_home"
     printf 'ADB=%q\n' "$adb"
@@ -234,7 +245,7 @@ done
 "$adb" -s "$phone_serial" shell settings put system accelerometer_rotation 0
 "$adb" -s "$phone_serial" shell settings put system user_rotation 0
 "$adb" -s "$tablet_serial" shell settings put system accelerometer_rotation 0
-# This tablet's natural 1280x800 CI display is already landscape. Rotating it
+# This tablet's natural CI display is already landscape. Rotating it
 # by 90 degrees produces a portrait app viewport and incorrect capture framing.
 "$adb" -s "$tablet_serial" shell settings put system user_rotation 0
 
@@ -248,11 +259,12 @@ python3 -m tools.android_multi_device.device_readiness \
   --adb "$adb" --phone "$phone_serial" --tablet "$tablet_serial" \
   --phone-log "$session_dir/phone-emulator.log" \
   --tablet-log "$session_dir/tablet-emulator.log" \
-  --requested-memory-mib 3072 --output "$session_dir/device-readiness"
+  --display-profile "$display_profile" --requested-memory-mib 3072 --output "$session_dir/device-readiness"
 startup_failed=0
 trap - EXIT
 
 printf 'Two AVDs are ready. Session: %s\n' "$session_dir/session.env"
-printf 'Phone:  %s (%s, 2 cores, requested 3072 MiB, physical 720x1600@280)\n' "$phone_serial" "$phone_avd"
-printf 'Tablet: %s (%s, 2 cores, requested 3072 MiB, physical 1280x800@160)\n' "$tablet_serial" "$tablet_avd"
+printf 'Display profile: %s (physical geometry retained in phone/tablet-avd-config.ini)\n' "$display_profile"
+printf 'Phone:  %s (%s, 2 cores, requested 3072 MiB)\n' "$phone_serial" "$phone_avd"
+printf 'Tablet: %s (%s, 2 cores, requested 3072 MiB)\n' "$tablet_serial" "$tablet_avd"
 printf 'Measured guest RAM, display and admission evidence: %s/device-readiness/result.json\n' "$session_dir"

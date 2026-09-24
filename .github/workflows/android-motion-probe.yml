@@ -1,8 +1,14 @@
 name: Android native motion probe
-run-name: Android native motion probe (diagnostic only)
+run-name: Android native motion probe (${{ inputs.display_profile || 'recording' }} displays, diagnostic only)
 
 on:
   workflow_dispatch:
+    inputs:
+      display_profile:
+        description: 'Fixed logical layouts at standard or native recording pixel sizes'
+        type: choice
+        options: [standard, recording]
+        default: standard
   push:
     paths:
       - '.github/workflows/android-motion-probe.yml'
@@ -16,6 +22,8 @@ jobs:
     name: Same-APK two-load and isolated-tablet capture
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      MEOWWATCH_CI_DISPLAY_PROFILE: ${{ inputs.display_profile || 'recording' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -30,6 +38,7 @@ jobs:
       - name: Verify motion probe contracts
         run: |
           python3 -m unittest tools.android_motion_probe.test_run -v
+          python3 -m unittest tools.android_multi_device.test_device_readiness.ReadinessTests.test_launcher_aligns_existing_skin_and_lcd_without_changing_other_hardware
           python3 -m tools.android_motion_probe.run --help
           bash -n tools/android_motion_probe/ci.sh
       - name: Prepare pinned Android image, KVM and reviewed media

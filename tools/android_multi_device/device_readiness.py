@@ -19,6 +19,10 @@ import subprocess
 import time
 from typing import Callable
 
+DISPLAY_PROFILES = {
+    "standard": {"phone": (720, 1600, 280), "tablet": (1280, 800, 160)},
+    "recording": {"phone": (432, 960, 168), "tablet": (960, 600, 120)},
+}
 
 BUDGET_SECONDS = 240
 WINDOW_SECONDS = 5
@@ -333,8 +337,9 @@ def memory_provenance(requested: int, log: Path) -> dict:
             "memoryBoundary": "guest MemTotal is recorded separately; requested RAM is not an actual-RAM claim"}
 
 
-def check_physical_geometry(sample: dict, role: str) -> dict:
-    expected = {"phone": ("720x1600", 280), "tablet": ("1280x800", 160)}[role]
+def check_physical_geometry(sample: dict, role: str, profile: str = "standard") -> dict:
+    width, height, density = DISPLAY_PROFILES[profile][role]
+    expected = (f"{width}x{height}", density)
     state = sample.get("state")
     if state and (state["physicalSize"], state["physicalDensity"]) != expected:
         sample["error"] = f"{role} physical display does not match the fixed dual-player CI geometry"
@@ -352,6 +357,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--phone-log", type=Path, required=True)
     parser.add_argument("--tablet-log", type=Path, required=True)
     parser.add_argument("--requested-memory-mib", type=int, default=3072)
+    parser.add_argument("--display-profile", choices=tuple(DISPLAY_PROFILES), default="standard")
     args = parser.parse_args(argv)
     if (args.phone == args.tablet or any(re.fullmatch(r"emulator-\d+", value) is None for value in (args.phone, args.tablet))
             or args.requested_memory_mib <= 0):
@@ -360,12 +366,15 @@ def main(argv: list[str] | None = None) -> int:
     try:
         provenance = {"phone": memory_provenance(args.requested_memory_mib, args.phone_log),
                       "tablet": memory_provenance(args.requested_memory_mib, args.tablet_log),
-                      "geometry": {"phone": "720x1600@280dpi", "tablet": "1280x800@160dpi",
+                      "geometry": {**{role: f"{width}x{height}@{density}dpi" for role, (width, height, density)
+                                      in DISPLAY_PROFILES[args.display_profile].items()},
+                                   "profile": args.display_profile,
                                    "boundary": "resource-limited two-native-player CI; not full-resolution layout acceptance"},
                       "boundary": "before native recording and application installation; no UI or device mutations"}
         sampler = DeviceSampler(args.adb, deadline)
         def capture(serial: str) -> dict:
-            return check_physical_geometry(sampler.capture(serial), "phone" if serial == args.phone else "tablet")
+            return check_physical_geometry(sampler.capture(serial), "phone" if serial == args.phone else "tablet",
+                                           args.display_profile)
         report = run_gate([args.phone, args.tablet], args.output, capture, deadline=deadline, provenance=provenance)
     except (MeasurementError, OSError) as error:
         print(f"DEVICE_READINESS_FAIL: {error}")

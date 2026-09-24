@@ -9,7 +9,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | fdebec3 passes normal API 29/35 debug and API 35 release clean install in hosted run 36044617989. These are normal lib/main.dart APKs. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36054666023 at 0454176 passes the secret scan, formatting, analysis, 782 app tests, 87 Nearby tests and 14 platform tests. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36067406288 at 5ea2aa2 passes the secret scan, formatting, analysis, 807 app tests, 87 Nearby tests and 14 platform tests. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators; failed-source recovery follow-up open | fdebec3 Together 36053642428 passes all 26 host and 25 guest stages with repeated two-way controls. Settled native positions match at 12,416, 53,361 and 55,242 ms. Profile network 36055097185 passes at 0454176. Debug network 36062762988 reveals a decoder source failure during the outage; its paused recovery fix is being verified. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
@@ -26,184 +26,80 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Current verification
 
-The fresh `fdebec3` cohort passes Check `36044618584`, normal installation,
-native playback, Nearby, five viewport journeys, the runtime matrix, normal
-release lifecycle, foreground audio focus, phone/tablet fullscreen, Test Store
-purchase, same-customer RevenueCat relaunch/expiry and SAF local-file relaunch.
-Network debug `36044617832` fails while the independent UI observer returns
-`root_missing` on all 16 capture attempts at `initial-ready`. The application
-retains focus and its PID; no playback result is available. Its unchanged
-second attempt passes the initial outage, then encounters a second real network
-loss: restored cellular network 102 is replaced by Wi-Fi 103, and Android's
-30-second linger expiry closes the old sockets during replay. The app correctly
-pauses again. The runner now waits for two matching connected default Wi-Fi
-observations before restoring cellular data, with a 30-second limit and exact
-original-state cleanup on failure. All 45 runnable local mocked radio contracts
-pass; one POSIX-only check is skipped on Windows. Native debug `36057193484`
-proves the staged restore and completes internal playback assertions, with
-initial convergence in 1.858 seconds and replay in 1.749 seconds at 35,512 /
-35,213 ms. However, original screenshots and focused-window state reveal a
-Google SDK Setup ANR over the app from initial-ready through recovery. The
-runner failed to reject the foreign focused window, so **this green run is not
-accepted as unobscured UI proof**. A scoped foreground guard and reuse of the
-existing emulator-only setup recovery are implemented at `4db3518`. Captures
-now require exact MainActivity focus in raw and observer windows plus app-only
-native XML. An exact SDK Setup ANR may receive one bounded close after fresh
-identity/window checks, with originals retained and new unobscured evidence
-required. Other or ambiguous dialogs fail. The receipt discloses any recovery.
-All 53 runnable mocked contracts pass locally; one POSIX-only check is skipped.
-Hosted debug run `36060546361` successfully prepares the exact SDK Setup ANR
-before app installation and requires no in-run recovery. All captured app
-windows are unobscured MainActivity. Initial playback converges in 1.591 seconds;
-real radio loss, automatic pause, stable no-autoplay reconnect and retained
-controllers/quota pass. The complete run fails because a persistent sync-timeout
-snackbar covers Play after reconnect. The original screenshot is retained;
-peer and teardown errors are empty. Ordinary app notices now explicitly expire
-after eight seconds (screen-reader navigation retains manual Dismiss), and sync
-errors use recovery guidance instead of raw exception text. Three added
-regressions pass in hosted Check `36062757882` at `68d9b51`: all 785 app,
-87 Nearby and 14 platform tests, formatting, analysis, media contracts and
-the secret scan pass. Debug network `36062762988` no longer blocks the Play
-tap and requires no SDK Setup recovery. Initial playback converges in 4.356
-seconds; automatic pause and no-autoplay reconnect pass. The complete run
-fails when the guest decoder's HTTP connection to the fixture fails during
-the outage (21:48:00.235 UTC) and leaves the source failed after TLS reconnect.
-The host advances on explicit Play; the guest remains at 22,548 ms. All 456
-native position records are indexed without rejection/drop; peer and teardown
-errors are empty. This is a separate source-recovery defect, not an accepted
-network pass. The follow-up now permits one paused reopening of the same failed
-network source within 30 seconds of a real TLS reconnection. It preserves the
-last reliable media clock, leaves healthy/local-file/receiver sources alone,
-invalidates former source commands and never replays a pre-outage Play. Fresh
-paused heartbeats (including those needing no FOLLOW action) distinguish a new
-peer Play received during rebuilding; that Play still passes authorization.
-Failed reopening retains the normal visible choose-video fallback without an
-automatic retry loop. Fifteen bridge regressions and three native-platform
-regressions pass in Check `36065517424` at `10f10ef` (803 app, 87 Nearby,
-14 platform tests, analysis, media contracts and secret scan). Independent review
-found that a second outage during rebuilding needed a fresh attempt after the
-in-flight load failed. That boundary is now fixed with a sixteenth regression;
-Check `36066044671` caught an additional old-Play regression when that in-flight
-load succeeds: resetting the attempt budget must not reset the fresh-pause
-requirement. The guard now remains independent of the attempt budget, including
-healthy network sources after rejoin. All 16 bridge cases remain required;
-Check `36066493312` stops in analysis because the new healthy-source assertion
-was placed outside its scenario loop. Its placement is corrected; no app code
-changed for that correction. A separate two-socket-client regression now covers
-a settled non-buffering native interruption pausing Together, suppressing a
-native auto-resume, and accepting explicit Play again. Check `36066905521` at
-`4acc75e` passes all 805 app, 87 Nearby and 14 platform tests, analysis, media
-contracts and the secret scan. That socket regression does not prove Android
-focus delivery.
-Source review additionally applies the stale-Play guard to accepted local files
-and external targets, with two added no-rebuild regressions. Only a failed network
-source on a capable local decoder can reopen; the broader guard only protects
-play intent. Those two cases await the next hosted check. The native gate
-now requires ready sources and original failed/loading/ready controller evidence
-for any replacement; healthy controller identity, room and quota stay strict.
-The lightweight network/setup contract suite passes 63 tests with one platform
-skip; no local Flutter build, analysis, test suite or emulator ran.
-Native debug `36066047985` at `f60c77a` stops at `initial-ready`, before either
-radio is disabled: the independent observer cannot produce an active-window
-hierarchy (`root_missing`). Sixteen native position records are retained with
-no rejected/dropped samples; no SDK Setup recovery was used. This does not test
-the source-reopening change and is not a network acceptance pass. Original
-observer and window evidence is retained for diagnosis.
-Repeated identical notices share the original expiry instead of extending it,
-so repeated errors cannot permanently hide controls; a later occurrence after
-dismissal starts a fresh notice. The Local audio-focus runner now retains its
-permanent-loss case and appends independent transient loss/automatic-resume
-acceptance with fresh nonce/UID/PID and current AudioService proof. All 29
-lightweight Python contracts pass. A 180-second version of the same source
-provides room for both cases without changing pause/recovery deadlines. Native
-execution is still required; this does not establish Together-room focus behavior.
-The initial transient run `36063115313` was intentionally cancelled after source
-review found the inherited 90-second expected-duration default. `f56c8e8` aligns
-that assertion with the 180-second fixture and passes the same 29 lightweight
-contracts; normal-release run `36063562267` passes on the dedicated API 35 AVD.
-The original 19 focused-window records and 16 UI XML files contain only the
-foreground MainApp; four critical original PNGs are visually reviewed. Permanent
-loss pauses within a 1,035 ms measured upper bound, holds 0:44 after release,
-and advances after explicit Play. Transient loss pauses within 1,161 ms, holds
-1:19, then automatically resumes within a 4,058 ms measured upper bound and
-advances ten displayed seconds without a Play tap. These bounds include UI
-observation time. AudioService proves the helper's GAIN/GAIN_TRANSIENT and the
-app's focus regain with one unchanged foreground PID (2770), no Activity
-pause/stop, no observation timeout or SDK Setup recovery. Both helpers are
-removed. All three original recording hashes match; their cloud-decoded
-47.437/51.449/42.673-second streams extend beyond the required observation with
-new post-roll pictures. No local video decoding was performed. This proves
-Local mode on one emulator, not physical hardware or Together-room interruptions.
-Profile `36044653778`
-passes initial playback, radio
-loss, automatic pause and no-autoplay reconnect, then fails explicit replay:
-all 198 position reads succeed, but the closest pair is 1,105 ms apart and the
-last is 54,953 / 53,416 ms. Peer and teardown errors are empty. These failures
-are retained separately, not classified as the same defect.
+Hosted [Check 36067406288](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36067406288)
+at `5ea2aa2` passes **807 app, 87 Nearby and 14 platform tests**, formatting,
+analysis, media contracts and the secret scan. Eighteen bridge regressions and
+three native-platform contract tests cover paused source rebuilding, consecutive
+outages, stale Play, new intent, cancellation, authorization and retained media
+clocks. A two-socket-client regression verifies that a settled native interruption
+pauses Together, suppresses a native auto-resume and accepts explicit Play again.
+That regression does not establish Android focus delivery.
 
-The slower guest becomes Syncplay's ordinary room setter after buffering;
-its first corrective seek buffers again, then its own room anchor cannot
-meaningfully advance it toward the host. Host rate correction instead needs
-to close the gap. It spends only about 8.5 seconds at 0.95 between native
-buffering intervals. The new `0454176` correction preserves the existing
-0.90 band until the lead falls below 900 ms, keeping the original 25-second
-window, fresh-heartbeat checks and immediate 1x restoration on buffering.
-A source reviewer identified an exit-condition early return; it is fixed and
-covered for recovery below 900 ms followed by drift back to 1,100 ms. An
-earlier diagnostic at `64c2f5e` fails with 1,150 ms after five modeled seconds;
-the final regression covers the retained strong band through moderate drift.
-Hosted Check `36054666023` passes all **782 app, 87 Nearby and 14 platform
-tests**, formatting, analysis, media contracts and the secret scan. Fresh
-profile network `36055097185` passes on one API 35 AVD with two real TLS clients
-and native decoders. Initial playback converges in 7.561 seconds at 4,551 / 4,183
-ms, and explicit replay after the outage converges in 5.531 seconds at 39,733 /
-40,459 ms. Automatic pause, no-autoplay rejoin, explicit Pause/Seek, unchanged
-controllers/quota and complete teardown pass; peer/teardown errors are empty.
-This run predates the staged radio restore and does not verify that harness
-change. Its original offline/recovery screenshots and all four focused-window
-observations are unobscured MainApp; the later debug SDK-setup obstruction does
-not invalidate that profile evidence. No native threshold is relaxed.
+The current reconnection behavior protects fresh play intent for every accepted
+source and playback target. Only a failed network source on a capable local
+decoder gets one paused reopening within 30 seconds of TLS reconnection; healthy
+controllers, local files and receivers are not rebuilt. A second real outage
+resets the retry opportunity without permitting an old Play. Failed reopening
+keeps the visible choose-video fallback. Ordinary notices expire after eight
+seconds, while screen-reader navigation retains manual Dismiss.
 
-Together `36044618079` reports both app tests passed, but the tablet ADB
-recording connection terminates and its recorder exits 255 during final result
-recovery. Concurrent low-memory activity does not establish which process
-caused the disconnect. The incomplete journey is not accepted as a pass.
-Run `36053642428` passes all 26 host and 25 guest stages with standard phone/tablet
-layouts and smaller native recording output. Settled native positions match at
-12,416, 53,361 and 55,242 ms. Each device records one complete segment; no recorder
-restart is required. The routine Together workflow now defaults to this compact
-capture without changing UI geometry or acceptance checks. Hosted original-frame
-review `36056723226` strictly decodes both sources and all 95 exported PNG hashes
-match. Inspected originals show complete tablet video/controls with the keyboard
-open, readable shared-link confirmation and history resumed at 1:07. Source
-buffering and held-frame gaps remain visible; this is sampled visual evidence.
+Native failed-source recovery remains **unaccepted**. Debug `36062762988` first
+proves radio loss, automatic pause and no-autoplay rejoin, then exposes a guest
+HTTP decoder failure at 22,548 ms that cannot recover on explicit Play. That
+failure motivated the current fix. The next run, `36066047985` at `f60c77a`,
+stops before radio mutation: the independent Android observer returns
+`root_missing` for 15 attempts within its eight-second capture budget. The
+original screenshot shows an unobscured player; both window checks identify
+MainActivity and the app PID is unchanged. No SDK Setup recovery occurs. This
+isolates an observation failure before the network scenario, not an application
+network result. Extra bounded accessibility diagnostics are being prepared;
+the gate still requires complete fresh XML and exact app-window ownership.
 
-The 116-second film renders in `36044649586` and strictly decodes all 3,480
-frames. SHA-256:
-`f150fb588fd98468543ba2295e38ee996e69c5f6dda9d43a016530fadbb530cc`.
-All seven native source pins match and all 29 exported samples are inspected.
-Framing and captions fit; visible buffering, held frames and a source reopening
-in the closing room excerpt still need editorial review. This is not final
-motion acceptance or proof of identical decoded frames between devices.
-The 100-second edit passes hosted render `36057684349` and strict decoding of
-all 3,000 frames. Its 25 samples are reviewed (16 exactly match prior reviewed
-PNGs, nine inspected directly); purchase activation and Restore are clear.
-The appearance and closing-room excerpts still reach unrelated loading/picker
-actions. The 98-second edit passes hosted render `36059267954` at `4dfd3e0`:
-all 2,940 frames strictly decode, seven native source pins match and the EDL
-matches the repository. SHA-256:
+Previously accepted profile network `36055097185` at `0454176` uses one API 35
+AVD with two real TLS clients and native decoders. Initial playback converges
+in 7.561 seconds (4,551 / 4,183 ms), explicit replay in 5.531 seconds (39,733 /
+40,459 ms). Automatic pause, no-autoplay rejoin, explicit Pause/Seek, unchanged
+controllers/quota and cleanup pass. Original screenshots/windows are unobscured.
+It predates staged radio restoration and paused source rebuilding; it does not
+verify either change. A later internally green debug run with an SDK Setup ANR
+over the app remains rejected as visual evidence.
+
+The `fdebec3` native cohort passes normal API 29/35 debug and API 35 release clean
+installation, playback, Nearby, five layout journeys, the runtime matrix,
+lifecycle, fullscreen, Test Store purchase, same-customer RevenueCat relaunch/
+expiry and SAF relaunch. Together `36053642428` passes **26 host and 25 guest
+stages** on independent phone/tablet emulators, with settled positions matching
+at 12,416, 53,361 and 55,242 ms. Compact capture preserves normal UI geometry and
+uses one complete segment per device. Hosted review `36056723226` strictly
+decodes both sources; all 95 PNG hashes match. Inspected originals show the full
+tablet video/controls with keyboard, readable link confirmation and resumed
+history. These are accepted builds, not current-head evidence for later changes.
+
+Normal-release Local audio focus `36063562267` at `f56c8e8` passes both independent
+Android focus cases with unchanged foreground PID 2770. Permanent loss pauses
+within a measured 1,035 ms upper bound and holds 0:44 after release until explicit
+Play. Transient loss pauses within 1,161 ms, holds 1:19, then resumes within
+4,058 ms of release and advances without a Play tap. Bounds include complete UI
+observation. Original UI/AudioService records establish actual focus ownership,
+no Activity pause/stop, no observation timeout and no SDK Setup recovery. Both
+helpers are removed. All three recording hashes match; cloud decoding confirms
+47.437/51.449/42.673-second streams and new post-roll pictures. Physical hardware
+and Together-room Android focus remain separate gates.
+
+The **98-second film candidate** passes hosted render `36059267954` at `4dfd3e0`:
+2,940 frames strictly decode, seven native source pins match and the EDL matches
+the repository. SHA-256:
 `5ced046aacf9f55a9b8be9344e27fd3a3266056c298e712ef2ce2b971d5c92c4`.
-All 42 shot-boundary PNGs have verified hashes and are visually inspected.
-The 25 periodic samples include 19 exact matches to previously reviewed images
-and six newly inspected images. Appearance ends on the applied theme; the last
-native cut ends in the second Plus room. Loading and held frames remain, and
-full-motion acceptance stays open. Local review uses static PNGs only; no build, emulator
-or video decoder runs on the user's computer.
+All 42 shot-boundary PNGs have verified hashes and were visually inspected. All
+25 periodic samples were inspected or exactly match previously reviewed images.
+Appearance ends on the applied theme and the last native cut ends in the second
+Plus room. Loading and held frames remain; **full-motion acceptance stays open**.
+Later source recovery is not represented as present in the pinned clips.
 
-Earlier convergence investigations, regression receipts, native cohorts and
-film candidates remain in [Acceptance history](ACCEPTANCE_HISTORY.md#archived-september-25-verification-through-the-fdebec3-cohort).
-Failed attempts and unadopted SDK experiments remain identified as such. The
-normal app uses unmodified Flutter 3.44.0 / Dart 3.12.0.
+[Acceptance history](ACCEPTANCE_HISTORY.md#archived-september-25-recovery-investigations-through-5ea2aa2)
+retains original failures, earlier candidates and investigation details. The
+normal app uses unmodified Flutter 3.44.0 / Dart 3.12.0. Heavy verification and
+video decoding run in hosted CI; local review uses static PNGs and metadata.
 
 ## Desktop and submission artifacts
 
@@ -257,8 +153,8 @@ remain open. Historical runs and asset provenance are preserved in
 
 ## Live development recording
 
-At September 24 21:26 UTC the current bounded two-fps recorder has about 148 MB
-persisted. The latest scoped resource check finds about 10.4 GiB free RAM and no
+At September 24 22:34 UTC the current bounded two-fps recorder has about 166 MB
+persisted. The latest scoped resource check finds about 10.2 GiB free RAM and no
 local Dart, Java, FFmpeg or Android emulator. The selected image is a single
 static phone/tablet frame from the reviewed 100-second film candidate; it is
 labelled captured evidence, not live Android. Historical recording gaps below
@@ -268,7 +164,8 @@ Following two reported machine freezes, local heavy work is serialized and
 Android builds, emulator runs and full regression suites use hosted CI. No
 Flutter, Gradle or emulator process was running at the September 24 10:20 UTC
 inspection; roughly 10 GiB RAM was free. This does not establish the cause of
-the earlier freezes. One read-only reviewer handles bounded source/log work.
+the earlier freezes. One reviewer handles bounded observer diagnostics and mocked
+contracts; no local Android compilation or emulator is used.
 
 The showcase now supports `--evidence-only`, disabling live ADB subprocesses.
 The evidence library loads media only after selection and retains unchanged

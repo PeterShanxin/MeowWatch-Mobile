@@ -105,6 +105,12 @@ void main() {
       await lose();
       await reconnect();
       expect(target.loads.length, 1);
+      if (scenario == 'healthy') {
+        sync.peer(_play);
+        await Future<void>.delayed(Duration.zero);
+        expect(target.snapshot.playing, isFalse);
+        expect(authorizations, 0);
+      }
       target.fail();
       await _until(() => target.loads.length == 2 && target.snapshot.ready);
       expect(target.snapshot.playing, isFalse);

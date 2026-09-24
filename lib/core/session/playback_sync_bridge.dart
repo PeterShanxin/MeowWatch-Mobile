@@ -590,7 +590,7 @@ class PlaybackSyncBridge {
     if (recovery != null &&
         (!_connected ||
             recovery.recovering ||
-            (recovery.attempted && !recovery.observedPause && !peer.paused))) {
+            (!recovery.observedPause && !peer.paused))) {
       if (_connected && recovery.observedPause && !peer.paused) {
         recovery.pendingPlay = peer;
       }

@@ -32,6 +32,7 @@ Subscribe before connecting: all streams are broadcast. `SyncCore` exposes:
 |---|---|
 | `connectionState`, `lastConnectionState` | Connection transitions and snapshot |
 | `peerState`, `lastObservedRoomState`, `lastObservedRoomStateAge` | Playback commands, newest observed room state and its monotonic receive age |
+| `observedRoomState` | Synchronous named room heartbeats, including paused states that need no playback command |
 | `lastAdvancingRoomState`, `lastAdvancingRoomStateAge` | Fresh, advancing non-self heartbeat eligible for optional local rate correction |
 | `presence`, `initialRoster`, `peerFile` | Membership, initial room members, announced media |
 | `chat`, `activity` | Room messages and playback activity |
@@ -105,6 +106,25 @@ The target must also isolate outstanding native work when replacing its source.
 The session controller calls `peerLeft()` when the last peer leaves;
 connection loss triggers this pause automatically. A reconnect reannounces the
 confirmed source, and does not itself issue a Play command.
+
+If an accepted network source fails during a real connection outage, a target
+declaring `canReloadAfterConnectionLoss` may reopen that same source once within
+30 seconds of TLS reconnection. Only the phone decoder provides this capability;
+local files, unconfirmed loads and external receivers do not. The last reliable
+position and duration survive native error values that reset to zero. Healthy
+controllers remain intact, and no room or hosting-session identity is recreated.
+
+Reopening uses source-generation cancellation but confirms the source paused,
+rather than using `markSourceOpen` and its possibly pre-outage playing snapshot.
+It publishes a paused heartbeat without a new user change. A new paused room
+heartbeat establishes the baseline for following a subsequent peer Play; a Play
+received while rebuilding is retained only within that connection and still
+passes normal authorization. A newer paused heartbeat or connection loss clears
+it. Explicit local Play is also fresh intent. Source replacement and bridge
+disposal invalidate the recovery. If another real outage interrupts rebuilding,
+the in-flight load finishes before one new attempt is considered after rejoin.
+Failure does not trigger a retry loop; it reaches `onError` and retains the
+ordinary visible media-selection recovery action.
 
 The mandatory `authorizePlayback` callback lets the controller apply hosting
 quota to actual playback, including play initiated by a remote peer. Return

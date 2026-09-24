@@ -105,6 +105,11 @@ has a **Watch this too** review action. **Recent rooms** starts a new movie
 night with a saved video, while **Continue Watching** resumes the original
 session. Appearance and Movie night reactions use the real Plus entitlement.
 
+Losing the room connection pauses playback. Rejoining keeps the same room and
+daily allowance. If the phone's network video also failed, MeowWatch attempts
+one paused reopening from its retained position; it does not restart the movie
+automatically. If reopening fails, use **Choose another video** to open it again.
+
 ## Verification and submission
 
 CI runs the app and standalone package checks, native playback, RevenueCat,

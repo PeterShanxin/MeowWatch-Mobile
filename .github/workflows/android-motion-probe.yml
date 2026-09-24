@@ -3,6 +3,10 @@ run-name: Android native motion probe (diagnostic only)
 
 on:
   workflow_dispatch:
+  push:
+    paths:
+      - '.github/workflows/android-motion-probe.yml'
+      - 'tools/android_motion_probe/**'
 
 permissions:
   contents: read

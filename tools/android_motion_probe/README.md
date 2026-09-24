@@ -1,6 +1,6 @@
 # Native motion load probe
 
-`android-motion-probe.yml` is a manual diagnostic. It builds one normal **profile** `lib/main.dart` APK at the checked-out SHA and uses the same APK and pinned 90-second Bee file on an API 35 Pixel 6 and Pixel Tablet. It does not exercise a Together Session or establish physical-device performance.
+`android-motion-probe.yml` is a diagnostic that runs on explicit dispatch or changes to its own capture tooling. It builds one normal **profile** `lib/main.dart` APK at the checked-out SHA and uses the same APK and pinned 90-second Bee file on an API 35 Pixel 6 and Pixel Tablet. It does not exercise a Together Session or establish physical-device performance.
 
 Phase A plays the same local clip on both AVDs while two native screen recorders run. Phase B keeps the tablet app and emulator alive, stops only the verified task-owned phone AVD after its recording is finalized, seeks the tablet back to the same clip interval and repeats the native recording. Both tablet recordings use 960×600, 3 Mbps, 30 seconds, two guest cores and SwiftShader. The launcher retains the existing 720×1600 phone and 1280×800 tablet framebuffers; this probe does not lower display or capture resolution relative to the prior Profile run.
 

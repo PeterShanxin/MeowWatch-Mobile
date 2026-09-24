@@ -60,6 +60,7 @@ jobs:
       - name: Verify fullscreen native evidence contracts
         run: |
           python3 -m unittest tools.android_fullscreen_runtime.test_run -v
+          python3 -m unittest tools.android_fullscreen_runtime.test_prepare_avd -v
           python3 -m tools.android_fullscreen_runtime.run --help
           bash -n tools/android_fullscreen_runtime/ci.sh
       - name: Prepare reviewed native video fixture
@@ -91,6 +92,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           disable-animations: true
+          pre-emulator-launch-script: python3 -m tools.android_fullscreen_runtime.prepare_avd
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: bash tools/android_fullscreen_runtime/ci.sh
       - name: Retain original fullscreen and system-window evidence
@@ -100,6 +102,7 @@ jobs:
           name: android-fullscreen-${{ matrix.form_factor }}-${{ github.run_attempt }}
           path: |
             build/android-fullscreen-artifacts/
+            build/android-fullscreen-avd/
             build/android-fullscreen-server/
             build/android-fullscreen-fixture/*.json
             build/android-fullscreen-fixture/*.tsv

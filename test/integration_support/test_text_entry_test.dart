@@ -98,4 +98,60 @@ void main() {
 
     expect(controller.text, 'Mochi');
   });
+
+  for (final profileMode in [false, true]) {
+    testWidgets('entry refocuses a retained composer ($profileMode)', (
+      tester,
+    ) async {
+      final controller = TextEditingController();
+      addTearDown(controller.dispose);
+      final changes = <String>[];
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: TextField(
+              key: const Key('composer'),
+              controller: controller,
+              onChanged: changes.add,
+            ),
+          ),
+        ),
+      );
+      final field = find.byKey(const Key('composer'));
+      await enterTogetherTestText(
+        tester,
+        field,
+        'Ready for movie night!',
+        profileMode: profileMode,
+      );
+      final original = tester.state<EditableTextState>(
+        find.byType(EditableText),
+      );
+      await tester.showKeyboard(field);
+      // IntegrationTestWidgetsFlutterBinding leaves the test IME unregistered,
+      // so a real clearClient does not reset the binding's cached editable.
+      tester.testTextInput.unregister();
+      addTearDown(tester.testTextInput.register);
+      controller.clear();
+      original.widget.focusNode.unfocus();
+      await tester.pump();
+      expect(original.widget.focusNode.hasFocus, isFalse);
+      expect(tester.binding.focusedEditable, same(original));
+
+      await enterTogetherTestText(
+        tester,
+        field,
+        'https://example.com/movie.mp4',
+        profileMode: profileMode,
+      );
+
+      expect(tester.state(find.byType(EditableText)), same(original));
+      expect(original.widget.focusNode.hasFocus, isTrue);
+      expect(controller.text, 'https://example.com/movie.mp4');
+      expect(changes, [
+        'Ready for movie night!',
+        'https://example.com/movie.mp4',
+      ]);
+    });
+  }
 }

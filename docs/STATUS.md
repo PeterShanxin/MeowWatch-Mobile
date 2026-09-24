@@ -49,8 +49,15 @@ excludes only the current assigned username's own typing echo. Independent
 review found no blocking issue. Peer typing insertion/removal and username
 reassignment regressions pass in hosted Check `36028137405`: 773 app, 87 Nearby
 and 14 platform tests, analysis, media contracts and secret audit. A fresh
-two-device recording is pending; earlier footage is not accepted as the final
-submission film.
+two-device recording `36028173522` confirms the first chat now retains focus,
+then fails before sending a second link: the test input helper reads an empty
+field. Flutter's `showKeyboard` caches the last EditableTextState and does not
+request focus again for the same retained composer after explicit unfocus. The
+real integration binding does not install the test IME callback that clears
+that cache. The helper now explicitly requests the keyboard before injection;
+debug/profile regressions retain the cached state with the test IME unregistered.
+Native verification is pending. This changes test input only, not the app's
+composer or quota assertions. Earlier footage is not the final submission film.
 
 The same cohort fails normal lifecycle and focus interruption with observed
 paused positions of 54 seconds versus a 49-second pre-action snapshot. These

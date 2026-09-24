@@ -12,8 +12,20 @@ Future<void> enterTogetherTestText(
   String text, {
   bool profileMode = kProfileMode,
 }) async {
+  final state = tester.state<EditableTextState>(
+    find.descendant(
+      of: field,
+      matching: find.byType(EditableText),
+      matchRoot: true,
+    ),
+  );
+  // showKeyboard caches the last EditableTextState. After an explicit unfocus,
+  // a persistent tablet composer needs a fresh request even though it is still
+  // that same state; otherwise debug input has no active IME connection.
+  state.requestKeyboard();
+  await tester.pump();
+  expect(state.widget.focusNode.hasFocus, isTrue);
   if (profileMode) {
-    await tester.showKeyboard(field);
     final editable = tester.state<EditableTextState>(
       find.descendant(
         of: field,

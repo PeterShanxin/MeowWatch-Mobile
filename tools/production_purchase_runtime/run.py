@@ -20,8 +20,10 @@ import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT))
 sys.path.insert(0, str(ROOT / "tools" / "billing_runtime"))
 sys.path.insert(0, str(ROOT / "tools" / "hosting_purchase"))
+from tools.android_lifecycle_runtime.run import recording_media_ready  # noqa: E402
 from native_dialog import (  # noqa: E402
     Adb, DialogOrchestrator, NativeRecording, PACKAGE, STAGES,
     UnsafeDialog, image_size, select_target,
@@ -50,6 +52,8 @@ MIN_RECORDING_COVERAGE_RATIO = 0.90
 NATIVE_SCREENSHOT_PIXELS = (1179, 2556)
 RECORDING_PIXELS = (480, 1040)
 RECORDING_BIT_RATE = 2_000_000
+RECORDING_STARTUP_SECONDS = 20.0
+MAX_MEDIA_PREFIX_BYTES = 1024 * 1024
 
 
 def ffprobe_duration(path: Path, ffprobe: str) -> float:
@@ -211,6 +215,34 @@ class PortraitRecording(NativeRecording):
         except queue.Empty as error:
             raise RuntimeError("Could not identify owned portrait recorder") from error
 
+    def wait_for_picture(self, deadline: float) -> int:
+        """Accept coverage only after the live MP4 contains a complete picture."""
+        attempts = 0
+        while True:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("Portrait recorder did not produce a complete picture before readiness deadline")
+            if self.process is None or self.process.poll() is not None:
+                raise RuntimeError("Portrait recorder exited before its first complete picture")
+            attempts += 1
+            try:
+                prefix = subprocess.run(
+                    self.adb.prefix + ["exec-out", "head", "-c", str(MAX_MEDIA_PREFIX_BYTES), self.remote],
+                    capture_output=True, timeout=min(3.0, remaining), check=False,
+                )
+            except subprocess.TimeoutExpired:
+                continue
+            if len(prefix.stdout) > MAX_MEDIA_PREFIX_BYTES:
+                raise RuntimeError("Portrait recorder readiness prefix exceeds its byte bound")
+            if prefix.returncode == 0 and recording_media_ready(prefix.stdout):
+                if time.monotonic() > deadline:
+                    break
+                if self.process.poll() is not None:
+                    raise RuntimeError("Portrait recorder exited before its first complete picture")
+                return attempts
+            time.sleep(min(0.2, max(0.0, deadline - time.monotonic())))
+        raise RuntimeError("Portrait recorder did not produce a complete picture before readiness deadline")
+
 
 class RecordedDialogs(DialogOrchestrator):
     """Use the shared native guards while the whole journey is being recorded.
@@ -275,8 +307,19 @@ class JourneyRecording:
                 name = f"journey-{len(self.segments) + 1:03}"
                 recording = PortraitRecording(self.adb, self.artifacts / f"{name}.mp4", name)
                 try:
+                    launch_started = time.monotonic()
                     recording.start()
+                    readiness_deadline = launch_started + RECORDING_STARTUP_SECONDS
+                    if self.segments:
+                        readiness_deadline = min(
+                            readiness_deadline,
+                            float(self.segments[-1]["coverageEndedMonotonicSeconds"])
+                            + MAX_RECORDING_GAP_SECONDS,
+                        )
+                    picture_attempts = recording.wait_for_picture(readiness_deadline)
                     coverage_started = time.monotonic()
+                    if coverage_started > readiness_deadline:
+                        raise RuntimeError("Portrait recorder picture readiness exceeded its deadline")
                     started_at = datetime.now(timezone.utc).isoformat()
                     self.ready.set()
                     stop_requested = self.stop.wait(RECORDING_SEGMENT_SECONDS)
@@ -300,6 +343,9 @@ class JourneyRecording:
                     "monotonicCoverageSeconds": round(coverage_ended - coverage_started, 3),
                     "videoDurationSeconds": round(video_duration, 3),
                     "recordingPixels": list(RECORDING_PIXELS),
+                    "pictureReadiness": "complete H.264 picture NAL in native MP4 mdat",
+                    "pictureProbeAttempts": picture_attempts,
+                    "launchToPictureReadySeconds": round(coverage_started - launch_started, 3),
                     "endedBeforeRequestedStop": ended_before_requested_stop,
                 }
                 self.segments.append(segment)
@@ -320,7 +366,7 @@ class JourneyRecording:
 
     def start(self) -> None:
         self.thread.start()
-        if not self.ready.wait(20) or self.errors:
+        if not self.ready.wait(RECORDING_STARTUP_SECONDS) or self.errors:
             raise RuntimeError(f"Journey recorder did not start: {self.errors}")
         self.journey_started_monotonic = time.monotonic()
 

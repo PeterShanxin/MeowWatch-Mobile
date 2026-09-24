@@ -5,8 +5,10 @@ import importlib.util
 import json
 from pathlib import Path
 import tempfile
+import time
 import unittest
-from unittest.mock import patch
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 SPEC = importlib.util.spec_from_file_location("production_purchase_runner", Path(__file__).with_name("run.py"))
 runner = importlib.util.module_from_spec(SPEC)
@@ -230,6 +232,13 @@ class RecordingCoverageContract(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, "Recording gap"):
             runner.validate_recording_coverage(segments, 0.1, 99.9)
 
+    def test_picture_readiness_time_is_counted_in_rotation_gap(self):
+        # The next PID can exist at 71s, but a picture first seen at 86s
+        # leaves a 16s gap after the previous segment's last coverage.
+        segments = [self.segment(0.0, 70.0, 70.0), self.segment(86.0, 100.0, 14.0)]
+        with self.assertRaisesRegex(RuntimeError, "Recording gap before segment 2 is 16.000s"):
+            runner.validate_recording_coverage(segments, 0.1, 99.9)
+
     def test_rejects_missing_aggregate_coverage(self):
         segments = [
             self.segment(0.0, 30.0, 29.5),
@@ -252,6 +261,9 @@ class RecordingCoverageContract(unittest.TestCase):
             def start(self):
                 pass
 
+            def wait_for_picture(self, _deadline):
+                return 1
+
             def finish(self):
                 self.finished = True
 
@@ -264,6 +276,93 @@ class RecordingCoverageContract(unittest.TestCase):
         self.assertEqual(len(created), 1)
         self.assertTrue(created[0].finished)
         self.assertRegex(journey.errors[0], "wait failed")
+
+    def test_segment_clock_starts_after_picture_and_keeps_seventy_second_wait(self):
+        created = []
+
+        class Recording:
+            def __init__(self, _adb, output, _stage):
+                self.output = output
+                self.process = Mock()
+                self.process.poll.return_value = None
+                self.finished = False
+                created.append(self)
+
+            def start(self):
+                pass
+
+            def wait_for_picture(self, _deadline):
+                self.ready_at = time.monotonic()
+                return 2
+
+            def finish(self):
+                self.finished = True
+
+        with tempfile.TemporaryDirectory() as directory:
+            journey = runner.JourneyRecording(None, Path(directory), "ffprobe")
+            waits = []
+
+            def wait(seconds):
+                waits.append(seconds)
+                journey.stop.set()
+                return True
+
+            with patch.object(runner, "PortraitRecording", Recording), patch.object(
+                journey.stop, "wait", side_effect=wait
+            ), patch.object(runner, "ffprobe_duration", return_value=70.0):
+                journey._run()
+        self.assertEqual(journey.errors, [])
+        self.assertEqual(waits, [runner.RECORDING_SEGMENT_SECONDS])
+        self.assertTrue(created[0].finished)
+        self.assertGreaterEqual(journey.segments[0]["coverageStartedMonotonicSeconds"], created[0].ready_at)
+        self.assertEqual(journey.segments[0]["pictureProbeAttempts"], 2)
+
+
+class PortraitPictureReadinessContract(unittest.TestCase):
+    @staticmethod
+    def prefix(*nals):
+        return b"\x00\x00\x00\x08ftyp\x00\x00\x00\x00mdat" + b"".join(
+            len(nal).to_bytes(4, "big") + nal for nal in nals
+        )
+
+    def setUp(self):
+        adb = SimpleNamespace(remote_prefix="/sdcard/test-", remote_files=[], prefix=["adb", "-s", "emulator-5554"])
+        self.recorder = runner.PortraitRecording(adb, Path("segment.mp4"), "segment")
+        self.recorder.process = Mock()
+        self.recorder.process.poll.return_value = None
+
+    def test_pid_or_mp4_header_without_complete_picture_never_starts_coverage(self):
+        for prefix in (b"", self.prefix(), self.prefix(b"\x67\x01"), self.prefix(b"\x65")[:-1]):
+            with self.subTest(prefix=prefix):
+                result = runner.subprocess.CompletedProcess([], 0, prefix, b"")
+                with patch.object(runner.subprocess, "run", return_value=result), patch.object(
+                    runner.time, "monotonic", side_effect=[0.0, 0.0, 0.1]
+                ), patch.object(runner.time, "sleep"):
+                    with self.assertRaisesRegex(RuntimeError, "complete picture before readiness deadline"):
+                        self.recorder.wait_for_picture(0.05)
+
+    def test_complete_h264_picture_after_header_is_required(self):
+        prefixes = [
+            self.prefix(),
+            self.prefix(b"\x67\x01", b"\x65")[:-1],
+            self.prefix(b"\x67\x01", b"\x65\x01"),
+        ]
+        responses = [runner.subprocess.CompletedProcess([], 0, prefix, b"") for prefix in prefixes]
+        with patch.object(runner.subprocess, "run", side_effect=responses) as probe, patch.object(
+            runner.time, "sleep"
+        ):
+            attempts = self.recorder.wait_for_picture(time.monotonic() + 1)
+        self.assertEqual(attempts, 3)
+        self.assertEqual(probe.call_count, 3)
+        self.assertIn("1048576", probe.call_args.args[0])
+
+    def test_timeout_and_early_exit_cannot_become_ready(self):
+        self.recorder.process.poll.return_value = 0
+        with self.assertRaisesRegex(RuntimeError, "exited before its first complete picture"):
+            self.recorder.wait_for_picture(time.monotonic() + 1)
+        self.recorder.process.poll.return_value = None
+        with self.assertRaisesRegex(RuntimeError, "before readiness deadline"):
+            self.recorder.wait_for_picture(time.monotonic() - 1)
 
 
 class NativeDialogContract(unittest.TestCase):

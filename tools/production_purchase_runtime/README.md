@@ -69,6 +69,14 @@ driver logs, `result.json` assertions and `run.json` orchestration results. The
 screen recorder rotates every 70 seconds and retains start/finalization times;
 transfer/rotation gaps are not advertised as continuous footage. Missing or
 unfinalized footage fails the runner even if Flutter assertions passed. Each
+segment starts its coverage clock only after a bounded live MP4 probe finds a
+complete H.264 picture in `mdat`; a recorder PID or MP4 header alone is not
+accepted. The first segment must become picture-ready within the existing
+20-second startup budget, and later segments must become ready within their
+15-second rotation-gap limit. The receipt records each segment's picture probe
+count and launch-to-picture-ready time. This timing is conservative: the probe
+confirms a picture exists, but does not establish why an earlier recording had
+less encoded footage than elapsed wall time. Each
 segment is probed with `ffprobe`; its media duration may trail monotonic recording
 time by at most 3 seconds, each rotation gap is capped at 15 seconds, and the
 segments must cover at least 90% of the journey interval. A recorder that exits

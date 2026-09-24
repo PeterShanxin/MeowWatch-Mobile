@@ -57,8 +57,8 @@ window diagnostic after a missing active root. A root query that times out keeps
 known window metadata; no diagnostic can replace complete fresh XML and exact
 app-window ownership. All 54 observer contracts pass. The observer/network/setup/
 focus contract run passes 144 tests with one Windows platform skip. The new
-interactive-window service flag and helper still require cloud compilation and
-native acceptance; no capture or caller deadline is extended.
+interactive-window service flag still requires native acceptance; the helper's
+independent compilation result follows below. No capture or caller deadline is extended.
 
 The `48e5a65` native cohort exposes a helper compilation defect before affected
 device scenarios can run: Android SDK stubs do not provide the Java lambda
@@ -73,6 +73,18 @@ errors are caught without first building Flutter. Run `36069836038` at
 and manifest verification, plus observer contracts and the secret scan. Native
 network `36069922387` and focus `36069925181` are running at that corrected build;
 fresh successful runtime acceptance is still required.
+
+Production purchase `36068920062` at `48e5a65` stops during the native
+cancel/failure sequence because its second recording contains 64.564 seconds
+against 70.003 seconds of measured coverage. The purchase journey is incomplete;
+this is not accepted purchase evidence. The recorder now starts coverage only
+after a bounded live MP4 probe observes a complete H.264 picture. A PID or MP4
+header is insufficient. Startup stays bounded at 20 seconds, and readiness is
+included in the existing 15-second rotation-gap limit. The three-second duration
+tolerance and 90% journey coverage requirement are unchanged. All 102 purchase
+and lifecycle recorder contracts pass locally without native tools or video
+decoding. This repairs the coverage clock; it does not establish the cause of
+the earlier encoded-duration shortfall. Fresh native validation is required.
 
 Previously accepted profile network `36055097185` at `0454176` uses one API 35
 AVD with two real TLS clients and native decoders. Initial playback converges

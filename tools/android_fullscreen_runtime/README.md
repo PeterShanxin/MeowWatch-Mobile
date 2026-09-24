@@ -4,8 +4,11 @@ The workflow runs the normal **release `lib/main.dart` APK** on separate dedicat
 API 35 `pixel_6` and `pixel_tablet` AVD jobs. It reuses the lifecycle runner's normal
 installation, real native video, incoming-share review, standalone NativeUiObserver
 and original screenrecord validation. No integration-test bootstrap or production
-testing hook is used; the video is the reviewed 90-second fixture served locally
-to the AVD. Python tests alone do not prove Android fullscreen behavior.
+testing hook is used; the video is the reviewed fixture extended to 180 seconds
+and served locally to the AVD. Expected timeline duration comes from that file's
+ffprobe metadata, with the existing one-second display tolerance. This leaves
+time for the native observer and recording drain before the final Pause and Back.
+Python tests alone do not prove Android fullscreen behavior.
 
 Manual dispatch may enable `fullscreen_diagnostics`. This compiles the normal
 app with `MEOWWATCH_FULLSCREEN_DIAGNOSTICS=true` and logs fixed control-state

@@ -1,4 +1,5 @@
 from dataclasses import replace
+import json
 from pathlib import Path
 import subprocess
 import tempfile
@@ -7,7 +8,7 @@ from unittest.mock import Mock, patch
 from xml.sax.saxutils import escape
 
 from tools.android_fullscreen_runtime.run import (
-    Display, Runner, display_state, immersive_confirmation_button, recording_size, require_same_paused_player,
+    Display, Runner, display_state, fixture_duration_seconds, immersive_confirmation_button, recording_size, require_same_paused_player,
     require_transition, require_visible_bounds,
 )
 from tools.android_install.runner import PACKAGE, RuntimeFailure
@@ -67,6 +68,29 @@ def fullscreen_player(position, pause_bounds):
         node("timeline", (100, 850, 2200, 890), class_name="android.widget.SeekBar"),
         node("Pause together", pause_bounds, clickable=True),
     )) + "</hierarchy>"
+
+
+class FixtureDurationTests(unittest.TestCase):
+    def test_duration_comes_from_the_actual_fixture_metadata(self):
+        for actual, expected in (("90.08", 90), ("180.079900", 180)):
+            with self.subTest(actual=actual), patch(
+                "tools.android_fullscreen_runtime.run.subprocess.run",
+                return_value=subprocess.CompletedProcess([], 0, json.dumps({"format": {"duration": actual}}), ""),
+            ) as probe:
+                self.assertEqual(fixture_duration_seconds(Path("sync-fixture.mp4")), expected)
+                self.assertEqual(probe.call_args.args[0][-1], "sync-fixture.mp4")
+                self.assertEqual(probe.call_args.kwargs["timeout"], 15)
+
+    def test_missing_nonfinite_out_of_bounds_or_failed_probe_is_rejected(self):
+        cases = [(0, "{}"), (0, "broken"), (1, '{"format":{"duration":"180"}}')]
+        cases += [(0, json.dumps({"format": {"duration": value}}))
+                  for value in (None, "NaN", "Infinity", "-Infinity", "14.9", "600.1")]
+        for code, output in cases:
+            with self.subTest(output=output), patch(
+                "tools.android_fullscreen_runtime.run.subprocess.run",
+                return_value=subprocess.CompletedProcess([], code, output, ""),
+            ), self.assertRaises(RuntimeFailure):
+                fixture_duration_seconds(Path("sync-fixture.mp4"))
 
 
 class InsetsTests(unittest.TestCase):
@@ -168,6 +192,27 @@ class OwnershipTests(unittest.TestCase):
         fixture.write_bytes(b"fixture")
         return Runner("emulator-5554", "meowwatch_fullscreen_phone_123_1", "phone",
                       apk, fixture, directory / "output")
+
+    def test_longer_fixture_is_accepted_at_each_native_playback_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.expected_duration_seconds = 180
+            runner.output.mkdir()
+            baseline = display_state(window())
+            runner.last_window = window(width=2400, height=1080, rotation=1, bars=False)
+            full = display_state(runner.last_window)
+            xml = fullscreen_player(12, (120, 700, 200, 780)).replace("1:30", "3:00")
+            runner.wait = Mock(side_effect=lambda phase, check, **kwargs: (xml, check(xml)))
+            runner.evidence = Mock()
+            runner.pid = Mock(return_value="123")
+            runner.observe = Mock(return_value=xml)
+            runner.tap = Mock()
+            self.assertEqual(runner.sample("loaded", playing=True, screenshot=False)[1], Playback(12, 180, True))
+            self.assertEqual(runner.system_sample("fullscreen", baseline, fullscreen=True, playing=True)[2],
+                             Playback(12, 180, True))
+            self.assertEqual(runner.wait_for_fullscreen_advance(full, Playback(10, 180, False)), 2)
+            runner.pause_after_recording("pause", baseline, fullscreen=True, app_pid="123")
+            runner.tap.assert_called_once()
 
     def test_unowned_avd_is_rejected_before_install_or_any_mutation(self):
         with tempfile.TemporaryDirectory() as directory:

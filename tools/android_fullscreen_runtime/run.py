@@ -6,6 +6,7 @@ from __future__ import annotations
 import argparse
 from dataclasses import asdict, dataclass
 import json
+import math
 from pathlib import Path
 import re
 import signal
@@ -33,6 +34,20 @@ class Display:
     app_orientation: str
     status_bar_visible: bool
     navigation_bar_visible: bool
+
+
+def fixture_duration_seconds(fixture: Path) -> int:
+    probe = subprocess.run(
+        ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "json", str(fixture)],
+        capture_output=True, text=True, timeout=15, check=False,
+    )
+    try:
+        duration = float(json.loads(probe.stdout)["format"]["duration"])
+    except (ValueError, TypeError, KeyError) as error:
+        raise RuntimeFailure("controlled fixture duration is missing or invalid") from error
+    if probe.returncode or not math.isfinite(duration) or not 15 <= duration <= 600:
+        raise RuntimeFailure("controlled fixture must have a finite duration between 15 and 600 seconds")
+    return math.floor(duration)
 
 
 def display_state(window: str) -> Display:
@@ -184,8 +199,10 @@ class Runner(LifecycleRunner):
     """Reuse normal installation/share/native-observer and recorder contracts."""
 
     def __init__(self, serial: str, avd_name: str, form_factor: str,
-                 apk: Path, fixture: Path, output: Path, observer_apk: Path = DEFAULT_APK):
-        super().__init__(serial, apk, fixture, output, observer_apk)
+                 apk: Path, fixture: Path, output: Path, observer_apk: Path = DEFAULT_APK,
+                 *, expected_duration_seconds: int = 90):
+        super().__init__(serial, apk, fixture, output, observer_apk,
+                         expected_duration_seconds=expected_duration_seconds)
         self.avd_name, self.form_factor = avd_name, form_factor
         self.states: list[dict] = []
         self.logcat: subprocess.Popen | None = None
@@ -305,7 +322,7 @@ class Runner(LifecycleRunner):
             state = display_state(self.last_window)
             require_transition(baseline, state, self.form_factor, fullscreen=fullscreen)
             require_visible_bounds(xml, state, fullscreen=fullscreen, controls=controls)
-            player = playback(xml) if playing is not None else None
+            player = playback(xml, expected_duration_seconds=self.expected_duration_seconds) if playing is not None else None
             if player is not None and player.playing != playing:
                 raise RuntimeFailure("fullscreen has the wrong native playback state")
             return state, player
@@ -420,7 +437,7 @@ class Runner(LifecycleRunner):
     def wait_for_fullscreen_advance(self, full: Display, before: Playback) -> int:
         def advanced(xml: str) -> Playback:
             require_visible_bounds(xml, full, fullscreen=True, controls=True)
-            state = playback(xml)
+            state = playback(xml, expected_duration_seconds=self.expected_duration_seconds)
             if not state.playing or state.position_seconds - before.position_seconds < 2:
                 raise RuntimeFailure("explicit fullscreen Play has not advanced the native timeline by two seconds")
             return state
@@ -457,7 +474,7 @@ class Runner(LifecycleRunner):
             if self.pid(deadline=deadline) != app_pid:
                 raise RuntimeFailure("playback process changed before the fresh Pause action")
         require_visible_bounds(xml, state, fullscreen=fullscreen, controls=True)
-        if not playback(xml).playing:
+        if not playback(xml, expected_duration_seconds=self.expected_duration_seconds).playing:
             raise RuntimeFailure("native playback stopped before the fresh Pause action")
         self.output.joinpath(f"{phase}.xml").write_text(xml, encoding="utf-8")
         self.tap(button(xml, "Pause", "Pause together"), deadline=deadline)
@@ -554,6 +571,7 @@ class Runner(LifecycleRunner):
             raise RuntimeFailure("all three native orientation segments must be intact")
         report.update({
             "completed": True, "formFactor": self.form_factor, "avdName": self.avd_name,
+            "expectedFixtureDurationSeconds": self.expected_duration_seconds,
             "sameAppPid": int(app_pid), "normalNativeAdvanceSeconds": normal_advance,
             "fullscreenNativeAdvanceSeconds": fullscreen_advance,
             "sameMediaAndPausedPositionAfterFirstBack": True,
@@ -601,7 +619,8 @@ def main() -> int:
     parser.add_argument("--observer-apk", type=Path, default=DEFAULT_APK)
     parser.add_argument("--output", type=Path, default=Path("build/android-fullscreen-artifacts"))
     args = parser.parse_args()
-    runner = Runner(args.serial, args.avd_name, args.form_factor, args.apk, args.fixture, args.output, args.observer_apk)
+    runner = Runner(args.serial, args.avd_name, args.form_factor, args.apk, args.fixture, args.output,
+                    args.observer_apk, expected_duration_seconds=fixture_duration_seconds(args.fixture))
     def timeout(signum: int, _frame: object) -> None:
         raise RuntimeFailure(f"fullscreen gate interrupted by signal {signum}")
     signal.signal(signal.SIGTERM, timeout)
@@ -613,6 +632,7 @@ def main() -> int:
     except Exception as error:
         status = 1
         report = {"completed": False, "phase": runner.phase, "error": f"{type(error).__name__}: {error}",
+                  "expectedFixtureDurationSeconds": runner.expected_duration_seconds,
                   "states": runner.states, "samples": runner.samples,
                   "immersiveConfirmations": runner.immersive_confirmations,
                   "controlsAutoHideVisualReviewRequired": True,

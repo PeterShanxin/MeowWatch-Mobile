@@ -1525,6 +1525,13 @@ class LifecycleRuntimeTests(unittest.TestCase):
             with self.subTest(value=value):
                 self.assertIsNone(parse_time(value))
 
+    def test_longer_fixture_requires_matching_expected_duration(self):
+        longer = player().replace("1:30", "3:00")
+        self.assertEqual(playback(longer, expected_duration_seconds=180), Playback(12, 180, True))
+        for xml, duration in ((longer, 90), (player(), 180), (longer, 0), (longer, -1)):
+            with self.subTest(duration=duration), self.assertRaises(RuntimeFailure):
+                playback(xml, expected_duration_seconds=duration)
+
     def test_play_button_or_screenshot_alone_cannot_establish_playback(self):
         original = player()
         for xml in [

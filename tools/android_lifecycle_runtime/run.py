@@ -783,15 +783,17 @@ def button(xml: str, *alternatives: str) -> ET.Element:
     return matches[0]
 
 
-def playback(xml: str) -> Playback:
+def playback(xml: str, *, expected_duration_seconds: int = 90) -> Playback:
     values = labels(xml)
     if not any(FIXTURE_NAME in value for value in values):
         raise RuntimeFailure("the loaded playback source is not the controlled fixture")
     if not any(node.get("class", "").endswith("SeekBar") for node in nodes(xml)):
         raise RuntimeFailure("the actual player timeline is unavailable")
     times = sorted({parsed for value in values if (parsed := parse_time(value)) is not None})
-    if len(times) != 2 or not 89 <= times[1] <= 91 or times[0] >= times[1]:
-        raise RuntimeFailure("unique actual elapsed and 90-second duration labels are required")
+    if (expected_duration_seconds <= 0 or len(times) != 2
+            or not expected_duration_seconds - 1 <= times[1] <= expected_duration_seconds + 1
+            or times[0] >= times[1]):
+        raise RuntimeFailure(f"unique actual elapsed and {expected_duration_seconds}-second duration labels are required")
     play = [node for label in ("Play", "Play together") for node in exact(xml, label, clickable=True)]
     pause = [node for label in ("Pause", "Pause together") for node in exact(xml, label, clickable=True)]
     if len(play) + len(pause) != 1:
@@ -887,12 +889,13 @@ def history_swipe(xml: str) -> tuple[int, int, int, int]:
 
 class Runner:
     def __init__(self, serial: str, apk: Path, fixture: Path, output: Path,
-                 observer_apk: Path = DEFAULT_APK) -> None:
+                 observer_apk: Path = DEFAULT_APK, *, expected_duration_seconds: int = 90) -> None:
         if not apk.is_file() or not fixture.is_file() or fixture.name != FIXTURE_NAME:
             raise ValueError("normal APK and prepared sync-fixture.mp4 are required")
         self.adb = Adb(serial, f"lifecycle-{os.getpid()}-{time.time_ns()}")
         self.observer = NativeUiObserver(self.adb, observer_apk)
         self.apk, self.fixture, self.output = apk, fixture, output
+        self.expected_duration_seconds = expected_duration_seconds
         self.cleanup_authorized = False
         self.evidence_started = False
         self.phase = "prepare"
@@ -1089,7 +1092,7 @@ class Runner:
         screenshot: bool = True,
     ) -> tuple[str, Playback]:
         def check(xml: str) -> Playback:
-            state = playback(xml)
+            state = playback(xml, expected_duration_seconds=self.expected_duration_seconds)
             if state.playing != playing:
                 raise RuntimeFailure("native player has the wrong play/pause state")
             return state

@@ -15,10 +15,10 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 5 | Real-session chat/reactions/presence | Partial | 5137e58 production Together passes chat, reactions, presence and confirmed peer-link playback on independent phone/tablet emulators. 2fc38317 purchase also proves the premium reaction received by a TLS peer. Final submission film remains open |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | 8720304 normal release lifecycle passes independent review: real HOME, paused foreground, explicit Play and new-process history restoration. 115454e audio-focus interruption also passes. Actual radio-outage acceptance remains open; failed runs are preserved in acceptance history |
 | 7 | Local Mode and Continue Watching | Partial | 8720304 normal lifecycle/history resume and af45d24 five-layout journeys pass independent review. Earlier native playback and SAF relaunch also pass. Each layout retains 20 app steps and 16 screenshots. Physical-device acceptance remains separate |
-| 8 | Secure phone-to-desktop discovery/pair/control | Partial | 773d41e Android Nearby passes real pinned TLS pairing/control/revocation and protected persistence across three process runs. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected. The updated desktop dependency pin is under verification. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
+| 8 | Secure phone-to-desktop discovery/pair/control | Partial | 773d41e Android Nearby passes real pinned TLS pairing/control/revocation and protected persistence across three process runs. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 2fc38317 production purchase passes 12 stages, one free and two paid hosts, native cancel/failure/success and same-customer restore. The 6c44 runtime billing/hosting jobs also pass. Diagnostic run 35240675074 at 9e032ba passes same-customer process relaunch, accelerated renewals, final expiry and inactive Restore; the earlier 2fc contradictory result did not recur and its cause remains unproven. Physical and Play-production evidence remain separate |
 | 10 | Correct daily quota and session continuity | Partial | 6c44e415 runtime hosting passes 14 checks, one free plus two distinct Plus sessions, reconnect and same-process service/disk reopen without recharging. 5137e58 production Together passes endpoint/ledger preservation and repeated-room/free-joining checks. Actual radio-outage continuity remains open |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Official unpatched Flutter 3.44 at af45d24 passes all five layouts and teardown. All 80 screenshots were inspected and five original videos fully decode; actual native frames confirm keyboard visibility. These are size/density overrides on one AVD. Phone landscape and tablet idle controls pass original-image audit at 2184c8e; tablet Back passed at 6829cc7. Fresh full fullscreen/Back and physical gates remain open; SDK candidate is unadopted |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Official unpatched Flutter 3.44 at af45d24 passes all five layouts and teardown. All 80 screenshots were inspected and five original videos fully decode; actual native frames confirm keyboard visibility. These are size/density overrides on one AVD. At 56ba16b, phone fullscreen/Back passes native and sampled original-frame review. The fresh tablet capture contains corrupt frames; its complete current Back gate and physical checks remain open. SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
 | 13 | No placeholders, dead ends or silent failures | Partial | 2fc38317 verifies guide, loading text, modal transitions, clean install and lifecycle. Later targeted matrix, expiry and production Together runs pass; the prior Restore anomaly remains unexplained. 5137e58 native footage proves readable 404 recovery and normal loading text. Final interruption gates and review remain open |
 | 14 | Clean-install full demo rehearsal | Partial | The 2fc cohort remains 8 passing and 3 failed workflows. Later targeted 6c runtime matrix, 9e expiry and 5137e58 production Together checks pass. Final complete rehearsal, interruption coverage and the under-two-minute submission cut remain open; paired recording still has visibly sparse motion |
@@ -69,7 +69,17 @@ The current repairs and their acceptance boundaries are:
   The first longer-fixture run stopped at the loaded-paused check because the
   evidence parser still expected 90 seconds. The parser now reads the actual
   file duration and retains the one-second tolerance; 170 fullscreen, lifecycle
-  and observer contracts pass. Native fullscreen/Back must still be rerun.
+  and observer contracts pass. Fresh run `35988087451` at `56ba16b` passes phone
+  native playback, pause, orientation/system-bar restoration, first Back and
+  Home assertions. Hosted extraction `36002774508` preserves original pixels
+  and source frame clocks; inspected phone frames show visible-to-hidden
+  controls with continuing video, and the final Back clip runs from the paused
+  portrait player to Home with Continue Watching at the same position. This is
+  sampled visual acceptance, not every-frame or professional-motion approval.
+  Tablet native XML shows
+  playing at 1:13/3:00 in fullscreen, but its second original recording contains
+  corrupt H.264 macroblocks and is correctly rejected. Device/pulled hashes
+  match; the cause of the original encoding corruption remains unproven.
 - **Recorder coverage (`2184c8e`).** A timed-out live-file read now retries the
   same byte cursor inside the existing eight-second post-roll deadline. Partial
   timed-out output is discarded and late results fail. All 201 related Python
@@ -80,6 +90,12 @@ The current repairs and their acceptance boundaries are:
   not accepted as professional demo motion. A separate controlled local-player
   capture probe compares two active AVDs against an isolated tablet with the
   same profile APK and native encoding settings; it is not Together acceptance.
+  Run `35988087246` stopped before recording because native accessibility
+  exposed slider-thumb bounds, which the script incorrectly treated as the
+  whole track. `e5e219b` uses actual Back/Forward controls inside one 45-second
+  budget and pauses after measured playback before offline processing. An
+  unconfirmed recorder stop prevents either file from being analyzed. Failed
+  native observations are retained; all 179 focused Python contracts pass.
 
 ## Current native runs
 
@@ -98,13 +114,20 @@ open. Earlier acceptance and every retained failed experiment are documented in
 [Acceptance history](ACCEPTANCE_HISTORY.md), including the September 24 chronology.
 
 Remote follow-ups after reducing local load:
-- `35988087451` at `56ba16b`: normal release fullscreen/Back with actual fixture-duration parsing.
-- `35988087246` at `56ba16b`: motion probe with the session's adb path restored.
+- `35988087451` at `56ba16b`: phone native fullscreen/Back and sampled original
+  transition-frame review pass. Tablet original-recording decode fails as
+  above; only that failed job is rerunning with the same strict criteria.
+- `35988087246` at `56ba16b`: motion preparation fails on the slider-thumb
+  assumption. The repaired `36001965003` probe at `e5e219b` is running remotely.
 - `35988489663` at `34b8ea6`: Together history recovery with a 160-record diagnostic
   cap for real native commands, room commands and the Play UI state. Observations
   contain no media URL, room code or participant name; the original 20-second
-  playback requirement is unchanged. Static analysis passes remotely; native
-  results are pending. This is diagnostic footage, not a final submission cut.
+  playback requirement is unchanged. Static analysis and both actual client
+  journeys pass. The host trace proves native seek/Play and advancement about
+  5.1 seconds after native Play starts; both clients later pause at 65.381 seconds. Session
+  endpoints and quota ledgers remain unchanged. The earlier timeout's cause is
+  still unproven. Recorded segment gaps of 3.64 phone seconds and 1.49 tablet
+  seconds remain disclosed. This is diagnostic footage, not a final cut.
 
 ## Desktop and submission artifacts
 
@@ -165,6 +188,12 @@ The load regression fails before the change and passes afterwards; all eight
 showcase contracts pass. The current viewer uses one original still image and
 the existing two-fps silent canvas recorder. A recording gap after the last
 08:10:40 UTC saved chunk is retained; capture resumed at approximately 10:30 UTC.
+A later browser-heartbeat gap from 11:01:00 to 12:51:49 UTC is also retained in
+the original manifest. Capture then resumed without replacing the file. No
+cause is inferred for that gap or the reported machine freezes. At 12:52 UTC,
+approximately 9.97 GiB RAM was free and the showcase service used 21.4 MiB.
+Video frame extraction now runs on hosted CI; local review reads only images
+and metadata. New verification does not start a local build or emulator.
 
 The initial recording began when the local Codex showcase opened. Its last
 saved chunk is September 18; a new recording started on September 24 after the

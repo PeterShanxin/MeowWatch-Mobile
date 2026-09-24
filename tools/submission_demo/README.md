@@ -27,7 +27,7 @@ do not pass validation. They are schema examples, not known-good footage.
 python tools/submission_demo/compose.py inspect path/to/phone-000.mp4 path/to/tablet-000.mp4
 Get-FileHash path/to/framed-timeline.mp4.manifest.json -Algorithm SHA256
 python tools/submission_demo/compose.py validate path/to/final.edl.json
-python tools/submission_demo/compose.py render path/to/final.edl.json path/to/meowwatch-mobile-110s.mp4
+python tools/submission_demo/compose.py render path/to/final.edl.json path/to/meowwatch-mobile-final.mp4
 ```
 
 `inspect` supplies each video's actual dimensions, duration and lowercase
@@ -74,7 +74,7 @@ Every shot needs a unique `id`, `kind`, `title` and `caption`:
 
 Shots appear in array order with direct cuts. Every duration must be a whole
 number of 30 fps frames; the entire film must be strictly below 120 seconds.
-Use 110 seconds for the current demo plan. A single shot can last at most
+The current [review edit](../../docs/DEMO_SCRIPT.md) is 118 seconds. A single shot can last at most
 60 seconds. Unsupported shot fields, acceleration, missing files, hash mismatch,
 unexpected dimensions, rotated metadata, non-square pixels, invalid source
 ranges, unused sources, mismatched paired runs/builds and duplicate paired
@@ -148,5 +148,5 @@ acceptance claim or final demo is produced by running tests.
 
 The submission screenshot remains a separate, original **1179 × 2556** PNG
 without a frame. Never extract/upscale this 1080p film to create that required
-screenshot. Final native footage and its authored 110-second EDL are intentionally
+screenshot. Final native footage and its authored EDL are intentionally
 not bundled in this tool directory.

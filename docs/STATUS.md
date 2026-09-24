@@ -10,15 +10,15 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Partial | Fresh 54b4203 API 35 debug, API 29 debug and API 35 release normal installs pass independent audit, including seven intake reviews and two confirmed playback cases per variant. The late SDK Setup ANR recovery branch is not exercised in this run. Physical acceptance remains separate |
 | 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 54b4203 working-tree snapshot passes Gitleaks 8.30.1 with zero findings in 502 tracked files and 68 all-ref commits; no suspicious tracked paths. Final artifacts and repository closeout remain open |
-| 3 | Clear first-launch create/join | Partial | 2fc38317 passes all five first-use/layout drivers and teardown. The compact landscape guide's primary instructions and fixed footer are visible; supplemental notes scroll. 5137e58 production Together passes actual Start, invitation review and Join on independent emulators |
+| 3 | Clear first-launch create/join | Partial | af45d24 passes all five first-use/layout drivers and teardown, including native keyboard visibility after invalid join. The guide's primary instructions and actions remain accessible. 5137e58 production Together passes actual Start, invitation review and Join on independent emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6c44e415 runtime matrix passes on two API 35 emulators after fixing the stale pause snapshot. 5137e58 production Together also passes all named two-way playback checkpoints. Equal position checkpoints do not establish identical decoded frames or physical-device behavior |
 | 5 | Real-session chat/reactions/presence | Partial | 5137e58 production Together passes chat, reactions, presence and confirmed peer-link playback on independent phone/tablet emulators. 2fc38317 purchase also proves the premium reaction received by a TLS peer. Final submission film remains open |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | 8720304 normal release lifecycle passes independent review: real HOME, paused foreground, explicit Play and new-process history restoration. 115454e audio-focus interruption also passes. Actual radio-outage acceptance remains open; repeated native-test setup failures are retained below |
-| 7 | Local Mode and Continue Watching | Partial | 2fc38317 native playback, SAF relaunch, normal lifecycle/history resume and all five complete layout drivers pass. Each layout retains 20 verified app steps and 16 screenshots. Physical-device acceptance remains separate |
+| 7 | Local Mode and Continue Watching | Partial | 8720304 normal lifecycle/history resume and af45d24 five-layout journeys pass independent review. Earlier native playback and SAF relaunch also pass. Each layout retains 20 app steps and 16 screenshots. Physical-device acceptance remains separate |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | 2fc38317 Android Nearby passes within its emulator boundary. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 2fc38317 production purchase passes 12 stages, one free and two paid hosts, native cancel/failure/success and same-customer restore. The 6c44 runtime billing/hosting jobs also pass. Diagnostic run 35240675074 at 9e032ba passes same-customer process relaunch, accelerated renewals, final expiry and inactive Restore; the earlier 2fc contradictory result did not recur and its cause remains unproven. Physical and Play-production evidence remain separate |
 | 10 | Correct daily quota and session continuity | Partial | 6c44e415 runtime hosting passes 14 checks, one free plus two distinct Plus sessions, reconnect and same-process service/disk reopen without recharging. 5137e58 production Together passes endpoint/ledger preservation and repeated-room/free-joining checks. Actual radio-outage continuity remains open |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Official unpatched Flutter 3.44 at 2fc38317 passes all five layouts and teardown with 80 native PNGs and five intact videos. Compact guide and Settings/Appearance/paywall transitions were visually reviewed. Purchase footage also proves corrected busy text in Cozy and Glass Aurora. Physical gates remain open; SDK candidate is unadopted |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Official unpatched Flutter 3.44 at af45d24 passes all five layouts and teardown. All 80 screenshots were inspected and five original videos fully decode; actual native frames confirm keyboard visibility. These are size/density overrides on one AVD. Fullscreen rotation/Back and physical gates remain open; SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
 | 13 | No placeholders, dead ends or silent failures | Partial | 2fc38317 verifies guide, loading text, modal transitions, clean install and lifecycle. Later targeted matrix, expiry and production Together runs pass; the prior Restore anomaly remains unexplained. 5137e58 native footage proves readable 404 recovery and normal loading text. Final interruption gates and review remain open |
 | 14 | Clean-install full demo rehearsal | Partial | The 2fc cohort remains 8 passing and 3 failed workflows. Later targeted 6c runtime matrix, 9e expiry and 5137e58 production Together checks pass. Final complete rehearsal, interruption coverage and the under-two-minute submission cut remain open; paired recording still has visibly sparse motion |
@@ -32,7 +32,9 @@ TLS tests use the actual Windows WSL virtual adapter; this is not physical LAN
 acceptance. The short-landscape join regression now keeps both the editable text
 and full error visible above the keyboard, with accessible and pointer-drag
 dismissal retained. Fresh five-layout native run `35258088967` passes at
-`af45d24`; independent original-image and keyboard review is in progress. Independent
+`af45d24`, including independent review of all 80 images and five fully decoded
+original videos. Actual native footage confirms the input and error remain
+above the open keyboard in short landscape. Independent
 review also reproduced stale fullscreen Retry callbacks overriding a later entry
 or replacement room; revision/lifecycle guards and owned-notice cleanup fix that
 case, including preserving unrelated queued app messages. All eighteen immersive
@@ -99,6 +101,19 @@ The tablet reaches the loaded player but its native observer times out during
 the next snapshot, before entering fullscreen. Complete playback/Back acceptance
 on both form factors is still pending.
 
+The next [fullscreen run 35259390763](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35259390763)
+at `a49e458` passes live recorder startup on both devices, including the phone's
+landscape segment. The phone again retains PID 2633, its paused position at
+48 seconds and hidden system bars on entry. It then fails the control auto-hide
+assertion. That assertion uses an accessibility observer; investigation shows
+the observer can activate the production accessibility behavior that deliberately
+keeps controls visible. This is not yet a completed auto-hide or Back gate.
+The tablet's first playback snapshot hits three observer startup timeouts before
+any hierarchy traversal. Its failure PNG visibly shows native playback at
+27 seconds, but the required observation is missing. The original tablet video
+fully decodes and matches the finalized device hash. Both jobs remain failed;
+recorder startup alone does not approve the complete journeys.
+
 [Normal install 35253861618](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35253861618)
 at `54b4203` passes independent audit for debug API 29/35 with Test Store and
 non-debuggable release API 35 with billing disabled. All are normal `lib/main.dart`
@@ -127,8 +142,10 @@ its unchanged five-second timeout during initial playback. Its first observer
 capture succeeds with 19 nodes; measured root/refresh/traversal stages take
 36/4/43 ms. The complete failure and framework teardown are retained. It does
 not reach the old run's later failed observation, nor radio interruption.
-Native read timing diagnostics are the next step; neither failure establishes
-a production synchronization defect or justifies weakening a timeout.
+Per-player native read timing diagnostics are now implemented at `9150f4d`,
+with 32 passing Python contracts and clean Flutter analysis. Targeted run
+`35260820569` retains the original read and playback thresholds. Neither earlier
+failure establishes a production synchronization defect.
 
 [Lifecycle 35256363876](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35256363876)
 at `8720304` passes independent original-evidence review. Real HOME retains PID

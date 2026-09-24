@@ -28,6 +28,13 @@ python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
 python3 -m unittest tools.android_native_ui.test_observer -v
 ```
 
+The regular hosted Check workflow also compiles the helper independently. For
+a focused cloud check without building Flutter, dispatch `check.yml` with
+`native_observer_only=true`. It retains compiler and packaging logs on failure.
+Compilation uses Android SDK stubs as its boot class path; avoid Java lambdas
+that require an unavailable `LambdaMetafactory.metafactory` bootstrap method.
+The diagnostic worker uses an anonymous `Runnable` for this reason.
+
 `ANDROID_HOME`/`ANDROID_SDK_ROOT` and `JAVA_HOME` select the tools; `--sdk` and
 `--java-home` provide explicit paths. The output directory must start empty.
 The build runs `javac`, D8, `aapt2`, `zipalign`, `keytool` and `apksigner` from

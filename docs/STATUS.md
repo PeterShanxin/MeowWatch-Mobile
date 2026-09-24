@@ -26,8 +26,8 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Current verification
 
-Hosted [Check 36067406288](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36067406288)
-at `5ea2aa2` passes **807 app, 87 Nearby and 14 platform tests**, formatting,
+Hosted [Check 36068920186](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36068920186)
+at `48e5a65` passes **807 app, 87 Nearby and 14 platform tests**, formatting,
 analysis, media contracts and the secret scan. Eighteen bridge regressions and
 three native-platform contract tests cover paused source rebuilding, consecutive
 outages, stale Play, new intent, cancellation, authorization and retained media
@@ -59,6 +59,20 @@ app-window ownership. All 54 observer contracts pass. The observer/network/setup
 focus contract run passes 144 tests with one Windows platform skip. The new
 interactive-window service flag and helper still require cloud compilation and
 native acceptance; no capture or caller deadline is extended.
+
+The `48e5a65` native cohort exposes a helper compilation defect before affected
+device scenarios can run: Android SDK stubs do not provide the Java lambda
+bootstrap method used by the diagnostic thread. Install `36068920006`, lifecycle
+`36068920009`, focus `36068920007`, network `36068920012` and fullscreen
+`36068919999` fail this build step; they are not application-runtime failures.
+Independent compiler run `36069747027` retains the exact `LambdaMetafactory`
+error. The helper now uses an anonymous `Runnable`. Check adds an independent
+SDK compile job and a focused `native_observer_only` dispatch so future helper
+errors are caught without first building Flutter. Run `36069836038` at
+`011da83` passes Java compilation, DEX, packaging, alignment, signing, signature
+and manifest verification, plus observer contracts and the secret scan. Native
+network `36069922387` and focus `36069925181` are running at that corrected build;
+fresh successful runtime acceptance is still required.
 
 Previously accepted profile network `36055097185` at `0454176` uses one API 35
 AVD with two real TLS clients and native decoders. Initial playback converges

@@ -28,6 +28,7 @@ on:
       - '.github/workflows/production-together.yml'
       - 'integration_test/production_together_test.dart'
       - 'integration_test/support/test_text_entry.dart'
+      - 'integration_test/support/playback_command_trace.dart'
       - 'test_driver/production_together_driver.dart'
       - 'tools/production_together/**'
       - 'tools/android_multi_device/**'
@@ -71,6 +72,8 @@ jobs:
           echo "$CANDIDATE_SDK/bin" >> "$GITHUB_PATH"
           echo "$CANDIDATE_SDK/bin/cache/dart-sdk/bin" >> "$GITHUB_PATH"
       - run: flutter pub get --enforce-lockfile
+      - name: Analyze production journey and native trace
+        run: flutter analyze
       - name: Verify candidate against the upstream semantics regression
         if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
         run: |

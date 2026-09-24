@@ -10,7 +10,6 @@ import 'package:meowwatch_mobile/app/app_services.dart';
 import 'package:meowwatch_mobile/core/billing/file_hosting_quota_store.dart';
 import 'package:meowwatch_mobile/core/billing/hosting_access_policy.dart';
 import 'package:meowwatch_mobile/core/billing/revenuecat_billing_service.dart';
-import 'package:meowwatch_mobile/core/playback/local_mobile_target.dart';
 import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/main.dart';
 import 'package:meowwatch_mobile/ui/chat/chat_panel.dart';
@@ -20,6 +19,7 @@ import 'package:video_player/video_player.dart';
 import '../tools/native_capture/native_screenshot.dart';
 import '../tools/production_together/json_request.dart';
 import 'support/native_invite_qr.dart';
+import 'support/playback_command_trace.dart';
 import 'support/test_text_entry.dart';
 
 const _role = String.fromEnvironment('TOGETHER_ROLE', defaultValue: 'host');
@@ -97,7 +97,9 @@ void main() {
       }
       final repository = AppRepository(repositoryFile);
       final billing = RevenueCatBillingService(apiKey: revenueCatPublicKey);
-      final phone = LocalMobileTarget();
+      final playbackTrace = PlaybackCommandTrace();
+      addTearDown(playbackTrace.close);
+      final phone = TracedMobileTarget(playbackTrace);
       final hosting = LocalHostingAccessPolicy(
         store: FileHostingQuotaStore(quotaFile),
         isPlus: () => billing.isPlus,
@@ -107,6 +109,7 @@ void main() {
         billing: billing,
         hosting: hosting,
         phone: phone,
+        createSyncClient: playbackTrace.createClient,
       );
       addTearDown(app.close);
 
@@ -664,6 +667,7 @@ void main() {
 
       // Resume reuses the original charged host ID while the guest remains
       // connected. Neither a new room nor a second allowance is needed.
+      playbackTrace.enabled = true;
       if (isHost) {
         await _leaveToHome(tester, app);
         final entry = repository.history.firstWhere(
@@ -693,7 +697,9 @@ void main() {
         observations,
         stage: 'history-resume',
         controllingRole: 'host',
+        trace: playbackTrace,
       );
+      playbackTrace.enabled = false;
       await _expectRoomAndQuotaUnchanged(
         app,
         hosting,
@@ -1224,16 +1230,31 @@ Future<void> _verifyTogetherPlaybackCycle(
   List<Map<String, Object?>> observations, {
   required String stage,
   required String controllingRole,
+  PlaybackCommandTrace? trace,
 }) async {
   final otherRole = controllingRole == 'host' ? 'guest' : 'host';
   if (_role == controllingRole) {
     final beforePlay = app.target.snapshot.position.inMilliseconds;
+    void traceState(String event) => trace?.record(event, {
+      'busy': app.busy,
+      'lifecycle': WidgetsBinding.instance.lifecycleState?.name,
+      'connected': app.isConnected,
+      'ready': app.target.snapshot.ready,
+      'playing': app.target.snapshot.playing,
+      'playRequested': app.playRequested,
+      'buffering': app.target.snapshot.buffering,
+      'positionMs': app.target.snapshot.position.inMilliseconds,
+    });
+    traceState('before-play-tap');
     await _tapPlayControl(tester, play: true);
+    traceState('after-play-tap');
     await _waitForCondition(
       tester,
-      () =>
-          app.target.snapshot.playing &&
-          app.target.snapshot.position.inMilliseconds >= beforePlay + 400,
+      () {
+        traceState('await-play-advance');
+        return app.target.snapshot.playing &&
+            app.target.snapshot.position.inMilliseconds >= beforePlay + 400;
+      },
       app,
       '$stage controlling player advancement',
       timeout: const Duration(seconds: 20),

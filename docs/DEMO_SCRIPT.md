@@ -110,8 +110,16 @@ All source pins match. Sixteen sampled PNGs are byte-identical to previously
 reviewed frames and the other nine are inspected directly. Purchase activation
 and Restore are clear. Two cuts still include room loading or the video picker.
 The 98-second revision tightens those intervals using inspected originals and
-adds per-shot start/middle/end samples to the hosted review. Its render and
-visual review are pending; full-motion acceptance remains required.
+adds per-shot start/middle/end samples to the hosted review. Hosted render
+`36059267954` at `4dfd3e0` strictly decodes all 2,940 frames. SHA-256:
+`5ced046aacf9f55a9b8be9344e27fd3a3266056c298e712ef2ce2b971d5c92c4`.
+All seven native source pins and the checked-in EDL match. All 42 shot-boundary
+PNG hashes match and their original-size images have been visually inspected.
+Of 25 periodic samples, 19 exactly match previously reviewed images; the other
+six have been inspected directly. The theme cut ends on Glass Aurora applied,
+and the last native cut ends inside the second Plus room with its media and
+peer visible. Original loading and held frames remain. Full-motion acceptance
+is still required; static samples and strict decoding do not establish it.
 
 - The Local excerpt begins after the brief Home/Continue Watching card and
   shows the restored pause at 0:45, then explicit Play. Process restart and the

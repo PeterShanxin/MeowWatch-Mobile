@@ -46,7 +46,13 @@ initial convergence in 1.858 seconds and replay in 1.749 seconds at 35,512 /
 Google SDK Setup ANR over the app from initial-ready through recovery. The
 runner failed to reject the foreign focused window, so **this green run is not
 accepted as unobscured UI proof**. A scoped foreground guard and reuse of the
-existing emulator-only setup recovery are in progress. Profile `36044653778`
+existing emulator-only setup recovery are implemented at `4db3518`. Captures
+now require exact MainActivity focus in raw and observer windows plus app-only
+native XML. An exact SDK Setup ANR may receive one bounded close after fresh
+identity/window checks, with originals retained and new unobscured evidence
+required. Other or ambiguous dialogs fail. The receipt discloses any recovery.
+All 53 runnable mocked contracts pass locally; one POSIX-only check is skipped.
+Hosted debug run `36060546361` is verifying the native result. Profile `36044653778`
 passes initial playback, radio
 loss, automatic pause and no-autoplay reconnect, then fails explicit replay:
 all 198 position reads succeed, but the closest pair is 1,105 ms apart and the
@@ -101,8 +107,15 @@ The 100-second edit passes hosted render `36057684349` and strict decoding of
 all 3,000 frames. Its 25 samples are reviewed (16 exactly match prior reviewed
 PNGs, nine inspected directly); purchase activation and Restore are clear.
 The appearance and closing-room excerpts still reach unrelated loading/picker
-actions. The next 98-second edit tightens those cuts and awaits hosted render
-with explicit start/middle/end samples for each shot. Local review uses static PNGs only; no build, emulator
+actions. The 98-second edit passes hosted render `36059267954` at `4dfd3e0`:
+all 2,940 frames strictly decode, seven native source pins match and the EDL
+matches the repository. SHA-256:
+`5ced046aacf9f55a9b8be9344e27fd3a3266056c298e712ef2ce2b971d5c92c4`.
+All 42 shot-boundary PNGs have verified hashes and are visually inspected.
+The 25 periodic samples include 19 exact matches to previously reviewed images
+and six newly inspected images. Appearance ends on the applied theme; the last
+native cut ends in the second Plus room. Loading and held frames remain, and
+full-motion acceptance stays open. Local review uses static PNGs only; no build, emulator
 or video decoder runs on the user's computer.
 
 Earlier convergence investigations, regression receipts, native cohorts and
@@ -162,10 +175,10 @@ remain open. Historical runs and asset provenance are preserved in
 
 ## Live development recording
 
-At September 24 20:48 UTC the current bounded two-fps recorder has about 139 MB
-persisted and no unflushed tail. The 20:44 UTC resource check finds about 10.5 GiB
-free RAM and no local Dart, Java, FFmpeg or Android emulator. The selected image
-is a single static landscape frame from the 116-second film candidate; it is
+At September 24 21:26 UTC the current bounded two-fps recorder has about 148 MB
+persisted. The latest scoped resource check finds about 10.4 GiB free RAM and no
+local Dart, Java, FFmpeg or Android emulator. The selected image is a single
+static phone/tablet frame from the reviewed 100-second film candidate; it is
 labelled captured evidence, not live Android. Historical recording gaps below
 remain part of the record.
 

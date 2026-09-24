@@ -12,7 +12,7 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_native_ui.observer import (
     COMPONENT, SHORT_COMPONENT, MAX_ATTRIBUTE, MAX_DEPTH, MAX_NODES, MAX_OUTPUT_BYTES, MAX_XML_BYTES,
     NativeUiObserver, OBSERVER_PACKAGE, ObserverCaptureFailure, ObserverIntegrityFailure, parse_snapshot,
-    installation_diagnostics, stage_diagnostics, MAX_STAGE_EVENTS,
+    installation_diagnostics, stage_diagnostics, MAX_STAGE_EVENTS, MAX_CAPTURE_ATTEMPTS,
     InstrumentationBudget, ObserverTimeout, collect_instrumentation,
 )
 
@@ -133,7 +133,7 @@ class SnapshotParserTests(unittest.TestCase):
         excessive = b"".join(progress(sequence=index, uptime=1000 + index)
                               for index in range(1, MAX_STAGE_EVENTS + 2))
         for stages in (progress(private), progress(nonce="b" * 32), progress(pid=0), progress(sequence=2),
-                       progress(attempt=5), progress(nodes=MAX_NODES + 2),
+                       progress(attempt=MAX_CAPTURE_ATTEMPTS + 1), progress(nodes=MAX_NODES + 2),
                        progress() + progress(sequence=2, pid=568),
                        progress() + progress(sequence=2, uptime=999),
                        progress().replace(b"STATUS_CODE: 2", b"STATUS_CODE: 3"), excessive):
@@ -168,7 +168,7 @@ class SnapshotParserTests(unittest.TestCase):
         xml = "<hierarchy>" + node() + "</hierarchy>"
         xml += " " * (MAX_XML_BYTES - len(xml.encode()))
         stages = b"".join(progress("automation_start", sequence=index, pid=9999999999,
-                                    uptime=9999999999999999, attempt=4, nodes=MAX_NODES + 1)
+                                    uptime=9999999999999999, attempt=MAX_CAPTURE_ATTEMPTS, nodes=MAX_NODES + 1)
                           for index in range(1, MAX_STAGE_EVENTS + 1))
         data = stages + response(xml)
         self.assertLessEqual(len(data), MAX_OUTPUT_BYTES)
@@ -250,7 +250,7 @@ class SnapshotParserTests(unittest.TestCase):
 
     def test_structural_diagnostics_are_bounded_and_never_echo_unknown_values(self):
         marker = "private-view-text"
-        for attempts in (";".join(["root_missing:0:-1:-1:-1"] * 4 + ["ok:1:0:0:0"]),
+        for attempts in (";".join(["root_missing:0:-1:-1:-1"] * MAX_CAPTURE_ATTEMPTS + ["ok:1:0:0:0"]),
                          "ok:1:0:0:0;", "ok:1:50:0:0", "ok:2050:0:0:0", "ok:1:0:2049:0",
                          "ok:1:0:0:2050", "ok:1:-2:0:0", f"{marker}:1:0:0:0", "ok:1:0:0:0:0"):
             with self.subTest(attempts=attempts), self.assertRaises(ObserverIntegrityFailure) as caught:
@@ -289,7 +289,7 @@ class SnapshotParserTests(unittest.TestCase):
         self.assertNotIsInstance(caught.exception, ObserverIntegrityFailure)
         self.assertEqual(len(caught.exception.attempts), 4)
         with self.assertRaises(ObserverIntegrityFailure):
-            parse_snapshot(response(attempts=";".join([pending] * 4 + ["ok:1:0:0:0"])), NONCE)
+            parse_snapshot(response(attempts=";".join([pending] * MAX_CAPTURE_ATTEMPTS + ["ok:1:0:0:0"])), NONCE)
 
     def test_output_xml_size_and_entity_bounds_are_enforced(self):
         for data in [b"x" * (MAX_OUTPUT_BYTES + 1),
@@ -701,6 +701,27 @@ class InstrumentationPipeTests(unittest.TestCase):
         result = collect_instrumentation(self.command(data), NONCE, deadline=time.monotonic() + 5)
         self.assertEqual(parse_snapshot(result.stdout, NONCE).node_count, 1)
         self.assertEqual(result.stderr, b"")
+
+    def test_delayed_root_keeps_one_connection_and_accepts_only_complete_last_attempt(self):
+        data = startup_progress()
+        sequence = 6
+        for attempt in range(1, MAX_CAPTURE_ATTEMPTS):
+            for stage in ("root_start", "attempt_failed"):
+                data += progress(stage, sequence=sequence, uptime=7000 + (attempt - 1) * 500,
+                                 attempt=attempt)
+                sequence += 1
+        for stage in ("root_start", "root_ready", "refresh_start", "refresh_ready", "traverse_start",
+                      "traverse_ready", "finish"):
+            data += progress(stage, sequence=sequence, uptime=14510,
+                             attempt=MAX_CAPTURE_ATTEMPTS, nodes=1)
+            sequence += 1
+        attempts = ";".join(["root_missing:0:-1:-1:-1"] * (MAX_CAPTURE_ATTEMPTS - 1) + ["ok:1:0:0:0"])
+        data += response(uptime=14510, attempts=attempts)
+        result = collect_instrumentation(self.command(data), NONCE, deadline=time.monotonic() + 5)
+        parsed = parse_snapshot(result.stdout, NONCE)
+        self.assertEqual(len(parsed.attempts), MAX_CAPTURE_ATTEMPTS)
+        self.assertEqual(parsed.node_count, 1)
+        self.assertEqual(parsed.attempts[-1]["reason"], "ok")
 
     def test_expired_child_is_reaped_and_partial_xml_is_never_returned(self):
         child = []

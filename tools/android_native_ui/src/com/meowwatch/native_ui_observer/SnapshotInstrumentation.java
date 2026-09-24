@@ -22,10 +22,10 @@ public final class SnapshotInstrumentation extends Instrumentation {
     private static final int MAX_DEPTH = 48;
     private static final int MAX_BYTES = 262144;
     private static final int MAX_ATTRIBUTE = 4096;
-    private static final int MAX_ATTEMPTS = 4;
+    private static final int MAX_ATTEMPTS = 16;
     private static final long CAPTURE_BUDGET_MS = 8000;
-    private static final long RETRY_DELAY_MS = 100;
-    private static final int MAX_STAGE_EVENTS = 40;
+    private static final long RETRY_DELAY_MS = 500;
+    private static final int MAX_STAGE_EVENTS = 128;
     private String nonce;
     private String expectedPackage;
     private boolean emptyExpectedAppShell;

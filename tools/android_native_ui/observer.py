@@ -23,12 +23,12 @@ COMPONENT = f"{OBSERVER_PACKAGE}/{OBSERVER_PACKAGE}.SnapshotInstrumentation"
 SHORT_COMPONENT = f"{OBSERVER_PACKAGE}/.SnapshotInstrumentation"
 DEFAULT_APK = Path("build/android-native-ui/native-ui-observer.apk")
 MAX_XML_BYTES = 262144
-MAX_OUTPUT_BYTES = 360000
+MAX_OUTPUT_BYTES = 400000
 MAX_NODES = 2048
 MAX_DEPTH = 48
 MAX_ATTRIBUTE = 4096
-MAX_CAPTURE_ATTEMPTS = 4
-MAX_STAGE_EVENTS = 40
+MAX_CAPTURE_ATTEMPTS = 16
+MAX_STAGE_EVENTS = 128
 STARTUP_TIMEOUT_SECONDS = 20
 CAPTURE_TIMEOUT_SECONDS = 8
 RESULT_TIMEOUT_SECONDS = 2
@@ -309,8 +309,8 @@ def _stage_output(
         if lines[index + 1] != STAGE_CODE.encode("ascii"):
             return invalid("invalid_status")
         match = re.fullmatch(
-            r"([a-f0-9]{32}):([0-9]{1,10}):([0-9]{1,2}):([a-z_]+):"
-            r"([0-9]{1,16}):([0-9]):([0-9]{1,4})", line[len(STAGE_PREFIX):])
+            r"([a-f0-9]{32}):([0-9]{1,10}):([0-9]{1,3}):([a-z_]+):"
+            r"([0-9]{1,16}):([0-9]{1,2}):([0-9]{1,4})", line[len(STAGE_PREFIX):])
         if match is None or not secrets.compare_digest(match[1], nonce) or match[4] not in STAGES:
             return invalid("invalid_stage")
         helper_pid, sequence, uptime, attempt, nodes = map(int, (match[2], match[3], match[5], match[6], match[7]))

@@ -42,7 +42,7 @@ case, including preserving unrelated queued app messages. All twenty immersive
 platform/widget tests pass; these are included in the app total.
 
 That full check includes the input-modality fix below. The test-only
-native observer separates bounded cold startup from its hierarchy
+native observer separates bounded cold startup from its
 hierarchy budget, propagates caller deadlines through fullscreen/system-dialog
 checks, and rejects late results. Its Android SDK 35 APK builds and verifies;
 189 related Python tests and another 53 network/audio-interruption tests pass.
@@ -71,6 +71,13 @@ dynamic accessibility disable and keyboard/touch/keyboard navigation. This is a
 confirmed product fix, but its relationship to the native auto-hide failure still
 needs a fresh phone/tablet run. Full app verification passes; native run
 `35961400943` tests `c142a9e` with the preceding four-second observer budget.
+It fails both profiles at native recording-duration validation after pausing:
+the phone before fullscreen and the tablet after native fullscreen pause.
+The original files have matching device/pulled hashes; static paused frames
+stop updating during the recording tail. This is not accepted as complete
+fullscreen coverage. The tablet's two idle screenshots still show controls
+across 14.07 device seconds (timeline 0:32 to 0:43), so the widget fix does not
+establish native auto-hide. That behavior is under separate diagnosis.
 
 Network run `35958879510` at the same head captures a fresh app hierarchy but
 fails before playback or radio interruption: Dart sees the acknowledgement path
@@ -86,16 +93,28 @@ The tool's self-imposed hierarchy budget is now eight seconds (startup remains
 20 seconds, result transfer two, overall cap 30); incomplete/late evidence still
 fails and playback/sync thresholds are unchanged. This is a test-tool latency
 allowance, not an application performance fix. Its API 35 helper APK builds and
-195 native tool tests pass. A fresh radio-outage run is required.
+195 native tool tests pass. Run `35962027407` at `efeff83` fails before any
+radio is disabled: four missing-root reads end 449 ms after service readiness,
+with the original app PID still focused. Retries now remain in that same
+connection for at most sixteen attempts 500 ms apart under the existing
+eight-second capture deadline. XML, freshness, PID, playback and sync criteria
+are unchanged. Fifty observer contracts, 35 network contracts on WSL and 21
+audio-interruption contracts pass; the API 35 observer APK builds and verifies.
+This still requires fresh native outage/recovery evidence.
 
 Four additional Bash contract tests verify the
 optional Together Profile build/drive mode, APK identity checks and default Debug
 behavior. The first Profile dispatch stops before building because existing
 fixture tests lacked the new APK provenance inputs; those fixtures are corrected,
-all 69 related tool tests pass, and `35960861121` tests `511eed6`. Profile is a
-motion diagnostic, not purchase or Debug acceptance.
+all 69 related tool tests pass. Run `35960861121` at `511eed6` builds both
+Profile APKs but fails before media: the host times out waiting for peer
+presence and the guest times out waiting for its secure-room connection.
+Profile is a motion diagnostic, not purchase or Debug acceptance. No motion
+improvement is established by that run.
 The development showcase recording resumes in a new file; the prior file's last
 saved chunk is September 18. The intervening gap is not continuous footage.
+The September 24 browser/process later exits after the 06:00 UTC chunk;
+a new segment starts at 06:21 UTC. Both originals and the gap are retained.
 
 The fresh PR cohort at `115454e3e93758fd9ef379ac441669bf20b1ab26`
 has ten passing workflows and four failures, including

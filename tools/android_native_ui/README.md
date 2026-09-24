@@ -67,8 +67,9 @@ stale nonce is fatal, including across timeout recovery.
 
 The Java serializer and Python parser both enforce limits: 2,048 nodes, depth 48,
 4,096 characters per attribute and 256 KiB of UTF-8 XML. The response is bounded
-to 360,000 bytes. Missing roots, partial trees, malformed data and exceeded
-limits fail instead of silently truncating or reusing a previous snapshot.
+to 400,000 bytes, including bounded progress and attempt diagnostics. Missing
+roots, partial trees, malformed data and exceeded limits fail instead of
+silently truncating or reusing a previous snapshot.
 There is no UI-idle wait, input action or app lifecycle operation in the helper.
 Errors expose fixed descriptions, never raw command/response payloads. Native
 failure codes distinguish missing roots, failed refreshes, invisible roots,
@@ -77,9 +78,9 @@ unknown exception is an immediate integrity failure; its message is never emitte
 
 Android can temporarily return a missing root or child while a new accessibility
 connection or updated tree is being published. For these transient reasons,
-the helper permits at most four attempts in the **same** `UiAutomation` connection,
-100 ms apart, under an eight-second capture budget checked during traversal. This
-budget starts after UiAutomation and accessibility service configuration are
+the helper permits at most sixteen attempts in the **same** `UiAutomation`
+connection, 500 ms apart, under an unchanged eight-second capture budget checked
+during traversal. This budget starts after UiAutomation and service configuration are
 ready; cold instrumentation startup does not spend the hierarchy budget. Each
 attempt obtains and refreshes a new active root, resets its node count and XML
 buffer, and recycles the entire previous traversal. It never returns partial XML.
@@ -88,6 +89,14 @@ Exceeding the internal time budget produces `capture_deadline`; structural limit
 and native exceptions are never retried inside the connection or by callers that
 honor `ObserverIntegrityFailure`. No acceptance deadline or timeline requirement
 is extended.
+
+API 35 run `35962027407` returned four missing roots within 449 ms of service
+readiness while the same app PID remained focused. The former four-attempt cap
+ended that capture before the existing publication budget could be used. The
+bounded retry schedule now spans that budget; it does not reset the clock, start
+another connection, or accept an incomplete tree. A missing root after all
+attempts still fails. Up to 128 fixed progress events fit the larger response
+bound; XML and structural limits are unchanged.
 
 An expected Flutter application's native containers can also appear before its
 virtual accessibility descendants. In API 35 evidence, a review dialog remained
@@ -139,7 +148,7 @@ so callers must still validate related timeline, source, controls and focus.
 
 ## Stage timing diagnostics
 
-Each request emits at most 40 fixed stage records to the `MWNativeUiStage` Logcat
+Each request emits at most 128 fixed stage records to the `MWNativeUiStage` Logcat
 tag and to instrumentation progress status code `2`. Records contain only
 `nonce:helperPid:sequence:stage:uptimeMs:attempt:visitedNodes`. The stages identify
 `on_create`, `on_start`, UiAutomation connection start/readiness, service readiness,
@@ -162,9 +171,9 @@ before a watcher disappeared. No extra ADB observation or retry is added.
 
 Progress alone never satisfies capture. The final Protocol 2 response must still
 pass all nonce, freshness, complete hierarchy, attribute and structural checks;
-malformed progress also rejects a completed response. The 360,000-byte response
-limit still accommodates the maximum 256 KiB XML plus all 40 stage records.
-The eight-second hierarchy budget, four attempts and 100 ms retry interval are
+malformed progress also rejects a completed response. The 400,000-byte response
+limit accommodates the maximum 256 KiB XML plus all 128 stage records.
+The eight-second hierarchy budget, sixteen attempts and 500 ms retry interval are
 bounded by any earlier caller deadline. Startup has its separate bounded
 allowance; no previous/partial tree may replace a failed capture. The twenty-second
 startup setting addresses observed API 35 cold connection delays, not a guarantee

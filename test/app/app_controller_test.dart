@@ -218,6 +218,26 @@ void main() {
   });
 
   test(
+    'a failed sync command reports recovery guidance without raw errors',
+    () async {
+      await app.load(media);
+      expect(await app.connect(ticket), isTrue);
+      target.throwSeek = true;
+      await expectLater(
+        app.seek(const Duration(seconds: 20)),
+        throwsStateError,
+      );
+      expect(
+        app.message,
+        'Playback sync was interrupted. Try again, or reopen the video.',
+      );
+      target.throwSeek = false;
+      await app.seek(const Duration(seconds: 20));
+      expect(target.snapshot.position, const Duration(seconds: 20));
+    },
+  );
+
+  test(
     'background phone ignores remote play until visible Play action',
     () async {
       await app.load(media);

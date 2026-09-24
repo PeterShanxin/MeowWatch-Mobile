@@ -987,7 +987,9 @@ class AppController extends ChangeNotifier {
         authorizePlayback: _authorizePlay,
         onError: (error) {
           if (_current(generation)) {
-            report('Playback sync needs attention: $error');
+            report(
+              'Playback sync was interrupted. Try again, or reopen the video.',
+            );
           }
         },
       );

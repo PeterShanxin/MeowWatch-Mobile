@@ -198,29 +198,33 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     if (message == null || messenger == null) return;
     final notice = _AppMessageSnackBar(_messageVersion);
     _appMessageSnackBar = notice;
+    void dismissIfCurrent() {
+      if (mounted &&
+          identical(_appMessageSnackBar, notice) &&
+          notice.version == _messageVersion &&
+          app.message == message) {
+        app.dismissMessage();
+      }
+    }
+
     notice.controller = messenger.showSnackBar(
       SnackBar(
         content: Text(message),
+        duration: const Duration(seconds: 8),
+        // Dismiss is informational, not an action that must survive forever.
+        // Leave time unrestricted for screen-reader navigation.
+        persist: MediaQuery.accessibleNavigationOf(messenger.context),
         onVisible: () {
           notice.visible = true;
           _closeRetiredMessage(notice);
         },
-        action: SnackBarAction(
-          label: 'Dismiss',
-          onPressed: () {
-            if (mounted &&
-                identical(_appMessageSnackBar, notice) &&
-                notice.version == _messageVersion &&
-                app.message == message) {
-              app.dismissMessage();
-            }
-          },
-        ),
+        action: SnackBarAction(label: 'Dismiss', onPressed: dismissIfCurrent),
       ),
     );
     unawaited(
       notice.controller.closed.then((_) {
         notice.closed = true;
+        dismissIfCurrent();
       }),
     );
   }

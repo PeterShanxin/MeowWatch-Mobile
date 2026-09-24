@@ -9,6 +9,55 @@ import '../support/sync_playback_fakes.dart';
 import '../ui/sheets/sheet_test_support.dart';
 
 void main() {
+  testWidgets('a playback notice expires and leaves the controls usable', (
+    tester,
+  ) async {
+    final target = SyncTestTarget();
+    final app = await _mount(tester, phone: target);
+    await app.load(MediaItem.fromUrl('https://example.com/movie.mp4'));
+    const message =
+        'Playback sync was interrupted. Try again, or reopen the video.';
+    app.report(message);
+    await _settleNotices(tester);
+    expect(find.text(message), findsOneWidget);
+
+    await tester.pump(const Duration(seconds: 9));
+    await _settleNotices(tester);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(app.message, isNull);
+    final play = find.byTooltip('Play').hitTestable();
+    expect(play, findsOneWidget);
+    await tester.tap(play);
+    await tester.pump();
+    expect(target.snapshot.playing, isTrue);
+
+    // A later occurrence must be visible even if it has the same wording.
+    app.report(message);
+    await _settleNotices(tester);
+    expect(find.text(message), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _dispose(tester, app);
+  });
+
+  testWidgets('screen-reader users can dismiss notices without a time limit', (
+    tester,
+  ) async {
+    tester.platformDispatcher.accessibilityFeaturesTestValue =
+        const FakeAccessibilityFeatures(accessibleNavigation: true);
+    addTearDown(tester.platformDispatcher.clearAccessibilityFeaturesTestValue);
+    final app = await _mount(tester);
+    app.report('Choose another video.');
+    await _settleNotices(tester);
+    await tester.pump(const Duration(seconds: 30));
+    expect(find.text('Choose another video.'), findsOneWidget);
+    await tester.tap(find.widgetWithText(SnackBarAction, 'Dismiss'));
+    await _settleNotices(tester);
+    expect(app.message, isNull);
+    expect(find.byType(SnackBar), findsNothing);
+    expect(tester.takeException(), isNull);
+    await _dispose(tester, app);
+  });
+
   testWidgets('successful media recovery removes the error and exposes Play', (
     tester,
   ) async {

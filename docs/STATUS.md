@@ -52,7 +52,17 @@ native XML. An exact SDK Setup ANR may receive one bounded close after fresh
 identity/window checks, with originals retained and new unobscured evidence
 required. Other or ambiguous dialogs fail. The receipt discloses any recovery.
 All 53 runnable mocked contracts pass locally; one POSIX-only check is skipped.
-Hosted debug run `36060546361` is verifying the native result. Profile `36044653778`
+Hosted debug run `36060546361` successfully prepares the exact SDK Setup ANR
+before app installation and requires no in-run recovery. All captured app
+windows are unobscured MainActivity. Initial playback converges in 1.591 seconds;
+real radio loss, automatic pause, stable no-autoplay reconnect and retained
+controllers/quota pass. The complete run fails because a persistent sync-timeout
+snackbar covers Play after reconnect. The original screenshot is retained;
+peer and teardown errors are empty. Ordinary app notices now explicitly expire
+after eight seconds (screen-reader navigation retains manual Dismiss), and sync
+errors use recovery guidance instead of raw exception text. Three added
+regressions and the unchanged native replay gate await hosted verification.
+Profile `36044653778`
 passes initial playback, radio
 loss, automatic pause and no-autoplay reconnect, then fails explicit replay:
 all 198 position reads succeed, but the closest pair is 1,105 ms apart and the

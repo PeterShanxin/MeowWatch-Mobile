@@ -3,6 +3,8 @@ set -euo pipefail
 
 : "${NETWORK_RUN_ID:?Provide the same run ID used to compile the APK}"
 : "${NETWORK_AVD_NAME:?Provide the dedicated network AVD name}"
+build_mode="${NETWORK_BUILD_MODE:-debug}"
+case "$build_mode" in debug|profile) ;; *) echo 'Unsupported network build mode' >&2; exit 2 ;; esac
 state='build/android-network-fixture-server'
 started=0
 cleanup() {
@@ -21,4 +23,4 @@ bash tools/android_multi_device/start_fixture_server.sh \
 started=1
 python3 -m tools.android_network_runtime.run \
   --serial emulator-5554 --avd-name "$NETWORK_AVD_NAME" --run-id "$NETWORK_RUN_ID" \
-  --apk build/app/outputs/flutter-apk/app-debug.apk
+  --build-mode "$build_mode" --apk "build/app/outputs/flutter-apk/app-${build_mode}.apk"

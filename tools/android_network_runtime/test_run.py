@@ -155,7 +155,7 @@ class OwnershipTests(unittest.TestCase):
 
 
 def result():
-    return {"runId": RUN_ID, "passed": True, "verified": sorted(REQUIRED),
+    return {"runId": RUN_ID, "passed": True, "buildMode": "debug", "verified": sorted(REQUIRED),
             "teardownErrors": [], "observations": [
                 {"phase": "probe-healthy", "address": "sync.example", "port": 8997,
                  "resolvedAddress": "192.0.2.1", "reachable": True},
@@ -285,6 +285,18 @@ class EvidenceTests(unittest.TestCase):
             value["observations"][phase].update(changes)
             with self.subTest(changes=changes), self.assertRaises(RuntimeFailure):
                 validate_result(value, RUN_ID)
+
+    def test_profile_must_be_proven_by_actual_dart_runtime(self):
+        value = result()
+        with self.assertRaisesRegex(RuntimeFailure, "actual Dart build mode"):
+            validate_result(value, RUN_ID, "profile")
+        value["buildMode"] = "profile"
+        validate_result(value, RUN_ID, "profile")
+        with self.assertRaisesRegex(RuntimeFailure, "actual Dart build mode"):
+            validate_result(value, RUN_ID, "debug")
+        del value["buildMode"]
+        with self.assertRaisesRegex(RuntimeFailure, "actual Dart build mode"):
+            validate_result(value, RUN_ID, "profile")
 
     def test_incomplete_app_teardown_or_controls_fail(self):
         for changes in ({"teardownErrors": ["decoder close failed"]},

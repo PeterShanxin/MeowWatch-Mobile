@@ -217,9 +217,11 @@ class Radios:
             self._apply(self.initial, "restore")
 
 
-def validate_result(result: dict, run_id: str) -> None:
+def validate_result(result: dict, run_id: str, build_mode: str = "debug") -> None:
     if result.get("runId") != run_id or result.get("passed") is not True:
         raise RuntimeFailure("the integration test did not report a successful owned run")
+    if result.get("buildMode") != build_mode:
+        raise RuntimeFailure("actual Dart build mode does not match the requested comparison")
     if set(result.get("verified", [])) != REQUIRED or result.get("teardownErrors") != []:
         raise RuntimeFailure("required recovery assertions or test teardown are incomplete")
     probes = {item.get("phase"): item for item in result.get("observations", [])
@@ -253,9 +255,12 @@ def stop_owned_process(process: subprocess.Popen | None) -> None:
 
 
 class Runner:
-    def __init__(self, serial: str, avd_name: str, apk: Path, run_id: str, output: Path):
+    def __init__(self, serial: str, avd_name: str, apk: Path, run_id: str, output: Path, *, build_mode: str = "debug"):
         if not RUN_ID.fullmatch(run_id):
             raise RuntimeFailure("invalid network run ID")
+        if build_mode not in {"debug", "profile"}:
+            raise RuntimeFailure("network comparison requires debug or profile mode")
+        self.build_mode = build_mode
         self.adb = Adb(serial, run_id)
         self.observer = NativeUiObserver(self.adb)
         self.avd_name, self.apk, self.run_id = avd_name, apk.resolve(strict=True), run_id
@@ -480,7 +485,7 @@ class Runner:
         self.readers.append(thread)
         thread.start()
         environment = dict(os.environ, NETWORK_RUN_ID=self.run_id)
-        command = ["flutter", "drive", "--no-pub", "--driver=test_driver/network_interruption_driver.dart",
+        command = ["flutter", "drive", f"--{self.build_mode}", "--no-pub", "--driver=test_driver/network_interruption_driver.dart",
                    "--target=integration_test/network_interruption_test.dart",
                    f"--use-application-binary={self.apk}", "--host-vmservice-port=39107",
                    "-d", self.adb.serial]
@@ -495,6 +500,7 @@ class Runner:
     def run(self) -> bool:
         self.output.mkdir(parents=True, exist_ok=False)
         self.write("runtime.json", {"runtime": RUNTIME, "runId": self.run_id,
+                                   "requestedBuildMode": self.build_mode,
                                    "serial": self.adb.serial, "avdName": self.avd_name,
                                    "apkSha256": hashlib.sha256(self.apk.read_bytes()).hexdigest()})
         try:
@@ -529,7 +535,7 @@ class Runner:
             else:
                 raise RuntimeFailure("network runtime exceeded its original 600-second deadline")
             result = json.loads((self.output / "result.json").read_text(encoding="utf-8"))
-            validate_result(result, self.run_id)
+            validate_result(result, self.run_id, self.build_mode)
             if len(self.recordings) != 4 or any(item["status"] != "verified" for item in self.recordings):
                 raise RuntimeFailure("four complete native recording phases are required")
         except Exception as error:
@@ -580,6 +586,7 @@ def main() -> int:
     parser.add_argument("--avd-name", required=True)
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--apk", type=Path, required=True)
+    parser.add_argument("--build-mode", choices=("debug", "profile"), default="debug")
     args = parser.parse_args()
     if os.name != "posix":
         parser.error("this dedicated CI AVD runner requires POSIX process-group ownership")
@@ -589,7 +596,7 @@ def main() -> int:
     signal.signal(signal.SIGINT, interrupted)
     try:
         runner = Runner(args.serial, args.avd_name, args.apk, args.run_id,
-                        Path("build/android-network-artifacts") / args.run_id)
+                        Path("build/android-network-artifacts") / args.run_id, build_mode=args.build_mode)
         return 0 if runner.run() else 1
     except (RuntimeFailure, OSError, ValueError) as error:
         print(str(error), flush=True)

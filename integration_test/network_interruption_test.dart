@@ -491,6 +491,11 @@ void main() {
         binding.reportData = {
           'runId': _runId,
           'runtime': _runtime,
+          'buildMode': kProfileMode
+              ? 'profile'
+              : kReleaseMode
+              ? 'release'
+              : 'debug',
           'passed': completed && teardownErrors.isEmpty,
           'verified': verified,
           'observations': observations,

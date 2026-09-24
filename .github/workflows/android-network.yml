@@ -1,7 +1,14 @@
 name: Android real network interruption
+run-name: Android network interruption (${{ inputs.build_mode || 'debug' }})
 
 on:
   workflow_dispatch:
+    inputs:
+      build_mode:
+        description: 'Compare debug and profile with identical native acceptance requirements'
+        type: choice
+        options: [debug, profile]
+        default: debug
   pull_request:
     paths:
       - '.github/workflows/android-network.yml'
@@ -32,6 +39,7 @@ jobs:
     env:
       NETWORK_RUN_ID: network_${{ github.run_id }}_${{ github.run_attempt }}
       NETWORK_AVD_NAME: meowwatch_network_${{ github.run_id }}_${{ github.run_attempt }}
+      NETWORK_BUILD_MODE: ${{ inputs.build_mode || 'debug' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -42,6 +50,7 @@ jobs:
           cache: true
           pub-cache: true
       - run: flutter pub get --enforce-lockfile
+      - run: flutter analyze --no-pub
       - name: Verify transport errors, TLS cancellation and startup synchronization
         run: >-
           flutter test test/core/sync/syncplay_client_socket_error_test.dart
@@ -59,7 +68,7 @@ jobs:
           bash tools/android_multi_device/prepare_fixture.sh --output build/android-network-fixture --seconds 90
       - name: Build the MainApp network acceptance APK
         run: >-
-          flutter build apk --debug --target=integration_test/network_interruption_test.dart
+          flutter build apk --${NETWORK_BUILD_MODE} --target=integration_test/network_interruption_test.dart
           --dart-define=NETWORK_RUN_ID=${{ env.NETWORK_RUN_ID }}
       - name: Build independent native accessibility observer
         run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0

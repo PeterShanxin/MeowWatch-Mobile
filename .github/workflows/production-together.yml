@@ -1,5 +1,5 @@
 name: Production phone and tablet journey
-run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }}${{ inputs.compact_capture && ', compact capture' || '' }}${{ inputs.runtime_mode == 'profile' && ', profile diagnostic' || '' }})
+run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }}${{ inputs.compact_capture && ', compact capture' || '' }}${{ inputs.runtime_mode == 'profile' && ', profile diagnostic' || '' }}, ${{ inputs.display_profile || 'standard' }} displays)
 
 on:
   workflow_dispatch:
@@ -22,6 +22,11 @@ on:
           - profile
         required: false
         default: debug
+      display_profile:
+        description: 'Preserve logical layouts at standard or native recording pixel sizes'
+        type: choice
+        options: [standard, recording]
+        default: standard
   pull_request:
     paths:
       - 'tools/native_capture/**'
@@ -118,6 +123,7 @@ jobs:
             --video-url http://10.0.2.2:18765/Bee.mp4
       - name: Record real Start, Join, playback and conversation
         env:
+          MEOWWATCH_CI_DISPLAY_PROFILE: ${{ inputs.display_profile || 'standard' }}
           MEOWWATCH_PHONE_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1600' }}
           MEOWWATCH_TABLET_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1280' }}
         run: bash tools/android_multi_device/ci_together.sh --production-ui --mode "${{ inputs.runtime_mode || 'debug' }}"

@@ -1,0 +1,237 @@
+{
+  "schema_version": 1,
+  "purpose": "submission-edit",
+  "sources": {
+    "phone": {
+      "path": "sources/36031293517/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T171017Z-10615/evidence/phone-emulator-5554/segments/phone-000.mp4",
+      "sha256": "3127ae4485773152bf551ea1e81d151240cee0620c52bf69239c25fe6c057948",
+      "width": 432,
+      "height": 960,
+      "kind": "native-recording",
+      "runtime": "Android API 35 emulator",
+      "run": "36031293517",
+      "commit": "9a4e29cd27843feb645699e713b72adc8b74a830"
+    },
+    "tablet": {
+      "path": "sources/36031293517/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T171017Z-10615/evidence/tablet-emulator-5556/segments/tablet-000.mp4",
+      "sha256": "8ff84a570936f6c7ba2a285049e22146b76bbc6fbc25421bf99be2ade308770e",
+      "width": 960,
+      "height": 600,
+      "kind": "native-recording",
+      "runtime": "Android API 35 emulator",
+      "run": "36031293517",
+      "commit": "9a4e29cd27843feb645699e713b72adc8b74a830"
+    },
+    "local": {
+      "path": "sources/36029407933/android-native-lifecycle-1/android-lifecycle-artifacts/native/lifecycle-02.mp4",
+      "sha256": "be7a748adf9572e1933ea404bc565e519806121b6bc2cebabacae3cb65cef49a",
+      "width": 432,
+      "height": 960,
+      "kind": "native-recording",
+      "runtime": "Android API 35 emulator",
+      "run": "36029407933",
+      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+    },
+    "fullscreen": {
+      "path": "sources/36029407579/android-fullscreen-phone-2/android-fullscreen-artifacts/native/lifecycle-02.mp4",
+      "sha256": "383e44a2f5bae3abf3523e3dd97b951e490e131237a479caa0963ee033acad66",
+      "width": 960,
+      "height": 432,
+      "kind": "native-recording",
+      "runtime": "Android API 35 emulator",
+      "run": "36029407579",
+      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+    },
+    "paywall": {
+      "path": "sources/36029407726/production-purchase-1/production-purchase-artifacts/20260924T165218Z-4f9937cc/journey-001.mp4",
+      "sha256": "829ee6d43e02364447b94309e90ce9e01ba81a564cc81c67377110e3d8d5a8c6",
+      "width": 480,
+      "height": 1040,
+      "kind": "native-recording",
+      "runtime": "Android API 35 emulator",
+      "run": "36029407726",
+      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+    },
+    "purchase": {
+      "path": "sources/36029407726/production-purchase-1/production-purchase-artifacts/20260924T165218Z-4f9937cc/journey-002.mp4",
+      "sha256": "8a47da6c38b6280b6f9f6c7200531b7ba1c4320c56fe575dc220f75a3d027e8a",
+      "width": 480,
+      "height": 1040,
+      "kind": "native-recording",
+      "runtime": "Android API 35 emulator",
+      "run": "36029407726",
+      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+    }
+  },
+  "timelines": {
+    "together": {
+      "sha256": "87793bf73589c80b62013eea57011303825b435c1a3fa3b283d82fe211d7ee32",
+      "path": "sources/36031293517/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T171017Z-10615/evidence/meowwatch-two-device.mp4.manifest.json"
+    }
+  },
+  "shots": [
+    {
+      "id": "opening",
+      "kind": "card",
+      "duration": 4,
+      "title": "Movie night, even miles apart.",
+      "caption": "MeowWatch Mobile / Watch together. Stay close."
+    },
+    {
+      "id": "start",
+      "kind": "single",
+      "source": "phone",
+      "device": "phone",
+      "in": 9,
+      "out": 17,
+      "speed": 1,
+      "label": "Phone",
+      "title": "Start a movie night.",
+      "caption": "Start a room. Send an invitation.",
+      "disclosure": "Android emulator / original app footage at 1x"
+    },
+    {
+      "id": "join",
+      "kind": "pair",
+      "timeline": "together",
+      "phone": "phone",
+      "tablet": "tablet",
+      "in": 24,
+      "out": 32,
+      "speed": 1,
+      "phone_label": "Phone / Host",
+      "tablet_label": "Tablet / Guest",
+      "title": "An invitation brings you together.",
+      "caption": "Review the invitation. Join the same room.",
+      "disclosure": "Android emulators / approximate recording alignment / 1x"
+    },
+    {
+      "id": "controls",
+      "kind": "pair",
+      "timeline": "together",
+      "phone": "phone",
+      "tablet": "tablet",
+      "in": 41,
+      "out": 59,
+      "speed": 1,
+      "phone_label": "Phone / Host",
+      "tablet_label": "Tablet / Guest",
+      "title": "Two screens. Shared controls.",
+      "caption": "Play, pause and seek from either device.",
+      "disclosure": "Android emulators / approximate recording alignment / 1x"
+    },
+    {
+      "id": "chat",
+      "kind": "pair",
+      "timeline": "together",
+      "phone": "phone",
+      "tablet": "tablet",
+      "in": 59,
+      "out": 67,
+      "speed": 1,
+      "phone_label": "Phone / Host",
+      "tablet_label": "Tablet / Guest",
+      "title": "A message. A reaction. A shared moment.",
+      "caption": "Keep the conversation beside the movie.",
+      "disclosure": "Android emulators / approximate recording alignment / 1x"
+    },
+    {
+      "id": "continue",
+      "kind": "single",
+      "source": "local",
+      "device": "phone",
+      "in": 56,
+      "out": 70,
+      "speed": 1,
+      "label": "Phone",
+      "title": "Your place, remembered.",
+      "caption": "Local mode restores your place. Press Play when you are ready.",
+      "disclosure": "Normal release / new-process history resume / 1x"
+    },
+    {
+      "id": "fullscreen",
+      "kind": "single",
+      "source": "fullscreen",
+      "device": "tablet",
+      "in": 10,
+      "out": 16,
+      "speed": 1,
+      "label": "Phone / landscape",
+      "title": "Make room for the movie.",
+      "caption": "Landscape playback with the controls tucked away.",
+      "disclosure": "Normal release / native phone fullscreen / 1x"
+    },
+    {
+      "id": "free",
+      "kind": "single",
+      "source": "paywall",
+      "device": "phone",
+      "in": 50,
+      "out": 55,
+      "speed": 1,
+      "label": "Phone",
+      "title": "One movie night is free.",
+      "caption": "Host once each day. Your guests always join free.",
+      "disclosure": "RevenueCat Test Store / no real charge"
+    },
+    {
+      "id": "purchase",
+      "kind": "single",
+      "source": "purchase",
+      "device": "phone",
+      "in": 8,
+      "out": 18,
+      "speed": 1,
+      "label": "Phone",
+      "title": "More movie nights, with Plus.",
+      "caption": "A real RevenueCat purchase unlocks unlimited hosting.",
+      "disclosure": "RevenueCat Test Store / no real charge"
+    },
+    {
+      "id": "restore",
+      "kind": "single",
+      "source": "purchase",
+      "device": "phone",
+      "in": 19,
+      "out": 25,
+      "speed": 1,
+      "label": "Phone",
+      "title": "Restore. Then make it yours.",
+      "caption": "Restore purchases in Settings. Pick the look you like.",
+      "disclosure": "Test Store / Restore for the same active customer"
+    },
+    {
+      "id": "aurora",
+      "kind": "single",
+      "source": "purchase",
+      "device": "phone",
+      "in": 31,
+      "out": 39,
+      "speed": 1,
+      "label": "Phone",
+      "title": "A little more personality.",
+      "caption": "Glass Aurora and Movie night reactions come with Plus.",
+      "disclosure": "Test Store / native phone and headless TLS peer"
+    },
+    {
+      "id": "another",
+      "kind": "single",
+      "source": "purchase",
+      "device": "phone",
+      "in": 49,
+      "out": 55,
+      "speed": 1,
+      "label": "Phone",
+      "title": "Another room. Another movie night.",
+      "caption": "A second Plus session, in Cinema Noir.",
+      "disclosure": "Test Store / native phone and headless TLS peer"
+    },
+    {
+      "id": "closing",
+      "kind": "card",
+      "duration": 5,
+      "title": "Watch together, wherever you are.",
+      "caption": "Android / Open source / AGPL-3.0-only / PeterShanxin/MeowWatch-Mobile"
+    }
+  ]
+}

@@ -238,6 +238,62 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 self.assertEqual(reads[-1]['lastCompletePictureEnd'], len(complete))
                 self.assertTrue(all(row['finishedAtMonotonic'] >= row['startedAtMonotonic'] for row in reads))
 
+    def test_post_roll_retries_timeouts_without_accepting_partial_or_late_bytes(self):
+        for mode in ('recover', 'all-timeout', 'late-success'):
+            with self.subTest(mode=mode), tempfile.TemporaryDirectory() as directory:
+                clock = [0.0]
+                prefix = box(b'ftyp', b'isom' + bytes(12)) + b'\0\0\0\0mdat'
+                nal = struct.pack('>I', 5) + b'\x65abcd'
+                initial = prefix + nal
+                reads = []
+                adb = Mock(remote_prefix='/sdcard/meowwatch-install-test/', remote_files=[])
+
+                def run(*arguments, **kwargs):
+                    if arguments == ('exec-out', 'cat', '/proc/uptime'):
+                        return subprocess.CompletedProcess([], 0, b'130.79 20.00\n')
+                    if arguments[:3] == ('shell', 'stat', '-c'):
+                        clock[0] += 0.2
+                        return subprocess.CompletedProcess([], 0, str(len(initial)).encode())
+                    reads.append((arguments[-1], kwargs['timeout']))
+                    if len(reads) == 1 or mode == 'all-timeout':
+                        clock[0] += kwargs['timeout']
+                        raise subprocess.TimeoutExpired('adb', kwargs['timeout'], output=initial[:-1])
+                    if mode == 'late-success':
+                        clock[0] = 8.01
+                        return subprocess.CompletedProcess([], 0, initial + nal)
+                    clock[0] += min(0.1, 8 - clock[0])
+                    return subprocess.CompletedProcess([], 0, initial + nal if len(reads) == 2 else b'')
+
+                adb.run.side_effect = run
+                recording = LifecycleRecording(adb, Path(directory), 1, (720, 1600))
+                recording.process = Mock()
+                recording.process.poll.return_value = None
+                with patch('tools.android_lifecycle_runtime.run.time.monotonic', side_effect=lambda: clock[0]), patch(
+                    'tools.android_lifecycle_runtime.run.time.sleep', side_effect=lambda delay: clock.__setitem__(0, clock[0] + delay)
+                ):
+                    if mode == 'recover':
+                        recording.post_roll('04-advanced')
+                    else:
+                        expected = 'no new complete picture' if mode == 'all-timeout' else 'original deadline'
+                        with self.assertRaisesRegex(RuntimeFailure, expected):
+                            recording.post_roll('04-advanced')
+                self.assertEqual(reads[0][0], reads[1][0], 'retry must reread the identical byte range')
+                self.assertTrue(all(0 < timeout <= 2 for _, timeout in reads))
+                summary = recording.metadata['postRoll']['readSummaries']
+                self.assertEqual(summary[0]['acceptedBytes'], 0)
+                self.assertEqual(summary[0]['discardedBytes'], len(initial) - 1)
+                if mode == 'recover':
+                    self.assertEqual(recording.metadata['postRoll']['newCompletePictureNals'], 1)
+                    self.assertEqual(summary[1]['offset'], 0)
+                    self.assertEqual(summary[1]['prefixBytes'], len(initial + nal))
+                    self.assertEqual(summary[1]['prefixSha256'], hashlib.sha256(initial + nal).hexdigest())
+                    self.assertLessEqual(clock[0], 8)
+                elif mode == 'all-timeout':
+                    self.assertEqual(recording.metadata['postRoll']['newCompletePictureNals'], 0)
+                    self.assertEqual(clock[0], 8)
+                else:
+                    self.assertEqual(len(summary), 1, 'late successful bytes must not enter evidence')
+
     def test_final_coverage_and_post_roll_failures_keep_original_recording(self):
         for required, post_error, missing_clock, error_message in (
             (19.8, False, False, None),

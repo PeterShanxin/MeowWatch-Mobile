@@ -199,6 +199,13 @@ picture progress. This is a recording-progress hint, not proof that the final
 observation was captured. A post-roll failure still stops the owned recorder
 and preserves the original file and failure metadata.
 
+A timed-out live-byte read retries the same byte range within that original
+eight-second window. Its partial output is discarded and recorded as a timeout;
+it cannot advance the evidence cursor. Results arriving after the deadline are
+rejected. Final native frame timestamps, full decode and duration checks still
+decide coverage. This prevents a transient two-second ADB read timeout from
+ending the recorder before its allotted drain window has elapsed.
+
 Readiness and post-roll retain bounded `readSummaries`: command start/finish
 times, byte offsets/counts and SHA-256 of the already-read bytes. Post-roll also
 retains the cumulative prefix digest/count and last complete picture boundary.

@@ -502,7 +502,19 @@ class LifecycleRecording:
             command = f"tail -c +{progress.read_bytes + 1} {self.remote} | head -c 1048576"
             read_started = time.monotonic()
             offset = progress.read_bytes
-            chunk = self.adb.run("exec-out", "sh", "-c", command, timeout=min(2, remaining)).stdout
+            try:
+                chunk = self.adb.run("exec-out", "sh", "-c", command, timeout=min(2, remaining)).stdout
+            except subprocess.TimeoutExpired as error:
+                # Retry this read-only byte range inside the original budget.
+                # Partial timed-out output is not a verified contiguous prefix.
+                self.live_read_summary(self.metadata["postRoll"], {
+                    "startedAtMonotonic": read_started, "finishedAtMonotonic": time.monotonic(),
+                    "offset": offset, "status": "timeout", "acceptedBytes": 0,
+                    "discardedBytes": len(error.stdout or b""),
+                })
+                continue
+            if time.monotonic() > deadline:
+                raise RuntimeFailure("native recording post-roll read exceeded its original deadline")
             if len(chunk) > 1048576:
                 raise RuntimeFailure("native recording post-roll chunk exceeds its read bound")
             progress.feed(chunk)

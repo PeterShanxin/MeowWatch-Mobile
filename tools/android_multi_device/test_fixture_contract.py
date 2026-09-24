@@ -65,12 +65,18 @@ source_file="$output_dir/bee-source.mp4"
             if alias is not None:
                 (fixture / 'Bee.mp4').write_bytes(alias)
             for role in ('host', 'guest'):
-                (apks / f'{role}.apk').write_bytes(b'preflight placeholder, never installed')
+                apk = apks / f'{role}.apk'
+                apk.write_bytes(b'preflight placeholder, never installed')
+                (apks / f'{role}.apk.sha256').write_text(
+                    f'{hashlib.sha256(apk.read_bytes()).hexdigest()}  '
+                    f'build/android-multi-device/apks/{role}.apk\n', encoding='utf-8')
             target = ('integration_test/production_together_test.dart' if production
                       else 'integration_test/together_smoke_test.dart')
             (apks / 'build-provenance.tsv').write_text(
                 f'room\tfixture-contract\nserver\tsyncplay.pl\nport\t8995\n'
                 f'target\t{target}\nvideo_url\t{video_url}\n'
+                'mode\tdebug\nhost_apk\tbuild/android-multi-device/apks/host.apk\n'
+                'guest_apk\tbuild/android-multi-device/apks/guest.apk\n'
                 'coordination_url\thttp://10.0.2.2:18766/invite\n', encoding='utf-8')
             # The next preflight gate stops an accepted URL before any server,
             # emulator or external media tool can start.

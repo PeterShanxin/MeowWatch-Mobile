@@ -8,6 +8,9 @@ import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 
 /// Bounded observation of real commands; no media, participant or room values.
 class PlaybackCommandTrace {
+  PlaybackCommandTrace({this.role});
+
+  final String? role;
   bool enabled = false;
   int _records = 0;
   final List<StreamSubscription<dynamic>> _subscriptions = [];
@@ -15,7 +18,7 @@ class PlaybackCommandTrace {
   void record(String event, Map<String, Object?> fields) {
     if (!enabled || _records >= 160) return;
     debugPrint(
-      'PRODUCTION_PLAYBACK_TRACE ${jsonEncode({'sequence': ++_records, 'atUtc': DateTime.now().toUtc().toIso8601String(), 'event': event, ...fields})}',
+      'PRODUCTION_PLAYBACK_TRACE ${jsonEncode({'sequence': ++_records, 'atUtc': DateTime.now().toUtc().toIso8601String(), if (role != null) 'role': role, 'event': event, ...fields})}',
     );
   }
 
@@ -41,11 +44,15 @@ class PlaybackCommandTrace {
 }
 
 class TracedMobileTarget extends LocalMobileTarget {
-  TracedMobileTarget(this.trace);
+  TracedMobileTarget(this.trace, {super.mixWithOthers = false});
   final PlaybackCommandTrace trace;
   int _commandSequence = 0;
 
-  Future<void> _command(String name, Future<void> Function() action) async {
+  Future<void> _command(
+    String name,
+    Future<void> Function() action, {
+    Duration? requestedPosition,
+  }) async {
     final id = ++_commandSequence;
     void record(String phase, [Object? error]) => trace.record('$name-$phase', {
       'command': id,
@@ -54,6 +61,8 @@ class TracedMobileTarget extends LocalMobileTarget {
       'playRequested': playRequested,
       'buffering': snapshot.buffering,
       'positionMs': snapshot.position.inMilliseconds,
+      if (requestedPosition != null)
+        'requestedPositionMs': requestedPosition.inMilliseconds,
       if (error != null) 'errorType': error.runtimeType.toString(),
     });
     record('start');
@@ -77,6 +86,9 @@ class TracedMobileTarget extends LocalMobileTarget {
   Future<void> pause() => _command('native-pause', super.pause);
 
   @override
-  Future<void> seek(Duration position) =>
-      _command('native-seek', () => super.seek(position));
+  Future<void> seek(Duration position) => _command(
+    'native-seek',
+    () => super.seek(position),
+    requestedPosition: position,
+  );
 }

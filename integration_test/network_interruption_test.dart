@@ -23,6 +23,7 @@ import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/main.dart';
 
 import '../tools/native_capture/native_screenshot.dart';
+import 'support/playback_command_trace.dart';
 import 'support/test_text_entry.dart';
 
 const _runId = String.fromEnvironment('NETWORK_RUN_ID');
@@ -69,8 +70,10 @@ void main() {
       final billing = RevenueCatBillingService(apiKey: revenueCatPublicKey);
       // Two decoders share this test process. Production phones keep their
       // default exclusive audio policy; this does not model two devices.
-      final phone = LocalMobileTarget(mixWithOthers: true);
-      final peerTarget = LocalMobileTarget(mixWithOthers: true);
+      final hostTrace = PlaybackCommandTrace(role: 'host')..enabled = true;
+      final guestTrace = PlaybackCommandTrace(role: 'guest')..enabled = true;
+      final phone = TracedMobileTarget(hostTrace, mixWithOthers: true);
+      final peerTarget = TracedMobileTarget(guestTrace, mixWithOthers: true);
       final peer = SyncplayClient(onLog: (line) => trace('guest', line));
       final peerBridge = PlaybackSyncBridge(
         target: peerTarget,

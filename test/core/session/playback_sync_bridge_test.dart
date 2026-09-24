@@ -953,6 +953,7 @@ void main() {
 
     Future<void> useRateTarget({
       Duration commandTimeout = const Duration(seconds: 5),
+      Duration rateCorrectionWindow = const Duration(seconds: 25),
     }) async {
       await bridge.dispose();
       await target.close();
@@ -964,6 +965,7 @@ void main() {
         authorizePlayback: () async => true,
         onError: errors.add,
         commandTimeout: commandTimeout,
+        rateCorrectionWindow: rateCorrectionWindow,
       )..start();
       await bridge.load(movie);
       sync.connection(SyncConnectionStatus.connected);
@@ -999,6 +1001,72 @@ void main() {
         expect(sync.changes, isEmpty);
       },
     );
+
+    test(
+      'buffer chatter restores 1x and waits for stable ready playback',
+      () async {
+        await useRateTarget();
+        heartbeat(const Duration(seconds: 8));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await until(() => rateTarget.rates.contains(0.90));
+
+        for (var i = 0; i < 3; i++) {
+          emitNative(target, playing: false, buffering: true);
+          await until(() => rateTarget.rates.last == 1);
+          heartbeat(const Duration(seconds: 8));
+          emitNative(target, playing: true, buffering: false);
+          await Future<void>.delayed(const Duration(milliseconds: 120));
+          heartbeat(const Duration(seconds: 8));
+          emitNativePosition(
+            target,
+            const Duration(seconds: 10),
+            playing: true,
+          );
+          expect(rateTarget.rates, [0.90, 1]);
+        }
+
+        await Future<void>.delayed(const Duration(milliseconds: 950));
+        heartbeat(const Duration(seconds: 8));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await until(() => rateTarget.rates.last == 0.90);
+        expect(rateTarget.rates, [0.90, 1, 0.90]);
+        expect(target.commands, isEmpty);
+        expect(sync.changes, isEmpty);
+      },
+    );
+
+    test('buffer recovery keeps the original correction window', () async {
+      await useRateTarget(
+        rateCorrectionWindow: const Duration(milliseconds: 100),
+      );
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      emitNative(target, playing: false, buffering: true);
+      await until(() => rateTarget.rates.last == 1);
+      emitNative(target, playing: true, buffering: false);
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      expect(rateTarget.rates, [0.90, 1]);
+    });
+
+    test('buffer recovery requires a heartbeat after ready playback', () async {
+      await useRateTarget();
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      emitNative(target, playing: false, buffering: true);
+      await until(() => rateTarget.rates.last == 1);
+      heartbeat(const Duration(seconds: 8));
+      emitNative(target, playing: true, buffering: false);
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      expect(rateTarget.rates, [0.90, 1]);
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.last == 0.90);
+    });
 
     test(
       'stale, paused, seek and absent heartbeat cannot start slowdown',

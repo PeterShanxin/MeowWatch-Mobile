@@ -16,6 +16,7 @@ class PlaybackSyncBridge {
     this.onError,
     this.commandTimeout = const Duration(seconds: 5),
     this.settleWindow = const Duration(seconds: 3),
+    this.rateCorrectionWindow = const Duration(seconds: 25),
   });
 
   final PlaybackTarget target;
@@ -24,6 +25,7 @@ class PlaybackSyncBridge {
   final void Function(Object error)? onError;
   final Duration commandTimeout;
   final Duration settleWindow;
+  final Duration rateCorrectionWindow;
   StreamSubscription<PlaybackSnapshot>? _playerSub;
   StreamSubscription<PeerPlayState>? _peerSub;
   StreamSubscription<SyncConnectionState>? _connectionSub;
@@ -47,6 +49,8 @@ class PlaybackSyncBridge {
   Timer? _rateExpiry;
   Stopwatch? _rateWindow;
   Stopwatch? _rateCooldown;
+  Stopwatch? _rateReadyClock;
+  bool _rateRecoveryPending = false;
   double _requestedRate = 1;
   bool _rateTouched = false;
   bool _rateDirty = false;
@@ -178,7 +182,7 @@ class PlaybackSyncBridge {
     // ExoPlayer's isPlaying is false while buffering even when playWhenReady
     // remains true. A heartbeat with that false flag would pause the room.
     if (state.buffering) {
-      _stopRateCorrection();
+      _stopRateCorrection(preserveWindow: true, waitForFreshHeartbeat: true);
       _buffering = true;
       _bufferRecovery?.cancel();
       _bufferRecovery = null;
@@ -186,7 +190,10 @@ class PlaybackSyncBridge {
     }
     if (_applying != 0) return;
     if (!state.playing || state.connection != PlaybackConnection.ready) {
-      _stopRateCorrection();
+      _stopRateCorrection(
+        preserveWindow: _buffering && _publishedPaused == false,
+        waitForFreshHeartbeat: _buffering && _publishedPaused == false,
+      );
     }
     if (_buffering) {
       if (!state.playing && _publishedPaused == false) {
@@ -251,6 +258,7 @@ class PlaybackSyncBridge {
     if (target is! PlaybackRateTarget ||
         !_connected ||
         !_hasSource ||
+        state.connection != PlaybackConnection.ready ||
         !state.playing ||
         state.buffering ||
         _publishedPaused != false ||
@@ -258,14 +266,30 @@ class PlaybackSyncBridge {
       _stopRateCorrection();
       return;
     }
+    if ((_rateWindow?.elapsed ?? Duration.zero) >= rateCorrectionWindow) {
+      _stopRateCorrection(cooldown: true);
+      return;
+    }
+    if (_rateRecoveryPending) {
+      final readyClock = _rateReadyClock ??= Stopwatch()..start();
+      if (readyClock.elapsed < const Duration(seconds: 1)) return;
+      final heartbeatAge = sync.lastAdvancingRoomStateAge;
+      // The first eligible heartbeat must have arrived after this uninterrupted
+      // READY/playing interval began, not during the preceding buffer.
+      if (heartbeatAge == null || heartbeatAge >= readyClock.elapsed) return;
+      _rateRecoveryPending = false;
+      _rateReadyClock = null;
+    }
     final room = sync.lastAdvancingRoomState;
     final age = sync.lastAdvancingRoomStateAge;
-    if (room == null ||
-        age == null ||
-        age >= const Duration(seconds: 2) ||
-        room.paused ||
-        room.doSeek ||
-        room.setBy == null) {
+    if (room == null || age == null || age >= const Duration(seconds: 2)) {
+      _stopRateCorrection(
+        preserveWindow: true,
+        waitForFreshHeartbeat: _rateWindow != null,
+      );
+      return;
+    }
+    if (room.paused || room.doSeek || room.setBy == null) {
       _stopRateCorrection();
       return;
     }
@@ -284,15 +308,11 @@ class PlaybackSyncBridge {
               const Duration(seconds: 8)) {
         return;
       }
-      _rateWindow = Stopwatch()..start();
-    } else if ((_rateWindow?.elapsed ?? Duration.zero) >=
-        const Duration(seconds: 25)) {
-      _stopRateCorrection(cooldown: true);
-      return;
+      _rateWindow ??= Stopwatch()..start();
     }
     _rateExpiry?.cancel();
     _rateExpiry = Timer(const Duration(seconds: 2) - age, () {
-      _stopRateCorrection();
+      _stopRateCorrection(preserveWindow: true, waitForFreshHeartbeat: true);
     });
     // One-sided only: never speed up the lagging player. Larger safe drift
     // gets a short 0.90 window; near convergence uses the gentler 0.95 rate.
@@ -374,12 +394,23 @@ class PlaybackSyncBridge {
     );
   }
 
-  void _stopRateCorrection({bool cooldown = false}) {
+  void _stopRateCorrection({
+    bool cooldown = false,
+    bool preserveWindow = false,
+    bool waitForFreshHeartbeat = false,
+  }) {
     _rateExpiry?.cancel();
     _rateExpiry = null;
-    _rateWindow = null;
-    if (cooldown && _requestedRate != 1) {
+    if (cooldown && _rateWindow != null) {
       _rateCooldown = Stopwatch()..start();
+    }
+    if (!preserveWindow) _rateWindow = null;
+    if (waitForFreshHeartbeat) {
+      _rateRecoveryPending = true;
+      _rateReadyClock = null;
+    } else if (!preserveWindow) {
+      _rateRecoveryPending = false;
+      _rateReadyClock = null;
     }
     _requestRate(1);
   }

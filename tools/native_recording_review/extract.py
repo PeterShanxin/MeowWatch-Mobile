@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 from pathlib import Path
+import re
 import subprocess
 
 
@@ -34,19 +35,29 @@ def extract(artifact: Path, output: Path) -> None:
         destination = output / source.stem
         destination.mkdir()
         selection = "+".join(f"eq(n\\,{index})" for index in indices)
+        probe = subprocess.run([
+            "ffprobe", "-v", "error", "-select_streams", "v:0", "-show_entries", "stream=time_base",
+            "-of", "default=noprint_wrappers=1:nokey=1", str(source),
+        ], capture_output=True, text=True, check=True, timeout=15)
+        source_time_base = probe.stdout.strip()
+        if re.fullmatch(r"[1-9]\d*/[1-9]\d*", source_time_base) is None or probe.stderr.strip():
+            raise ValueError("source must expose one positive native video time base")
+        # Default PNG encoder timing uses an inferred frame rate, which rounds
+        # close VFR timestamps together. Preserve the source's own time base.
         result = subprocess.run([
             "ffmpeg", "-nostdin", "-v", "error", "-xerror", "-threads", "2", "-i", str(source),
-            "-vf", "select=" + selection, "-fps_mode", "passthrough", "-threads", "1",
+            "-vf", "select=" + selection, "-fps_mode", "passthrough",
+            "-enc_time_base", source_time_base.replace("/", ":"), "-threads", "1",
             str(destination / "frame-%02d.png"),
         ], capture_output=True, text=True, timeout=90)
         (destination / "decode.log").write_text(result.stderr, encoding="utf-8")
         if result.returncode or result.stderr.strip():
-            raise ValueError("source failed strict decoding; extracted frames are not accepted")
+            raise ValueError("strict frame extraction failed; inspect decode.log before accepting frames")
         frames = sorted(destination.glob("frame-*.png"))
         if len(frames) != len(indices):
             raise ValueError("extracted frame count differs from the selected source indices")
         receipts.append({
-            "source": recording["file"], "sourceSha256": source_hash,
+            "source": recording["file"], "sourceSha256": source_hash, "sourceTimeBase": source_time_base,
             "visualReview": "pending", "transformation": "original decoded pixels; no scaling or interpolation",
             "frames": [{"file": str(frame.relative_to(output)), "sourceFrameIndex": index,
                         "videoPresentationSeconds": video_pts[index], "deviceElapsedSeconds": device_pts[index],

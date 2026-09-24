@@ -11,6 +11,7 @@ import 'package:video_player/video_player.dart';
 
 import 'package:meowwatch_mobile/app/app_controller.dart';
 import 'package:meowwatch_mobile/app/app_services.dart';
+import 'package:meowwatch_mobile/core/billing/billing_service.dart';
 import 'package:meowwatch_mobile/core/billing/file_hosting_quota_store.dart';
 import 'package:meowwatch_mobile/core/billing/hosting_access_policy.dart';
 import 'package:meowwatch_mobile/core/billing/revenuecat_billing_service.dart';
@@ -112,6 +113,7 @@ void main() {
       var completed = false;
       var stage = 'bootstrap';
       Map<String, Object?>? failure;
+      Map<String, Object?>? billingSetup;
       final teardownErrors = <String>[];
 
       Future<void> screenshot(String phase) async {
@@ -144,12 +146,27 @@ void main() {
       }
 
       try {
-        expect(
-          (await billing.configure().timeout(
-            const Duration(seconds: 60),
-          )).succeeded,
-          isTrue,
+        final billingResult = await billing.configure().timeout(
+          const Duration(seconds: 60),
         );
+        billingSetup = {
+          'status': billingResult.status.name,
+          'errorCode': billingResult.errorCode,
+          'configured': billing.isConfigured,
+          'isPlus': billing.isPlus,
+        };
+        if (kDebugMode) {
+          expect(billingResult.succeeded, isTrue);
+          expect(billing.isConfigured, isTrue);
+        } else {
+          // The normal profile build has no store key. Its real free-host
+          // fallback is the subject here; purchase acceptance stays in debug.
+          expect(kProfileMode, isTrue);
+          expect(revenueCatPublicKey, isEmpty);
+          expect(billingResult.status, BillingStatus.unavailable);
+          expect(billingResult.errorCode, 'missing_public_sdk_key');
+          expect(billing.isConfigured, isFalse);
+        }
         expect(
           billing.isPlus,
           isFalse,
@@ -496,6 +513,7 @@ void main() {
               : kReleaseMode
               ? 'release'
               : 'debug',
+          'billingSetup': billingSetup,
           'passed': completed && teardownErrors.isEmpty,
           'verified': verified,
           'observations': observations,

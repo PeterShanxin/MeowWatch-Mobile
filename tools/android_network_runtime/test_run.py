@@ -156,6 +156,7 @@ class OwnershipTests(unittest.TestCase):
 
 def result():
     return {"runId": RUN_ID, "passed": True, "buildMode": "debug", "verified": sorted(REQUIRED),
+            "billingSetup": {"status": "success", "errorCode": None, "configured": True, "isPlus": False},
             "teardownErrors": [], "observations": [
                 {"phase": "probe-healthy", "address": "sync.example", "port": 8997,
                  "resolvedAddress": "192.0.2.1", "reachable": True},
@@ -291,12 +292,25 @@ class EvidenceTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeFailure, "actual Dart build mode"):
             validate_result(value, RUN_ID, "profile")
         value["buildMode"] = "profile"
+        with self.assertRaisesRegex(RuntimeFailure, "real free billing setup"):
+            validate_result(value, RUN_ID, "profile")
+        value["billingSetup"] = {"status": "unavailable", "errorCode": "missing_public_sdk_key",
+                                 "configured": False, "isPlus": False}
         validate_result(value, RUN_ID, "profile")
         with self.assertRaisesRegex(RuntimeFailure, "actual Dart build mode"):
             validate_result(value, RUN_ID, "debug")
         del value["buildMode"]
         with self.assertRaisesRegex(RuntimeFailure, "actual Dart build mode"):
             validate_result(value, RUN_ID, "profile")
+
+    def test_billing_failure_or_paid_customer_cannot_pass_free_network_gate(self):
+        for billing in (None, {"status": "success"},
+                        {"status": "failure", "errorCode": "network", "configured": True, "isPlus": False},
+                        {"status": "success", "errorCode": None, "configured": True, "isPlus": True}):
+            value = result()
+            value["billingSetup"] = billing
+            with self.subTest(billing=billing), self.assertRaisesRegex(RuntimeFailure, "real free billing setup"):
+                validate_result(value, RUN_ID)
 
     def test_incomplete_app_teardown_or_controls_fail(self):
         for changes in ({"teardownErrors": ["decoder close failed"]},

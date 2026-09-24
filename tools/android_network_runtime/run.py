@@ -222,6 +222,13 @@ def validate_result(result: dict, run_id: str, build_mode: str = "debug") -> Non
         raise RuntimeFailure("the integration test did not report a successful owned run")
     if result.get("buildMode") != build_mode:
         raise RuntimeFailure("actual Dart build mode does not match the requested comparison")
+    billing = result.get("billingSetup")
+    expected_billing = ({"status": "success", "errorCode": None, "configured": True, "isPlus": False}
+                        if build_mode == "debug" else
+                        {"status": "unavailable", "errorCode": "missing_public_sdk_key",
+                         "configured": False, "isPlus": False})
+    if billing != expected_billing:
+        raise RuntimeFailure("real free billing setup does not match the build mode")
     if set(result.get("verified", [])) != REQUIRED or result.get("teardownErrors") != []:
         raise RuntimeFailure("required recovery assertions or test teardown are incomplete")
     probes = {item.get("phase"): item for item in result.get("observations", [])

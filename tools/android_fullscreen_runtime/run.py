@@ -417,7 +417,7 @@ class Runner(LifecycleRunner):
     def center_tap(self, state: Display) -> None:
         self.adb.run("shell", "input", "tap", str(state.width // 2), str(state.height // 2))
 
-    def pause_after_fullscreen_advance(self, full: Display, before: Playback) -> int:
+    def wait_for_fullscreen_advance(self, full: Display, before: Playback) -> int:
         def advanced(xml: str) -> Playback:
             require_visible_bounds(xml, full, fullscreen=True, controls=True)
             state = playback(xml)
@@ -427,11 +427,40 @@ class Runner(LifecycleRunner):
         # The first query after force-stopping the observer includes cold setup
         # (20s), bounded traversal (8s), result transfer (2s), and ownership reads.
         # Native advancement remains mandatory; observer latency is not evidence.
-        shown_xml, shown_playing = self.wait("09-controls-shown-and-native-advanced", advanced, timeout=35)
-        # Pause only from the fresh hierarchy that proves actual advancement.
-        # Avoid a screenshot between observing and tapping this transient UI.
-        self.tap(button(shown_xml, "Pause", "Pause together"))
+        _, shown_playing = self.wait("09-controls-shown-and-native-advanced", advanced, timeout=35)
         return shown_playing.position_seconds - before.position_seconds
+
+    def pause_after_recording(self, phase: str, baseline: Display, *, fullscreen: bool, app_pid: str) -> None:
+        # Post-roll takes eight seconds. Never tap coordinates retained before
+        # the recorder stopped; controls may have hidden or moved meanwhile.
+        self.phase = phase
+        deadline = time.monotonic() + 35
+        xml = self.observe(deadline=deadline)
+        self.require_observation_deadline(deadline)
+        state = display_state(self.last_window)
+        require_transition(baseline, state, self.form_factor, fullscreen=fullscreen)
+        if self.pid(deadline=deadline) != app_pid:
+            raise RuntimeFailure("playback process changed before the fresh Pause action")
+        if not any(exact(xml, label, clickable=True) for label in ("Pause", "Pause together")):
+            if any(exact(xml, label, clickable=True) for label in ("Play", "Play together")):
+                raise RuntimeFailure("native playback stopped before the fresh Pause action")
+            if not fullscreen:
+                raise RuntimeFailure("fresh normal-player Pause control is unavailable")
+            require_visible_bounds(xml, state, fullscreen=True, controls=False)
+            self.adb.run("shell", "input", "tap", str(state.width // 2), str(state.height // 2),
+                         timeout=remaining_timeout(deadline, 3))
+            self.require_observation_deadline(deadline)
+            xml = self.observe(deadline=deadline)
+            self.require_observation_deadline(deadline)
+            state = display_state(self.last_window)
+            require_transition(baseline, state, self.form_factor, fullscreen=fullscreen)
+            if self.pid(deadline=deadline) != app_pid:
+                raise RuntimeFailure("playback process changed before the fresh Pause action")
+        require_visible_bounds(xml, state, fullscreen=fullscreen, controls=True)
+        if not playback(xml).playing:
+            raise RuntimeFailure("native playback stopped before the fresh Pause action")
+        self.output.joinpath(f"{phase}.xml").write_text(xml, encoding="utf-8")
+        self.tap(button(xml, "Pause", "Pause together"), deadline=deadline)
 
     def run(self) -> dict:
         self.require_owned_avd()
@@ -458,12 +487,12 @@ class Runner(LifecycleRunner):
         _, playing = self.sample("03-normal-playing", playing=True)
         self.recording.observe_startup_result("03-normal-playing")
         time.sleep(3)
-        xml, advanced = self.sample("04-normal-advanced", playing=True)
+        _, advanced = self.sample("04-normal-advanced", playing=True)
         normal_advance = require_playing_advance(playing, advanced)
-        self.tap(button(xml, "Pause", "Pause together"))
+        self.stop_for_rotation("04-normal-advanced")
+        self.pause_after_recording("04-fresh-pause-control", baseline, fullscreen=False, app_pid=app_pid)
         xml, _, paused = self.system_sample("05-before-fullscreen", baseline, fullscreen=False, playing=False)
         assert paused is not None
-        self.stop_for_rotation("05-before-fullscreen")
         # The entry command is sent only after the original recorder is gone.
         xml, _ = self.sample("06-fresh-entry-control", playing=False, screenshot=False)
         self.fullscreen_entry_pid = app_pid
@@ -481,14 +510,15 @@ class Runner(LifecycleRunner):
         self.capture_controls_idle_window(baseline)
         self.recording.observe_startup_result("08-controls-idle-visual-review")
         self.center_tap(full)
-        fullscreen_advance = self.pause_after_fullscreen_advance(full, entered)
+        fullscreen_advance = self.wait_for_fullscreen_advance(full, entered)
+        self.stop_for_rotation("09-controls-shown-and-native-advanced")
+        self.pause_after_recording("09-fresh-pause-control", baseline, fullscreen=True, app_pid=app_pid)
         xml, _, full_paused = self.system_sample("10-fullscreen-paused", baseline, fullscreen=True, playing=False)
         assert full_paused is not None
         time.sleep(2)
         _, _, stable = self.system_sample("11-fullscreen-still-paused", baseline, fullscreen=True, playing=False)
         assert stable is not None
         require_paused_stability(full_paused, stable)
-        self.stop_for_rotation("11-fullscreen-still-paused")
         _, before_back = self.sample("12-before-system-back", playing=False, screenshot=False)
         self.adb.run("shell", "input", "keyevent", "KEYCODE_BACK")
         xml, restored, after_back = self.system_sample("13-back-exits-fullscreen", baseline, fullscreen=False, playing=False)

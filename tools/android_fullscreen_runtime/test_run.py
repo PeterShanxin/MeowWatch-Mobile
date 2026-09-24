@@ -277,7 +277,9 @@ class OwnershipTests(unittest.TestCase):
                     runner.controls_auto_hide_review = {"status": "pending", "visualReviewRequired": True}
                 runner.capture_controls_idle_window = Mock(side_effect=idle)
                 runner.center_tap = Mock(side_effect=lambda *_: events.append("center-tap"))
-                runner.pause_after_fullscreen_advance = Mock(side_effect=lambda *_: events.append("09-native-advance") or 2)
+                runner.wait_for_fullscreen_advance = Mock(side_effect=lambda *_: events.append("09-native-advance") or 2)
+                runner.pause_after_recording = Mock(
+                    side_effect=lambda phase, *_args, **_kwargs: events.append(phase))
                 def wait(phase, check, **_kwargs):
                     runner.phase = phase
                     events.append(phase)
@@ -308,9 +310,12 @@ class OwnershipTests(unittest.TestCase):
                         recording.metadata.update({"status": "recording", "startedAtMonotonic": index,
                                                    "readinessProbe": {"deadlineAtMonotonic": 20}})
                     recording.start.side_effect = start
-                    recording.finish.side_effect = lambda **_: recording.metadata.update(
-                        {"status": "verified", "stopRequestedAtMonotonic": index + 0.5,
-                         "transitionVisualReview": {"status": "pending"} if index == 3 else None})
+                    def finish(*, required_phase=None):
+                        events.append(f"stop-{index}:{required_phase}")
+                        recording.metadata.update(
+                            {"status": "verified", "stopRequestedAtMonotonic": index + 0.5,
+                             "transitionVisualReview": {"status": "pending"} if index == 3 else None})
+                    recording.finish.side_effect = finish
                     recording.observe_startup_result.side_effect = lambda phase, **_: first_observations.append(phase)
                     return recording
                 process = Mock()
@@ -345,14 +350,21 @@ class OwnershipTests(unittest.TestCase):
                     self.assertEqual(startup_inputs[-1][1], ("keyevent", "KEYCODE_BACK"))
                     self.assertEqual(first_observations, ["03-normal-playing", "08-controls-idle-visual-review", "15-normal-return-home"])
                     self.assertLess(events.index("ready-1"), events.index("03-normal-playing"))
+                    self.assertLess(events.index("04-normal-advanced"), events.index("stop-1:04-normal-advanced"))
+                    self.assertLess(events.index("stop-1:04-normal-advanced"), events.index("04-fresh-pause-control"))
+                    self.assertLess(events.index("04-fresh-pause-control"), events.index("05-before-fullscreen"))
                     self.assertLess(events.index("07-entered-fullscreen"), events.index("owned-2"))
                     self.assertLess(events.index("ready-2"), events.index("08-controls-idle-visual-review"))
                     self.assertLess(events.index("08-controls-idle-visual-review"), events.index("center-tap"))
                     self.assertLess(events.index("center-tap"), events.index("09-native-advance"))
+                    self.assertLess(events.index("09-native-advance"), events.index("stop-2:09-controls-shown-and-native-advanced"))
+                    self.assertLess(events.index("stop-2:09-controls-shown-and-native-advanced"), events.index("09-fresh-pause-control"))
+                    self.assertLess(events.index("09-fresh-pause-control"), events.index("10-fullscreen-paused"))
+                    self.assertLess(events.index("10-fullscreen-paused"), events.index("11-fullscreen-still-paused"))
                     self.assertLess(events.index("14-normal-player-restored"), events.index("owned-3"))
                     self.assertLess(events.index("ready-3"), events.index("15-normal-return-home"))
 
-    def test_fast_observer_waits_for_actual_advance_before_tapping_fresh_pause(self):
+    def test_fast_observer_waits_for_actual_advance_without_pausing_recorded_playback(self):
         with tempfile.TemporaryDirectory() as directory:
             runner = self.runner(Path(directory))
             runner.output.mkdir()
@@ -363,11 +375,10 @@ class OwnershipTests(unittest.TestCase):
             runner.observe = Mock(side_effect=snapshots)
             runner.tap = Mock()
             with patch("tools.android_lifecycle_runtime.run.time.sleep"):
-                advanced = runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
+                advanced = runner.wait_for_fullscreen_advance(full, Playback(10, 90, False))
             self.assertEqual(advanced, 2)
             self.assertEqual(runner.observe.call_count, 3)
-            runner.tap.assert_called_once()
-            self.assertEqual(runner.tap.call_args.args[0].get("bounds"), "[120,700][200,780]")
+            runner.tap.assert_not_called()
 
     def test_elapsed_deadline_cannot_replace_native_advancement_or_send_pause(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -380,7 +391,7 @@ class OwnershipTests(unittest.TestCase):
             with patch("tools.android_lifecycle_runtime.run.time.sleep", side_effect=lambda _: clock.__setitem__(0, 36)), \
                     patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
                     self.assertRaisesRegex(RuntimeFailure, "has not advanced"):
-                runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
+                runner.wait_for_fullscreen_advance(full, Playback(10, 90, False))
             runner.tap.assert_not_called()
 
     def test_cold_observer_has_one_bounded_budget_and_late_advance_is_rejected(self):
@@ -399,12 +410,87 @@ class OwnershipTests(unittest.TestCase):
                 with patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
                         patch("tools.android_lifecycle_runtime.run.time.sleep"):
                     if returned_at < 35:
-                        self.assertEqual(runner.pause_after_fullscreen_advance(full, Playback(10, 90, False)), 2)
-                        runner.tap.assert_called_once()
+                        self.assertEqual(runner.wait_for_fullscreen_advance(full, Playback(10, 90, False)), 2)
+                        runner.tap.assert_not_called()
                     else:
                         with self.assertRaisesRegex(RuntimeFailure, "deadline"):
-                            runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
+                            runner.wait_for_fullscreen_advance(full, Playback(10, 90, False))
                         runner.tap.assert_not_called()
+
+    def test_post_recording_pause_uses_new_hierarchy_after_revealing_hidden_controls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.output.mkdir()
+            baseline = display_state(window())
+            runner.last_window = window(width=2400, height=1080, rotation=1, bars=False)
+            runner.pid = Mock(return_value="123")
+            hidden = "<hierarchy>" + node("Video", (0, 0, 2400, 1080), clickable=True) + "</hierarchy>"
+            fresh = fullscreen_player(12, (340, 700, 420, 780))
+            runner.observe = Mock(side_effect=[hidden, fresh])
+            runner.adb.run = Mock(return_value=subprocess.CompletedProcess([], 0, b"", b""))
+            runner.tap = Mock()
+            runner.pause_after_recording("09-fresh-pause-control", baseline, fullscreen=True, app_pid="123")
+            self.assertEqual(runner.observe.call_count, 2)
+            self.assertEqual(runner.adb.run.call_args.args[:3], ("shell", "input", "tap"))
+            self.assertEqual(runner.tap.call_args.args[0].get("bounds"), "[340,700][420,780]")
+            self.assertEqual((runner.output / "09-fresh-pause-control.xml").read_text(), fresh)
+
+    def test_fresh_normal_pause_control_needs_no_extra_reveal_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.output.mkdir()
+            baseline = display_state(window())
+            runner.last_window = window()
+            runner.pid = Mock(return_value="123")
+            fresh = "<hierarchy>" + "".join((
+                node("sync-fixture.mp4", (100, 100, 300, 150)),
+                node("0:12", (100, 160, 200, 210)),
+                node("1:30", (200, 160, 300, 210)),
+                node("timeline", (100, 220, 900, 250), class_name="android.widget.SeekBar"),
+                node("Pause", (120, 300, 220, 400), clickable=True),
+            )) + "</hierarchy>"
+            runner.observe = Mock(return_value=fresh)
+            runner.adb.run = Mock()
+            runner.tap = Mock()
+            runner.pause_after_recording("04-fresh-pause-control", baseline,
+                                         fullscreen=False, app_pid="123")
+            runner.observe.assert_called_once()
+            runner.adb.run.assert_not_called()
+            self.assertEqual(runner.tap.call_args.args[0].get("bounds"), "[120,300][220,400]")
+
+    def test_post_recording_pause_rejects_changed_owner_or_already_paused_ui(self):
+        for changed_owner in (True, False):
+            with self.subTest(changed_owner=changed_owner), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                runner.output.mkdir()
+                baseline = display_state(window())
+                runner.last_window = window()
+                runner.pid = Mock(return_value="456" if changed_owner else "123")
+                fresh = "<hierarchy>" + node("Play", (100, 100, 200, 200), clickable=True) + "</hierarchy>"
+                runner.observe = Mock(return_value=fresh)
+                runner.tap = Mock()
+                runner.adb.run = Mock()
+                with self.assertRaisesRegex(RuntimeFailure, "process changed|playback stopped"):
+                    runner.pause_after_recording("04-fresh-pause-control", baseline,
+                                                 fullscreen=False, app_pid="123")
+                runner.tap.assert_not_called()
+                runner.adb.run.assert_not_called()
+
+    def test_missing_fullscreen_surface_cannot_receive_a_reveal_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.output.mkdir()
+            baseline = display_state(window())
+            runner.last_window = window(width=2400, height=1080, rotation=1, bars=False)
+            runner.pid = Mock(return_value="123")
+            runner.observe = Mock(return_value="<hierarchy/> ")
+            runner.adb.run = Mock()
+            runner.tap = Mock()
+            with self.assertRaisesRegex(RuntimeFailure, "surface"):
+                runner.pause_after_recording("09-fresh-pause-control", baseline,
+                                             fullscreen=True, app_pid="123")
+            runner.adb.run.assert_not_called()
+            runner.tap.assert_not_called()
 
 
 class IdleVisualEvidenceTests(unittest.TestCase):

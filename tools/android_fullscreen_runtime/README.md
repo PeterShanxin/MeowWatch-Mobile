@@ -7,6 +7,13 @@ and original screenrecord validation. No integration-test bootstrap or productio
 testing hook is used; the video is the reviewed 90-second fixture served locally
 to the AVD. Python tests alone do not prove Android fullscreen behavior.
 
+Manual dispatch may enable `fullscreen_diagnostics`. This compiles the normal
+app with `MEOWWATCH_FULLSCREEN_DIAGNOSTICS=true` and logs fixed control-state
+booleans, input modality and timer events to Logcat. It changes no UI, state or
+acceptance assertion, and logs no media titles, URLs or user text. The default
+and PR builds keep it disabled. Label diagnostic footage accordingly and rerun
+without the flag for final submission evidence.
+
 The native UI opens the fixture and exercises normal Play/Pause, then taps
 `Enter full screen`. The acceptance decision requires **actual** `statusBars`
 and `navigationBars` `visible=false` in Display 0's `WindowInsetsStateController`.
@@ -63,9 +70,14 @@ the helper is stopped has a single 35-second caller deadline, allowing its bound
 20-second cold setup, eight-second traversal, two-second transfer and ownership
 reads. The original 10-second caller deadline in tablet run `35958877057` expired
 as the helper returned its completed tree. Late results still fail, and no
-additional tap or sleep is used. A bounded observation must show the real media timeline
-advancing by at least two seconds before the runner taps Pause using that fresh
-hierarchy. Pause must then keep the position stable. The first system Back must return to the normal player with
+additional tap or sleep is used before this cold observation. A bounded observation must show the real media
+timeline advancing by at least two seconds while the fullscreen recorder is
+still owned. The runner completes strict video post-roll and finalized-file
+verification while playback continues. It then takes a new native hierarchy,
+reveals hidden controls with one center tap only if needed, and taps Pause at
+that new position. The pre-stop hierarchy cannot supply post-stop tap
+coordinates. Pause must then keep the position stable across two native
+UI/window/PNG reads. The first system Back must return to the normal player with
 the same app PID, fixture and paused position. Both real system bars and the
 original orientation policy/geometry must return. A second Back returns home.
 No room, media or playback state is injected through a test channel.
@@ -75,8 +87,14 @@ restored player/home. Each recorder is stopped and its ownership cleared **befor
 an orientation-changing action; the next segment uses the current rotated display
 dimensions, not the unrotated `wm size`. The first two moving-playback segments
 retain complete live-picture readiness, bounded post-roll, full decoding and
-Android frame-clock coverage through their required final observations. Rotation
-gaps are explicit and are not claimed as continuous footage. Original PNGs are uncropped
+Android frame-clock coverage through their required moving observations:
+`04-normal-advanced` and `09-controls-shown-and-native-advanced`. The normal
+recorder finishes before the fresh Pause action and `05-before-fullscreen`
+paused native XML/window/PNG. The fullscreen recorder finishes before its fresh
+Pause action and the `10-fullscreen-paused` / `11-fullscreen-still-paused`
+native XML/window/PNG stability proof. These static snapshots are not claimed
+as MP4 frame coverage. Rotation gaps are explicit and are not claimed as
+continuous footage. Original PNGs are uncropped
 and must exactly match the native display dimensions. UI XML, complete window
 dumps, screenshots, full logcat, media provenance and cleanup results are retained.
 Visible accessibility bounds are checked against the physical display; maintainers
@@ -96,8 +114,10 @@ and Back.
 The dispatch's host/device clock is retained separately from media readiness.
 The callback is not proof that its button-tap instant appears in the MP4. The
 actual first video-frame time is retained. The first two segments require
-finalized frame-clock coverage for their first post-action and final observations
-(`03-normal-playing`, `08-controls-idle-visual-review`). The third is stopped
+finalized frame-clock coverage for their first post-action and final moving
+observations (`03-normal-playing` and `04-normal-advanced`,
+`08-controls-idle-visual-review` and `09-controls-shown-and-native-advanced`).
+The third is stopped
 after the fresh Home evidence and verifies the owned finalized device file,
 matching pulled bytes and SHA-256, full video decoding, unique native Winscope
 frame clock and a frame after the device clock read immediately before the one
@@ -121,6 +141,14 @@ frame clock, wrong owner, stale Home observation, decode error or file mismatch.
 maintainer must inspect the original first and last video frames against the
 retained normal-player and Home PNGs and record that decision separately before
 claiming the video visibly shows the transition.
+
+Phone run `35961400943` exposed the old normal-segment boundary: after Pause,
+the video stopped producing frames before the static `05-before-fullscreen`
+snapshot. The same run's tablet job reached `11-fullscreen-still-paused` but
+the second MP4 ended 3.75 seconds short of its measured live-recording span.
+The moving-phase boundaries above keep the unchanged duration, post-roll,
+frame-clock, decoding, hash and ownership checks, and require a new native gate
+before acceptance.
 
 The runner admits only the named `meowwatch_fullscreen_<phone|tablet>_*` API 35
 emulator before any install/removal. It never changes global orientation, display

@@ -87,7 +87,12 @@ Check `36066044671` caught an additional old-Play regression when that in-flight
 load succeeds: resetting the attempt budget must not reset the fresh-pause
 requirement. The guard now remains independent of the attempt budget, including
 healthy network sources after rejoin. All 16 bridge cases remain required;
-the next hosted check is pending. The native gate
+Check `36066493312` stops in analysis because the new healthy-source assertion
+was placed outside its scenario loop. Its placement is corrected; no app code
+changed for that correction. A separate two-socket-client regression now covers
+a settled non-buffering native interruption pausing Together, suppressing a
+native auto-resume, and accepting explicit Play again. Hosted verification is
+pending; that socket regression does not prove Android focus delivery. The native gate
 now requires ready sources and original failed/loading/ready controller evidence
 for any replacement; healthy controller identity, room and quota stay strict.
 The lightweight network/setup contract suite passes 63 tests with one platform

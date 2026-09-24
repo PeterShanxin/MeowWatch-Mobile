@@ -74,7 +74,7 @@ Every shot needs a unique `id`, `kind`, `title` and `caption`:
 
 Shots appear in array order with direct cuts. Every duration must be a whole
 number of 30 fps frames; the entire film must be strictly below 120 seconds.
-The current [review edit](../../docs/DEMO_SCRIPT.md) is 116 seconds. A single shot can last at most
+The current [review edit](../../docs/DEMO_SCRIPT.md) is 100 seconds. A single shot can last at most
 60 seconds. Unsupported shot fields, acceleration, missing files, hash mismatch,
 unexpected dimensions, rotated metadata, non-square pixels, invalid source
 ranges, unused sources, mismatched paired runs/builds and duplicate paired

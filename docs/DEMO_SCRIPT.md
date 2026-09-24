@@ -1,6 +1,6 @@
 # MeowWatch Mobile — demo script
 
-## Current edit: 116-second submission candidate
+## Current edit: 100-second submission candidate
 
 The [edit decision list](demo/submission-candidate.edl.json) and
 [source pins](demo/submission-candidate.edl.sources.json) assemble fresh native
@@ -12,7 +12,8 @@ These source runs share the tablet layout fix at 6e46041; 9a3fc05 changes the
 integration assertions, not app code. Together/purchase use development
 runtimes; Local and fullscreen use normal release APKs. They are separate
 recorded journeys, not one uninterrupted take or one binary. The later history
-restoration fix at 5347142 has separate test evidence and is not in these clips.
+restoration fix at 5347142 and rate-correction fix at 0454176 have separate
+test evidence and are not in these clips.
 
 Rendering and strict decoding run on hosted CI. The development computer only
 downloads the small review package and displays static original/output frames.
@@ -36,12 +37,12 @@ sit outside the complete original capture; no app pixels are covered or cropped.
 | 50–63 | local 52–65 | Saved 0:45 position returns paused, then explicit Play. |
 | 63–69 | fullscreen 10–16 | Actual handset landscape playback with hidden controls. |
 | 69–73 | paywall 50–54 | Free-session allowance and purchase entry. |
-| 73–89 | purchase 16–32 | Native Test Store dialog and Plus activation. |
-| 89–93 | purchase 34–38 | Restore for the same active customer in Settings. |
-| 93–97 | purchase 39–43 | Select Glass Aurora. |
-| 97–101 | purchase 58–62 | Movie night premium reaction. |
-| 101–111 | paid_second 7–17 | A second Plus session in Cinema Noir. |
-| 111–116 | Branded graphic | Android, open source, license and repository. |
+| 73–79 | purchase 23–29 | Native Test Store dialog and Plus activation. |
+| 79–83 | purchase 34–38 | Restore for the same active customer in Settings. |
+| 83–87 | purchase 39–43 | Select Glass Aurora. |
+| 87–91 | purchase 58–62 | Movie night premium reaction. |
+| 91–95 | paid_second 6–10 | A second Plus session in Cinema Noir. |
+| 95–100 | Branded graphic | Android, open source, license and repository. |
 
 ## Pinned original sources
 
@@ -102,6 +103,12 @@ includes a source reopening. It remains a review candidate needing editorial
 refinement and full-motion acceptance. The current network regression remains
 open in STATUS; a passing source journey does not cancel a separate failed
 acceptance run.
+
+The 100-second revision shortens the native Test Store dialog excerpt and
+ends the second-room excerpt before the separate source-reopening action.
+Both remain uninterrupted 1× clips within their original recordings. The
+116-second version and its findings remain retained. Rendering and sampled
+review of this new edit are pending; full-motion acceptance is still required.
 
 - The Local excerpt begins after the brief Home/Continue Watching card and
   shows the restored pause at 0:45, then explicit Play. Process restart and the

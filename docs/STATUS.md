@@ -8,20 +8,20 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
-| 1 | Clean checkout builds and installs | Verified on emulators | 6e46041 passes normal API 29/35 debug and API 35 release clean install in hosted run 36037410230. These are normal lib/main.dart APKs. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36041060075 at 5347142 passes Gitleaks 8.30.1 with zero findings in 541 tracked files and 157 scanned commits. Final artifacts and repository closeout remain open |
+| 1 | Clean checkout builds and installs | Verified on emulators | fdebec3 passes normal API 29/35 debug and API 35 release clean install in hosted run 36044617989. These are normal lib/main.dart APKs. Physical-device acceptance remains separate |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36054666023 at 0454176 passes the secret scan, formatting, analysis, 782 app tests, 87 Nearby tests and 14 platform tests. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators; slow-start regression open | 9a3fc05 Together 36037966143 passes all 26 host and 25 guest stages, including repeated two-way controls. Native settled positions match at 9,230, 53,361 and 56,062 ms. Separate 6e46041 network attempts fail initial playback convergence; that failure remains open below. Position agreement does not establish identical decoded frames or physical hardware |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators; debug recovery follow-up open | fdebec3 Together 36053642428 passes all 26 host and 25 guest stages with repeated two-way controls. Settled native positions match at 12,416, 53,361 and 55,242 ms. Profile network 36055097185 passes at 0454176. Debug network restoration is being verified separately; position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6e46041 normal release lifecycle 36037410201 and foreground audio focus 36037410061 pass. Network 36037410071 fails both attempts before radio interruption; initial decoder delay and convergence remain under investigation. Earlier f16b148 debug and ff8a559 profile recovery passes remain historical evidence, not a substitute for the current failure. Physical and transient-focus acceptance remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | fdebec3 normal release lifecycle and foreground audio focus pass. Profile network 36055097185 at 0454176 passes real radio loss, automatic pause, no-autoplay rejoin and explicit replay/Pause/Seek. The debug fixture previously created a second cellular handover outage; staged Wi-Fi restoration is under native verification. Physical and transient-focus acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. 56fcd32 SAF relaunch 36039255967 retains the real content grant and restores 8 seconds. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | 6e46041 Android Nearby 36037410146 passes real pinned TLS pairing/control/revocation and protected persistence. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 6e46041 production Test Store 36037410075 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore. Same-customer relaunch/expiry 36037410042 passes. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
-| 10 | Correct daily quota and session continuity | Verified in native flows and tests | 6e46041 runtime matrix and purchase pass one free plus two distinct Plus sessions. 9a3fc05 Together verifies shared links, media recovery and history do not recharge; a new room consumes the new host allowance while joining stays free. The current failed network run has no accepted interruption stage |
+| 10 | Correct daily quota and session continuity | Verified in native flows and tests | Native purchase verifies one free plus two distinct Plus sessions. fdebec3 Together verifies joining, shared links, media recovery and history do not recharge. Profile network 36055097185 retains the original quota ledger across a real outage and reconnect |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | 6e46041 passes five viewport journeys and normal-release phone/tablet fullscreen. 9a3fc05 native Together verifies complete player/reaction bounds with tablet keyboard inset; original frame review shows the full heart and video. Source frame hashes are verified in hosted reviews. Final film motion and physical checks remain open; the SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
 | 13 | No placeholders, dead ends or silent failures | Partial | 6e46041 first-use/layout and purchase flows pass. 9a3fc05 Together verifies readable media errors, Choose another video recovery and shared-link confirmation. 5347142 makes same-source restoration visible and disables stale controls; native journey 36041063625 passes. Final-film inspection remains open |
-| 14 | Clean-install full demo rehearsal | Partial | 9a3fc05 recording-display Together passes all 26 host and 25 guest stages; standard-layout Together 36041063625 at 5347142 also passes. The current network regression fix and new 116-second edit remain under verification; the previous 104-second candidate is retained but unaccepted |
+| 14 | Clean-install full demo rehearsal | Partial | fdebec3 Together 36053642428 passes all 26 host and 25 guest stages on standard phone/tablet layouts. Profile network 36055097185 passes. The staged debug radio fixture and 100-second final edit remain under verification; prior film candidates are retained |
 | 15 | Shipaton submission confidence | Partial | Brand kit and original-size submission screenshot are prepared. Final under-two-minute film, full rehearsal, physical gates and remaining eligibility/legal checks remain open |
 
 ## Current verification
@@ -77,7 +77,9 @@ layouts and smaller native recording output. Settled native positions match at
 restart is required. The routine Together workflow now defaults to this compact
 capture without changing UI geometry or acceptance checks. Hosted original-frame
 review `36056723226` strictly decodes both sources and all 95 exported PNG hashes
-match. Sampled visual review is in progress; source held-frame gaps remain visible.
+match. Inspected originals show complete tablet video/controls with the keyboard
+open, readable shared-link confirmation and history resumed at 1:07. Source
+buffering and held-frame gaps remain visible; this is sampled visual evidence.
 
 The 116-second film renders in `36044649586` and strictly decodes all 3,480
 frames. SHA-256:
@@ -86,8 +88,10 @@ All seven native source pins match and all 29 exported samples are inspected.
 Framing and captions fit; visible buffering, held frames and a source reopening
 in the closing room excerpt still need editorial review. This is not final
 motion acceptance or proof of identical decoded frames between devices.
-Local review uses static PNGs only; no build, emulator or video decoder runs
-on the user's computer.
+The next edit is 100 seconds: it shortens the Test Store dialog excerpt and
+ends the second-room shot before a separate source reopening. It is awaiting
+cloud render and review. Local review uses static PNGs only; no build, emulator
+or video decoder runs on the user's computer.
 
 Hosted Check `36043940260` at `1052a01` passes **780 app, 87 Nearby and 14
 platform tests**, formatting, analysis, media contracts and the secret audit.
@@ -359,13 +363,12 @@ remain open. Historical runs and asset provenance are preserved in
 
 ## Live development recording
 
-At September 24 18:37 UTC the current bounded recorder has 567 persisted chunks,
-about 108 MB saved and no unflushed tail. The one-image showcase service uses
-about 29 MiB at BelowNormal priority. The scoped process check finds no local
-Dart, Java, FFmpeg or Android emulator. The selected image is the unchanged
-native tablet capture from `36037966143`, showing the complete player and heart;
-it is visibly labelled captured evidence, not live Android. Historical recording
-gaps below remain part of the record.
+At September 24 20:48 UTC the current bounded two-fps recorder has about 139 MB
+persisted and no unflushed tail. The 20:44 UTC resource check finds about 10.5 GiB
+free RAM and no local Dart, Java, FFmpeg or Android emulator. The selected image
+is a single static landscape frame from the 116-second film candidate; it is
+labelled captured evidence, not live Android. Historical recording gaps below
+remain part of the record.
 
 Following two reported machine freezes, local heavy work is serialized and
 Android builds, emulator runs and full regression suites use hosted CI. No

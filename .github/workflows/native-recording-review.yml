@@ -11,7 +11,7 @@ on:
       kind:
         description: 'Artifact format to inspect without starting Android'
         type: choice
-        options: [fullscreen, together, purchase]
+        options: [fullscreen, together, purchase, lifecycle]
         default: fullscreen
   push:
     paths:
@@ -53,6 +53,7 @@ jobs:
             fullscreen) pattern='android-fullscreen-*' ;;
             together) pattern='production-phone-tablet-*' ;;
             purchase) pattern='production-purchase-*' ;;
+            lifecycle) pattern='android-native-lifecycle-*' ;;
             *) exit 1 ;;
           esac
           gh run download "$SOURCE_RUN" --pattern "$pattern" --dir build/source-artifacts
@@ -66,6 +67,8 @@ jobs:
             python3 tools/native_recording_review/together.py --artifact build/source-artifacts --output build/recording-review/together
           elif [[ "$REVIEW_KIND" == purchase ]]; then
             python3 -m tools.native_recording_review.purchase --artifact build/source-artifacts --output build/recording-review/purchase
+          elif [[ "$REVIEW_KIND" == lifecycle ]]; then
+            python3 tools/native_recording_review/extract.py --artifact build/source-artifacts/android-native-lifecycle-1/android-lifecycle-artifacts --output build/recording-review/lifecycle
           else
             for variant in phone tablet; do
               artifact="build/source-artifacts/android-fullscreen-${variant}-1/android-fullscreen-artifacts"

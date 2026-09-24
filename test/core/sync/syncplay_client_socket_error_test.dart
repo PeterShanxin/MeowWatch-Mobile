@@ -103,15 +103,17 @@ void main() {
           livenessTimeout: const Duration(seconds: 10),
           onLog: logs.add,
           shouldLog: ({required verboseOnly}) => !verboseOnly,
-          secureUpgrade: (plain, {required host}) => SecureSocket.secure(
-            plain,
-            host: host,
-            context: SecurityContext(withTrustedRoots: false),
-            onBadCertificate: (cert) => constantTimeEqual(
-              sha256.convert(cert.der).bytes,
-              identity.certificateSha256,
-            ),
-          ),
+          secureUpgrade: (plain, subscription, {required host}) =>
+              RawSecureSocket.secure(
+                plain,
+                subscription: subscription,
+                host: host,
+                context: SecurityContext(withTrustedRoots: false),
+                onBadCertificate: (cert) => constantTimeEqual(
+                  sha256.convert(cert.der).bytes,
+                  identity.certificateSha256,
+                ),
+              ),
         );
         client.connectionState.listen((state) => statuses.add(state.status));
         addTearDown(() async {

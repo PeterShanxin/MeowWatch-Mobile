@@ -6,6 +6,7 @@ import 'dart:typed_data';
 import 'authority.dart';
 import 'lan.dart';
 import 'primitives.dart';
+import 'raw_secure_transport.dart';
 import 'tls.dart';
 import 'wire.dart';
 
@@ -73,7 +74,8 @@ final class NearbyServer {
       throw const NearbyException('invalid_argument');
     }
     _closureSubscription = authority.connectionsToClose.listen((id) {
-      _pending.remove(id)?.destroy();
+      final pending = _pending.remove(id);
+      if (pending != null) unawaited(pending.close());
       _connections[id]?.close();
     });
     _eventSubscription = handler.events.listen(
@@ -113,7 +115,7 @@ final class NearbyServer {
     int port = 0,
     Duration commandTimeout = const Duration(seconds: 10),
   }) async {
-    final listener = await ServerSocket.bind(
+    final listener = await RawServerSocket.bind(
       subnet.localAddress.toString(),
       port,
       shared: false,
@@ -138,12 +140,12 @@ final class NearbyServer {
   /// Explicitly nonshipping injection for portable loopback socket tests.
   /// Production callers must use [bind], which fixes both address and LAN policy.
   factory NearbyServer.forTesting({
-    required ServerSocket listener,
+    required RawServerSocket listener,
     required TlsIdentity identity,
     required NearbyAuthority authority,
     required NearbyCommandHandler handler,
     required Future<bool> Function(PendingApproval approval) approvePairing,
-    required String Function(Socket socket) peerAddressForTesting,
+    required String Function(RawSocket socket) peerAddressForTesting,
     Duration commandTimeout = const Duration(seconds: 10),
   }) => NearbyServer._(
     listener,
@@ -156,17 +158,17 @@ final class NearbyServer {
     commandTimeout,
   );
 
-  final ServerSocket _listener;
+  final RawServerSocket _listener;
   final TlsIdentity identity;
   final NearbyAuthority authority;
   final NearbyCommandHandler handler;
   final Future<bool> Function(PendingApproval approval) approvePairing;
-  final String Function(Socket) _peerAddress;
+  final String Function(RawSocket) _peerAddress;
   final void Function(String) _peerAllowed;
   final Duration commandTimeout;
-  final _pending = <String, Socket>{};
+  final _pending = <String, RawSocket>{};
   final _connections = <String, _ServerConnection>{};
-  late final StreamSubscription<Socket> _listenerSubscription;
+  late final StreamSubscription<RawSocket> _listenerSubscription;
   late final StreamSubscription<String> _closureSubscription;
   late final StreamSubscription<NearbyServerEvent> _eventSubscription;
   late final Timer _timer;
@@ -174,35 +176,59 @@ final class NearbyServer {
   int get port => _listener.port;
   InternetAddress get address => _listener.address;
 
-  Future<void> _accept(Socket raw) async {
+  Future<void> _accept(RawSocket raw) async {
     String? id;
     try {
       if (_closing != null) {
-        raw.destroy();
+        unawaited(raw.close());
         return;
       }
       final peer = _peerAddress(raw);
       _peerAllowed(peer);
       id = authority.openConnection(peerAddress: peer);
       _pending[id] = raw;
-      final socket = await SecureSocket.secureServer(
+      final handshake = RawSecureSocket.secureServer(
         raw,
         identity.createServerContext(),
         supportedProtocols: [nearbyAlpn],
-      ).timeout(const Duration(seconds: 5));
+      );
+      var abandoned = false;
+      // Future.timeout does not cancel the handshake. Keep the RawSocket so
+      // both the deadline and stop can close the actual underlying connection.
+      final socket = await handshake
+          .then((secure) {
+            if (abandoned || !_pending.containsKey(id) || _closing != null) {
+              unawaited(secure.close());
+              throw const NearbyException('not_connected');
+            }
+            return secure;
+          })
+          .timeout(
+            const Duration(seconds: 5),
+            onTimeout: () {
+              abandoned = true;
+              unawaited(raw.close());
+              throw TimeoutException('TLS handshake timed out');
+            },
+          );
       if (!_pending.containsKey(id) ||
           _closing != null ||
           socket.selectedProtocol != nearbyAlpn) {
-        socket.destroy();
+        unawaited(socket.close());
+        unawaited(raw.close());
         authority.closeConnection(id);
         return;
       }
       _pending.remove(id);
-      final connection = _ServerConnection(this, id, socket);
+      final connection = _ServerConnection(
+        this,
+        id,
+        RawSecureTransport(raw, socket),
+      );
       _connections[id] = connection;
       connection.listen();
     } catch (_) {
-      raw.destroy();
+      unawaited(raw.close());
       if (id != null) {
         _pending.remove(id);
         authority.closeConnection(id);
@@ -215,7 +241,7 @@ final class NearbyServer {
     _timer.cancel();
     authority.stop();
     for (final socket in _pending.values) {
-      socket.destroy();
+      unawaited(socket.close());
     }
     _pending.clear();
     for (final connection in _connections.values.toList()) {
@@ -251,7 +277,7 @@ final class _ServerConnection {
   _ServerConnection(this.server, this.id, this.socket);
   final NearbyServer server;
   final String id;
-  final SecureSocket socket;
+  final RawSecureTransport socket;
   final _clock = Stopwatch()..start();
   final _input = StreamController<List<int>>();
   final _inboundSequence = FrameSequence();
@@ -442,7 +468,7 @@ final class _ServerConnection {
       'deviceSecret': encodeBytes(accepted.credential.secret),
       'serverProof': encodeBytes(accepted.serverProof),
     });
-    close();
+    await _closeAfterReceipt();
   }
 
   Future<void> _receiveActive(NearbyFrame frame) async {
@@ -536,14 +562,16 @@ final class _ServerConnection {
         _check();
         await _sendActive({'type': 'result', 'id': commandId, ...result});
         if (command.method == 'controller.detach') {
-          close();
+          await _closeAfterReceipt();
           return;
         }
         if (result['ok'] == true && command.method != 'state.get') {
           await _snapshot();
         }
         final error = result['error'];
-        if (error is Map && error['code'] == 'command_timeout') close();
+        if (error is Map && error['code'] == 'command_timeout') {
+          await _closeAfterReceipt();
+        }
       } catch (error) {
         // Complete pending duplicate waiters without retaining uncaught errors.
         if (completion != null && !completion.isCompleted) {
@@ -637,7 +665,7 @@ final class _ServerConnection {
     // the unauthorised read side, and bound final destruction independently.
     _receiptCloseTimer = Timer(const Duration(seconds: 3), close);
     try {
-      await socket.close();
+      await socket.shutdownOutput();
     } catch (_) {
       close();
     }
@@ -753,7 +781,7 @@ final class _ServerConnection {
             .timeout(const Duration(seconds: 1))
             .then(
               (_) {
-                close();
+                unawaited(_closeAfterReceipt());
               },
               onError: (Object _) {
                 close();

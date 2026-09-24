@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:meta/meta.dart';
+import 'package:nearby_bridge/transport.dart';
 
 import '../chat/chat_signals.dart';
 import 'connection_watchdog.dart';
@@ -16,10 +17,78 @@ import 'sync_follow.dart';
 import 'sync_messages.dart';
 import 'syncplay_constants.dart';
 
-/// Upgrades a connected plaintext [Socket] to TLS for [host]. Injectable only
-/// so tests can reach the post-handshake branch; see [SyncplayClient].
+/// Upgrades the retained raw connection and its active read subscription.
+/// Tests may supply an exact certificate pin; production uses platform trust.
 typedef SecureUpgrade =
-    Future<Socket> Function(Socket plain, {required String host});
+    Future<RawSecureSocket> Function(
+      RawSocket plain,
+      StreamSubscription<RawSocketEvent> subscription, {
+      required String host,
+    });
+
+abstract class _ByteTransport {
+  StreamSubscription<Uint8List> listen(
+    void Function(Uint8List) onData, {
+    Function? onError,
+    void Function()? onDone,
+  });
+  void add(List<int> bytes);
+  Future<void> flush();
+  Future<void> close();
+  void destroy();
+}
+
+final class _RawTlsByteTransport implements _ByteTransport {
+  _RawTlsByteTransport(RawSocket raw, RawSecureSocket secure)
+    : _transport = RawSecureTransport(raw, secure);
+
+  final RawSecureTransport _transport;
+
+  @override
+  StreamSubscription<Uint8List> listen(
+    void Function(Uint8List) onData, {
+    Function? onError,
+    void Function()? onDone,
+  }) => _transport.listen(onData, onError: onError, onDone: onDone);
+
+  @override
+  void add(List<int> bytes) => _transport.add(bytes);
+
+  @override
+  Future<void> flush() => _transport.flush();
+
+  @override
+  Future<void> close() => _transport.close();
+
+  @override
+  void destroy() => _transport.destroy();
+}
+
+/// Keeps the existing socket-based debug hooks without a second shipping path.
+final class _DebugByteTransport implements _ByteTransport {
+  _DebugByteTransport(this._socket);
+
+  final Socket _socket;
+
+  @override
+  StreamSubscription<Uint8List> listen(
+    void Function(Uint8List) onData, {
+    Function? onError,
+    void Function()? onDone,
+  }) => _socket.listen(onData, onError: onError, onDone: onDone);
+
+  @override
+  void add(List<int> bytes) => _socket.add(bytes);
+
+  @override
+  Future<void> flush() => _socket.flush();
+
+  @override
+  Future<void> close() => _socket.close();
+
+  @override
+  void destroy() => _socket.destroy();
+}
 
 /// Concrete SyncCore speaking the Syncplay text protocol over a TCP socket
 /// upgraded to TLS. One JSON object per line, terminated `\r\n`.
@@ -34,18 +103,16 @@ class SyncplayClient extends SyncCore {
     @visibleForTesting SecureUpgrade? secureUpgrade,
   }) : _secureUpgrade = secureUpgrade ?? _realSecureUpgrade;
 
-  /// Performs the STARTTLS upgrade of an already-connected plaintext socket.
-  /// Production is always [_realSecureUpgrade]; the seam exists so the
-  /// post-handshake branch can be covered without committing a private key as a
-  /// test fixture. The failure branch is covered against the real
-  /// [SecureSocket.secure].
+  /// The production upgrade uses the same raw socket retained for cancellation.
   final SecureUpgrade _secureUpgrade;
 
-  static Future<Socket> _realSecureUpgrade(
-    Socket plain, {
+  static Future<RawSecureSocket> _realSecureUpgrade(
+    RawSocket plain,
+    StreamSubscription<RawSocketEvent> subscription, {
     required String host,
-  }) => SecureSocket.secure(
+  }) => RawSecureSocket.secure(
     plain,
+    subscription: subscription,
     host: host,
     // Validate the chain and the hostname; never accept a certificate we
     // cannot verify. Rejection throws, and the caller fails the connection
@@ -80,7 +147,11 @@ class SyncplayClient extends SyncCore {
   /// server that refused this room (do not hop).
   bool get hasCompletedHello => _everLoggedIn;
 
-  Socket? _socket;
+  _ByteTransport? _socket;
+  // Retained independently while RawSecureSocket.secure is still pending. A
+  // pending TLS future may never settle when its peer stays silent; closing
+  // this original socket immediately releases the TCP connection.
+  RawSocket? _rawOwner;
   LineFramer _framer = LineFramer();
   final PingService _ping = PingService();
 
@@ -270,33 +341,28 @@ class SyncplayClient extends SyncCore {
   Future<void> _openConnection() async {
     // Tear down any prior socket and stale framer state before dialing again.
     _watchdog.stop();
-    _socket?.destroy();
-    _socket = null;
+    // RawSecureTransport reports shutdown synchronously to its listener.
+    // Invalidate that listener before closing the old transport.
+    final generation = ++_generation;
+    _destroyCurrentTransport();
     _framer = LineFramer();
     _loggedIn = false;
     _channelSecure = false;
-    final generation = ++_generation;
 
     try {
-      final plain = await Socket.connect(
+      final plain = await RawSocket.connect(
         _server,
         _port,
         timeout: const Duration(seconds: 10),
       );
-      // Socket reports transport errors on both its read stream and sink
-      // completion. The read listener owns failure/reconnect; handling that
-      // stream alone leaves this second error unhandled during radio loss.
-      plain.done.ignore();
       // A late dial that resolves after we already moved on: drop it.
       if (generation != _generation || _manualDisconnect) {
-        plain.destroy();
+        unawaited(plain.close());
         return;
       }
-      // Track the negotiation socket immediately so a mid-handshake teardown
-      // (watchdog trip or manual leave, before _bindSocket runs) can destroy it.
-      _socket = plain;
-      // Attempt TLS upgrade first (public servers require it).
-      _sendRaw(plain, encodeTlsRequest());
+      // RawSecureSocket takes over the active subscription during upgrade,
+      // but this original socket stays ours even while the future is pending.
+      _rawOwner = plain;
       emitConnectionState(
         const SyncConnectionState(status: SyncConnectionStatus.handshaking),
       );
@@ -358,9 +424,7 @@ class SyncplayClient extends SyncCore {
         'server/port or paste your friend\'s full code.';
     onLog?.call('connect failed before login: $message');
     _stopReconnecting();
-    final old = _socket;
-    _socket = null;
-    old?.destroy();
+    _destroyCurrentTransport();
     _loggedIn = false;
     _channelSecure = false;
     emitConnectionState(
@@ -379,6 +443,15 @@ class SyncplayClient extends SyncCore {
     _reconnectTimer = null;
   }
 
+  void _destroyCurrentTransport() {
+    final old = _socket;
+    final raw = _rawOwner;
+    _socket = null;
+    _rawOwner = null;
+    old?.destroy();
+    if (raw != null) unawaited(raw.close());
+  }
+
   void _scheduleReconnect({String? message}) {
     if (_manualDisconnect) return;
     _watchdog.stop();
@@ -386,9 +459,7 @@ class SyncplayClient extends SyncCore {
     _generation++;
     // Clear _socket BEFORE destroying so the destroyed socket's trailing
     // onDone/onError can't observe itself as the live socket.
-    final old = _socket;
-    _socket = null;
-    old?.destroy();
+    _destroyCurrentTransport();
     _loggedIn = false;
     _channelSecure = false;
     // Surface the gap to the UI so playback auto-pauses while we recover.
@@ -412,8 +483,8 @@ class SyncplayClient extends SyncCore {
     });
   }
 
-  /// Listen on the plain socket only long enough to receive the TLS answer,
-  /// then upgrade to a SecureSocket and attach the main listener.
+  /// Listen on the raw socket only long enough to receive the TLS answer,
+  /// then hand its active subscription to RawSecureSocket.
   ///
   /// STARTTLS is mandatory (#264). MeowWatch has no plaintext mode, so every
   /// outcome other than a completed handshake ends the attempt — the Hello that
@@ -423,12 +494,9 @@ class SyncplayClient extends SyncCore {
   /// than downgraded to, so an on-path attacker cannot strip the upgrade by
   /// answering "no".
   ///
-  /// The subscription is *paused* (not cancelled) before the handshake: a
-  /// `dart:io` [Socket] is single-subscription and cannot be listened to again
-  /// after a cancel, and pausing leaves the bytes buffered for
-  /// [SecureSocket.secure] to consume.
+  /// RawSecureSocket.secure requires the original subscription to be active.
   void _attachPlainForTlsNegotiation(
-    Socket plain,
+    RawSocket plain,
     String server,
     int generation,
   ) {
@@ -438,10 +506,58 @@ class SyncplayClient extends SyncCore {
     // Latched by the first outcome (upgrade or refusal); later bytes and the
     // socket's own close events are then irrelevant to this attempt.
     var settled = false;
-    late StreamSubscription<Uint8List> sub;
+    final request = Uint8List.fromList(
+      utf8.encode('${json.encode(encodeTlsRequest())}\r\n'),
+    );
+    var requestOffset = 0;
+    void writeRequest() {
+      if (settled || stale()) return;
+      try {
+        while (requestOffset < request.length) {
+          final count = plain.write(request, requestOffset);
+          if (count == 0) {
+            plain.writeEventsEnabled = true;
+            return;
+          }
+          requestOffset += count;
+        }
+        plain.writeEventsEnabled = false;
+      } on Object catch (e) {
+        settled = true;
+        if (stale()) return;
+        onLog?.call('tls negotiation write error: $e');
+        _onConnectionLost();
+      }
+    }
+
+    late StreamSubscription<RawSocketEvent> sub;
     sub = plain.listen(
-      (chunk) async {
-        if (settled) return;
+      (event) {
+        if (settled || stale()) return;
+        if (event == RawSocketEvent.write) {
+          writeRequest();
+          return;
+        }
+        if (event == RawSocketEvent.readClosed ||
+            event == RawSocketEvent.closed) {
+          settled = true;
+          if (stale()) return;
+          onLog?.call('tls negotiation closed before an answer');
+          _onConnectionLost();
+          return;
+        }
+        if (event != RawSocketEvent.read) return;
+        final Uint8List? chunk;
+        try {
+          chunk = plain.read();
+        } on Object catch (e) {
+          settled = true;
+          if (stale()) return;
+          onLog?.call('tls negotiation read error: $e');
+          _onConnectionLost();
+          return;
+        }
+        if (chunk == null) return;
         final List<String> lines;
         try {
           lines = _framer.addChunk(chunk);
@@ -478,34 +594,38 @@ class SyncplayClient extends SyncCore {
           if (decoded is TlsMessage && decoded.startTls) {
             settled = true;
             if (stale()) return;
-            sub.pause();
-            final Socket secure;
+            if (requestOffset != request.length) {
+              _failTlsNegotiation('STARTTLS answer before request completed');
+              return;
+            }
+            // Keep the subscription unpaused: the raw TLS upgrade takes it
+            // over, while _rawOwner remains available to cancel a hung future.
+            final Future<RawSecureSocket> handshake;
             try {
-              secure = await _secureUpgrade(plain, host: server);
+              handshake = _secureUpgrade(plain, sub, host: server);
             } on Object catch (e) {
-              // Chain, hostname or handshake rejected. The server said it would
-              // encrypt and then could not prove who it is — the one case where
-              // continuing in the clear would be most dangerous.
-              if (stale()) return;
               _failTlsNegotiation('TLS handshake failed: $e');
               return;
             }
-            // The upgraded socket has its own sink completion, including if
-            // this handshake finishes after its connection was abandoned.
-            secure.done.ignore();
-            // The await above can outlive a teardown — drop the upgraded socket
-            // rather than binding it over a newer attempt.
-            if (stale()) {
-              secure.destroy();
-              return;
-            }
-            // Drop any half-line left over from the plaintext phase so bytes
-            // chosen by whoever answered the negotiation cannot be spliced onto
-            // the front of the first decrypted frame.
-            _framer.reset();
-            _channelSecure = true;
-            _bindSocket(secure, generation);
-            _sendHello();
+            unawaited(
+              handshake.then(
+                (secure) {
+                  if (stale()) {
+                    unawaited(secure.close());
+                    unawaited(plain.close());
+                    return;
+                  }
+                  _framer.reset();
+                  _channelSecure = true;
+                  _bindSocket(_RawTlsByteTransport(plain, secure), generation);
+                  _sendHello();
+                },
+                onError: (Object e) {
+                  if (stale()) return;
+                  _failTlsNegotiation('TLS handshake failed: $e');
+                },
+              ),
+            );
             return;
           }
 
@@ -535,13 +655,13 @@ class SyncplayClient extends SyncCore {
         _onConnectionLost();
       },
       onDone: () {
-        if (settled) return;
+        if (settled || stale()) return;
         settled = true;
-        if (stale()) return;
         onLog?.call('tls negotiation closed before an answer');
         _onConnectionLost();
       },
     );
+    writeRequest();
   }
 
   /// STARTTLS ended without an encrypted channel. Terminal for the connection:
@@ -552,9 +672,7 @@ class SyncplayClient extends SyncCore {
   void _failTlsNegotiation(String detail) {
     onLog?.call('STARTTLS refused: $detail');
     _stopReconnecting();
-    final old = _socket;
-    _socket = null;
-    old?.destroy();
+    _destroyCurrentTransport();
     _loggedIn = false;
     _channelSecure = false;
     emitConnectionState(
@@ -567,7 +685,7 @@ class SyncplayClient extends SyncCore {
     );
   }
 
-  void _bindSocket(Socket socket, int generation) {
+  void _bindSocket(_ByteTransport socket, int generation) {
     _socket = socket;
     // onDone/onError can fire *after* we've already torn this socket down (a
     // destroy() during reconnect still flushes a final close event). Guard on
@@ -575,7 +693,10 @@ class SyncplayClient extends SyncCore {
     // — otherwise a stale callback would schedule a second one, double-counting
     // the backoff and resetting the timer.
     socket.listen(
-      _onChunk,
+      (chunk) {
+        if (generation != _generation) return;
+        _onChunk(chunk);
+      },
       onError: (Object e) {
         if (generation != _generation) return;
         onLog?.call('socket error: $e');
@@ -702,9 +823,7 @@ class SyncplayClient extends SyncCore {
         // reconnecting so that trailing close doesn't restart an endless loop
         // with the same bad credentials; leave the user on the actionable error.
         _stopReconnecting();
-        final old = _socket;
-        _socket = null;
-        old?.destroy();
+        _destroyCurrentTransport();
         _loggedIn = false;
         _channelSecure = false;
         emitConnectionState(
@@ -919,10 +1038,6 @@ class SyncplayClient extends SyncCore {
   List<Map<String, Object?>> get debugSentMessages =>
       List.unmodifiable(_debugSentMessages);
 
-  void _sendRaw(Socket socket, Map<String, Object?> message) {
-    socket.add(utf8.encode('${json.encode(message)}\r\n'));
-  }
-
   @override
   void announceFile({
     required String name,
@@ -987,7 +1102,7 @@ class SyncplayClient extends SyncCore {
   /// socket production ever binds is the upgraded one.
   @visibleForTesting
   void debugAttachSocket(Socket socket) {
-    _socket = socket;
+    _socket = _DebugByteTransport(socket);
     _channelSecure = true;
   }
 
@@ -1007,7 +1122,7 @@ class SyncplayClient extends SyncCore {
   /// exercised directly rather than only through the negotiation.
   @visibleForTesting
   void debugAttachUnsecuredSocket(Socket socket) {
-    _socket = socket;
+    _socket = _DebugByteTransport(socket);
     _channelSecure = false;
   }
 
@@ -1074,7 +1189,10 @@ class SyncplayClient extends SyncCore {
     final socket = _socket;
     if (socket == null) return;
     try {
-      await socket.flush().timeout(const Duration(milliseconds: 120));
+      await (() async {
+        await socket.flush();
+        await socket.close();
+      }()).timeout(const Duration(milliseconds: 120));
     } on Object {
       // Leaving is advisory; teardown must continue even if the packet cannot
       // be flushed to a half-open connection.
@@ -1091,9 +1209,7 @@ class SyncplayClient extends SyncCore {
     // can never complete (the peer is gone), which is exactly what wedged the
     // "Leave room" button. destroy() drops it immediately. Clear _socket first
     // so the trailing close event can't see itself as live.
-    final old = _socket;
-    _socket = null;
-    old?.destroy();
+    _destroyCurrentTransport();
     _loggedIn = false;
     _channelSecure = false;
     emitConnectionState(
@@ -1119,18 +1235,26 @@ class SyncplayClient extends SyncCore {
       _send(encodeChat(encodeLeaving()));
       if (old != null) {
         try {
-          await old.flush().timeout(flushTimeout);
+          await (() async {
+            await old.flush();
+            await old.close();
+          }()).timeout(flushTimeout);
         } catch (_) {}
       }
     }
     _loggedIn = false;
     _channelSecure = false;
+    final raw = _rawOwner;
     _socket = null;
+    _rawOwner = null;
     // Keep the close hook bounded and tiny. Destroying the socket or emitting
     // UI-facing disconnect state belongs to normal Leave/dispose; app close is
     // about to `exit(0)`, and doing native/network teardown inline has already
     // left hidden headless processes behind on Windows (#148).
-    if (old != null) Timer.run(old.destroy);
+    Timer.run(() {
+      old?.destroy();
+      if (raw != null) unawaited(raw.close());
+    });
   }
 
   @override
@@ -1141,8 +1265,6 @@ class SyncplayClient extends SyncCore {
     if (_loggedIn) await _announceLeaving();
     _loggedIn = false;
     _channelSecure = false;
-    final old = _socket;
-    _socket = null;
-    old?.destroy();
+    _destroyCurrentTransport();
   }
 }

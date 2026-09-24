@@ -8,6 +8,7 @@ import 'client_transport.dart';
 import 'invitation.dart';
 import 'lan.dart';
 import 'primitives.dart';
+import 'raw_secure_transport.dart';
 import 'tls.dart';
 import 'transcript.dart';
 import 'wire.dart';
@@ -91,6 +92,7 @@ final class NearbyClient {
     NearbyClientPhase.disconnected,
   );
   ClientTransport? _transport;
+  PinnedTlsAttempt? _opening;
   Timer? _heartbeat;
   FrameSequence _incoming = FrameSequence();
   Duration _lastInbound = Duration.zero;
@@ -132,11 +134,18 @@ final class NearbyClient {
     List<int> pin,
   ) async {
     subnet.requirePeer(endpoint.address.toString());
-    final socket = await connectPinnedTls(
+    final attempt = startPinnedTls(
       address: InternetAddress(endpoint.address.toString()),
       port: endpoint.port,
       certificateSha256: pin,
     );
+    _opening = attempt;
+    final RawSecureTransport socket;
+    try {
+      socket = await attempt.socket;
+    } finally {
+      if (identical(_opening, attempt)) _opening = null;
+    }
     if (_disposed || generation != _generation) {
       socket.destroy();
       throw const NearbyException('cancelled');
@@ -473,6 +482,8 @@ final class NearbyClient {
 
   void _drop() {
     _generation++;
+    _opening?.cancel();
+    _opening = null;
     _heartbeat?.cancel();
     _heartbeat = null;
     final transport = _transport;

@@ -17,7 +17,15 @@ See [the full protocol](../../docs/NEARBY_PROTOCOL.md) for product integration.
   before exact actual-certificate pin, validity and ALPN verification. This is a
   **transport primitive**: validate its numeric destination with `LanSubnet`
   first. It deliberately permits loopback for real socket tests. It never
-  provides a provisional/unpinned connection or plaintext fallback.
+  provides a provisional/unpinned connection or plaintext fallback. Its
+  five-second deadline covers TCP and TLS together and closes the retained raw
+  connection on timeout. `startPinnedTls` returns a cancellable attempt; the
+  client owns it until connection completes, including across disconnect,
+  disposal and replacement attempts.
+- `RawSecureTransport` (from `transport.dart`): the verified TLS byte stream
+  returned by the connection primitives. Pausing its subscription stops raw
+  reads; writes handle partial acceptance and propagate failure to pending
+  flushes. The caller owns its lifetime and must destroy it on abandonment.
 - `PairingInvitation`: explicit `encodeQr`/`decodeQr`, `manualCode`, and
   `decodeManualCode`. QR uses canonical base64url JSON under `meowwatch-pair:`;
   code uses canonical Crockford base32 (26 characters, optional spaces/hyphens).
@@ -97,6 +105,8 @@ package intentionally has no production in-memory or plaintext storage fallback.
   commands to 20/second and 16 pending, and cached command IDs to 128/2 minutes.
   Admission allows 10 arrivals/minute globally, 5 per address. Revocation and
   room replacement close the real socket and invalidate pending continuations.
+  The server retains each underlying raw socket during its TLS handshake, so
+  the five-second deadline and server shutdown release silent peers too.
   A command timeout returns an uncertain error and closes its lease/queue.
 - The desktop handler still owns redacted/coherent snapshot generation, a
   maximum 4 Hz for routine state events, and `checkActive()` around every await.
@@ -124,16 +134,20 @@ dart analyze --fatal-infos
 dart test
 ```
 
-On Windows ARM with Dart 3.12.0, **52 primitive/TLS/server tests pass**. Generated certificates have completed a real
-`SecureServerSocket`/`SecureSocket` JSON roundtrip. Negative socket tests reject
+Real socket tests on Windows ARM with Dart 3.12.0 exercise generated
+certificates and encrypted JSON roundtrips. Negative socket tests reject
 wrong pins, expired certificates, wrong ALPN and plaintext commands. No private
-keys are written to disk. This is desktop Dart VM loopback evidence, not Android
-or Android/cross-device LAN acceptance. Server socket tests additionally cover
+keys are written to disk. These desktop Dart VM tests use loopback and an
+explicit local virtual adapter; they do not establish Android or physical
+cross-device LAN behavior. Server socket tests additionally cover
 approval, authentication, forbidden early commands, command deduplication and
 ordering, revocation of real sockets, native timeouts, late work after room
 replacement/shutdown, pre-handshake admission, partial-frame deadlines and
-bounded output backlog. Client-specific tests are owned separately and are not
-included in this count.
+bounded output backlog. Client tests cover pending-handshake cancellation,
+replacement attempts and a complete pairing/authentication flow. The raw
+transport is exercised with a paused peer, 8 MiB of exact-content output and
+cancellation of a pending flush. See the main repository's delivery status for
+the latest verified counts and platform evidence.
 
 Two verified compatibility details: `basic_utils` 5.8.2's optional `keyUsage`
 encoder emits a BIT STRING rejected by BoringSSL; omit that optional extension

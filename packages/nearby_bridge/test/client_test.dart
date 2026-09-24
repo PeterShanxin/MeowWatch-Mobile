@@ -103,6 +103,36 @@ final class _Peer {
   }
 }
 
+final class _SilentTlsServer {
+  _SilentTlsServer(this.listener) {
+    subscription = listener.listen((socket) {
+      peer = socket;
+      accepted.complete();
+      socket.listen(
+        (_) {},
+        onError: (Object _) {
+          if (!disconnected.isCompleted) disconnected.complete();
+        },
+        onDone: () {
+          if (!disconnected.isCompleted) disconnected.complete();
+        },
+      );
+    });
+  }
+
+  final ServerSocket listener;
+  late final StreamSubscription<Socket> subscription;
+  final accepted = Completer<void>();
+  final disconnected = Completer<void>();
+  Socket? peer;
+
+  Future<void> close() async {
+    peer?.destroy();
+    await subscription.cancel();
+    await listener.close();
+  }
+}
+
 void main() {
   test('credentials validate byte sizes and redact secrets', () {
     final credential = NearbyClientCredential(
@@ -303,6 +333,79 @@ void main() {
           ),
         });
       }
+
+      Future<(_SilentTlsServer, PairingInvitation)> silentInvitation() async {
+        final silent = _SilentTlsServer(await ServerSocket.bind(address!, 0));
+        addTearDown(silent.close);
+        return (
+          silent,
+          PairingInvitation(
+            desktopId: _desktopId,
+            pairId: _pairId,
+            endpoint: LanEndpoint(
+              address: subnet.localAddress,
+              port: silent.listener.port,
+            ),
+            certificateSha256: identity.certificateSha256,
+            pairSecret: _pairSecret,
+          ),
+        );
+      }
+
+      test('dispose closes a pending TLS handshake promptly', () async {
+        final (silent, stalledInvitation) = await silentInvitation();
+        final pending = client.pair(
+          invitation: stalledInvitation,
+          subnet: subnet,
+          clientName: 'Phone',
+        );
+        final rejected = expectLater(pending, throwsA(_code('cancelled')));
+        await silent.accepted.future.timeout(const Duration(seconds: 3));
+        await client.dispose();
+        await rejected;
+        await silent.disconnected.future.timeout(const Duration(seconds: 2));
+        expect(store.saved, isNull);
+      });
+
+      test('manual disconnect closes a pending TLS handshake', () async {
+        final (silent, stalledInvitation) = await silentInvitation();
+        final pending = client.pair(
+          invitation: stalledInvitation,
+          subnet: subnet,
+          clientName: 'Phone',
+        );
+        final rejected = expectLater(pending, throwsA(_code('cancelled')));
+        await silent.accepted.future.timeout(const Duration(seconds: 3));
+        client.disconnect();
+        await rejected;
+        await silent.disconnected.future.timeout(const Duration(seconds: 2));
+        expect(client.state.phase, NearbyClientPhase.disconnected);
+        expect(store.saved, isNull);
+      });
+
+      test(
+        'superseding a stalled handshake closes it before valid pairing',
+        () async {
+          final (silent, stalledInvitation) = await silentInvitation();
+          final stale = client.pair(
+            invitation: stalledInvitation,
+            subnet: subnet,
+            clientName: 'Phone',
+          );
+          final rejected = expectLater(stale, throwsA(_code('cancelled')));
+          await silent.accepted.future.timeout(const Duration(seconds: 3));
+          script = pairReply;
+          final current = client.pair(
+            invitation: invitation,
+            subnet: subnet,
+            clientName: 'Phone',
+          );
+          await rejected;
+          await silent.disconnected.future.timeout(const Duration(seconds: 2));
+          final result = await current;
+          expect(store.saved, same(result));
+        },
+      );
 
       test(
         'valid QR pairing persists only after mutual proof and gets no lease',

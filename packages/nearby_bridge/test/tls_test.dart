@@ -113,6 +113,44 @@ void main() {
     expect(errors, isNotEmpty);
   });
 
+  test(
+    'silent TLS handshake times out and closes the underlying socket',
+    () async {
+      final silent = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+      final ended = Completer<void>();
+      final peers = <Socket>[];
+      final subscription = silent.listen((peer) {
+        peers.add(peer);
+        peer.listen(
+          (_) {},
+          onError: (Object _) {
+            if (!ended.isCompleted) ended.complete();
+          },
+          onDone: () {
+            if (!ended.isCompleted) ended.complete();
+          },
+        );
+      });
+      addTearDown(() async {
+        for (final peer in peers) {
+          peer.destroy();
+        }
+        await subscription.cancel();
+        await silent.close();
+      });
+      await expectLater(
+        connectPinnedTls(
+          address: InternetAddress.loopbackIPv4,
+          port: silent.port,
+          certificateSha256: identity.certificateSha256,
+          timeout: const Duration(seconds: 1),
+        ).timeout(const Duration(seconds: 3)),
+        throwsA(isA<TimeoutException>()),
+      );
+      await ended.future.timeout(const Duration(seconds: 2));
+    },
+  );
+
   test('TLS peer without companion ALPN is rejected after handshake', () async {
     final other = await SecureServerSocket.bind(
       InternetAddress.loopbackIPv4,

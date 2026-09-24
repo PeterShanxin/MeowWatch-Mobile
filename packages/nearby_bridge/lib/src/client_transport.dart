@@ -1,9 +1,9 @@
 import 'dart:async';
 import 'dart:collection';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'primitives.dart';
+import 'raw_secure_transport.dart';
 import 'wire.dart';
 
 /// Internal, bounded connection. Never exposes socket diagnostics or payloads.
@@ -16,7 +16,7 @@ final class ClientTransport {
     );
   }
 
-  final SecureSocket socket;
+  final RawSecureTransport socket;
   final _queued = Queue<NearbyFrame>();
   final _partial = BytesBuilder(copy: false);
   Completer<NearbyFrame>? _reader;

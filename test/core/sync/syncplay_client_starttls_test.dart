@@ -3,10 +3,13 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:meowwatch_mobile/core/chat/chat_signals.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/core/sync/sync_messages.dart';
 import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
+import 'package:nearby_bridge/nearby_bridge.dart';
 
 /// #264 — STARTTLS is mandatory and fails closed.
 ///
@@ -227,62 +230,160 @@ void main() {
       expect(probe.terminalMessage, contains('TLS handshake failed'));
       expect(probe.channelSecure, isFalse);
     });
-  });
 
-  group('successful STARTTLS', () {
-    test('binds the upgraded socket and sends the Hello only over it', () async {
-      final plainFromClient = <int>[];
-      final upgradedWrites = <String>[];
-      late _RecordingSocket upgraded;
-
-      final server = await ServerSocket.bind('127.0.0.1', 0);
-      final accepted = <Socket>[];
-      server.listen((s) {
-        accepted.add(s);
-        s.listen((bytes) {
-          plainFromClient.addAll(bytes);
-          if (utf8.decode(bytes, allowMalformed: true).contains('startTLS')) {
-            s.add(
-              utf8.encode(
-                '${json.encode({
-                  'TLS': {'startTLS': 'true'},
-                })}\r\n',
-              ),
-            );
-          }
-        }, onError: (_) {});
-      });
-      addTearDown(() async {
-        for (final s in accepted) {
-          s.destroy();
-        }
-        await server.close();
-      });
-
-      final states = <SyncConnectionState>[];
-      final client = SyncplayClient(
-        livenessTimeout: const Duration(seconds: 3),
-        secureUpgrade: (plain, {required host}) async {
-          // Stands in for the socket a completed handshake returns. Everything
-          // written to it would be ciphertext on the wire.
-          upgraded = _RecordingSocket(plain, upgradedWrites);
-          return upgraded;
-        },
-      );
-      client.connectionState.listen(states.add);
-      addTearDown(client.dispose);
-
-      await client.connect(
+    test('a real untrusted TLS certificate fails closed', () async {
+      final harness = await _tlsJoinHarness(trustCertificate: false);
+      addTearDown(harness.dispose);
+      await harness.client.connect(
         server: '127.0.0.1',
-        port: server.port,
+        port: harness.port,
         username: 'me',
         room: 'secret-room',
         password: 'hunter2',
       );
-      await _until(() => upgradedWrites.isNotEmpty);
+      await _until(
+        () =>
+            harness.client.lastConnectionState?.status ==
+            SyncConnectionStatus.error,
+      );
+      expect(harness.client.debugChannelSecure, isFalse);
+      expect(harness.secureLines, isEmpty);
+      expect(
+        utf8.decode(harness.plainBytes, allowMalformed: true),
+        isNot(contains('hunter2')),
+      );
+      expect(
+        harness.client.lastConnectionState?.message,
+        contains('TLS handshake failed'),
+      );
+    });
+  });
+
+  group('successful STARTTLS', () {
+    for (final leaveMode in ['disconnect', 'disposeBackend', 'appClose']) {
+      test('real TLS delivers queued chat and leaving on $leaveMode', () async {
+        final harness = await _tlsJoinHarness();
+        addTearDown(harness.dispose);
+        final client = harness.client;
+        await client.connect(
+          server: '127.0.0.1',
+          port: harness.port,
+          username: 'me',
+          room: 'secret-room',
+          password: 'hunter2',
+        );
+        await harness.helloSeen.future.timeout(const Duration(seconds: 8));
+        client.debugHandleMessage(const HelloMessage(username: 'me'));
+        client.sendChat('queued-before-leave-${'x' * 65536}');
+
+        switch (leaveMode) {
+          case 'disconnect':
+            await client.disconnect();
+            break;
+          case 'disposeBackend':
+            await client.disposeBackend();
+            break;
+          case 'appClose':
+            await client.disconnectForAppClose();
+            break;
+        }
+
+        await harness.leavingSeen.future.timeout(const Duration(seconds: 2));
+        final chats = harness.secureLines
+            .join()
+            .split('\r\n')
+            .where((line) => line.isNotEmpty)
+            .map((line) => json.decode(line) as Map<String, dynamic>)
+            .where((frame) => frame.containsKey('Chat'))
+            .map((frame) => frame['Chat'] as String)
+            .toList();
+        expect(chats.first, startsWith('queued-before-leave-'));
+        expect(chats.last, encodeLeaving());
+      });
+    }
+
+    test('late TLS completion after leave cannot send Hello', () async {
+      final releaseUpgrade = Completer<void>();
+      final upgradeReady = Completer<void>();
+      final harness = await _tlsJoinHarness(
+        releaseUpgrade: releaseUpgrade,
+        upgradeReady: upgradeReady,
+      );
+      addTearDown(() async {
+        if (!releaseUpgrade.isCompleted) releaseUpgrade.complete();
+        await harness.dispose();
+      });
+
+      await harness.client.connect(
+        server: '127.0.0.1',
+        port: harness.port,
+        username: 'me',
+        room: 'secret-room',
+        password: 'hunter2',
+      );
+      await upgradeReady.future.timeout(const Duration(seconds: 8));
+      expect(harness.client.debugChannelSecure, isFalse);
+      await harness.client.disconnect();
+      releaseUpgrade.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      expect(harness.secureLines, isEmpty);
+      expect(harness.client.debugChannelSecure, isFalse);
+      expect(
+        harness.client.lastConnectionState?.status,
+        SyncConnectionStatus.disconnected,
+      );
+    });
+
+    test(
+      'superseded TLS completion cannot write into the new session',
+      () async {
+        final releaseUpgrade = Completer<void>();
+        final upgradeReady = Completer<void>();
+        final harness = await _tlsJoinHarness(
+          releaseUpgrade: releaseUpgrade,
+          upgradeReady: upgradeReady,
+        );
+        addTearDown(() async {
+          if (!releaseUpgrade.isCompleted) releaseUpgrade.complete();
+          await harness.dispose();
+        });
+
+        Future<void> connect() => harness.client.connect(
+          server: '127.0.0.1',
+          port: harness.port,
+          username: 'me',
+          room: 'secret-room',
+          password: 'hunter2',
+        );
+
+        await connect();
+        await upgradeReady.future.timeout(const Duration(seconds: 8));
+        await connect();
+        await harness.helloSeen.future.timeout(const Duration(seconds: 8));
+        releaseUpgrade.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 100));
+        expect(harness.connectionSecureLines, hasLength(2));
+        expect(harness.connectionSecureLines.first, isEmpty);
+        expect(harness.connectionSecureLines.last.join(), contains('Hello'));
+      },
+    );
+
+    test('binds the upgraded socket and sends the Hello only over it', () async {
+      final harness = await _tlsJoinHarness();
+      addTearDown(harness.dispose);
+      final client = harness.client;
+
+      await client.connect(
+        server: '127.0.0.1',
+        port: harness.port,
+        username: 'me',
+        room: 'secret-room',
+        password: 'hunter2',
+      );
+      await harness.helloSeen.future.timeout(const Duration(seconds: 8));
 
       expect(client.debugChannelSecure, isTrue);
-      final hello = upgradedWrites.join();
+      final hello = harness.secureLines.join();
       expect(hello, contains('Hello'));
       expect(hello, contains('secret-room'));
       expect(
@@ -291,13 +392,13 @@ void main() {
         reason: 'the password rides the upgraded socket, and only that one',
       );
       expect(
-        utf8.decode(plainFromClient, allowMalformed: true),
+        utf8.decode(harness.plainBytes, allowMalformed: true),
         isNot(contains('hunter2')),
         reason: 'nothing sensitive may precede the handshake',
       );
       // The negotiation itself is the only thing the plaintext socket ever saw.
       expect(
-        utf8.decode(plainFromClient, allowMalformed: true).trim(),
+        utf8.decode(harness.plainBytes, allowMalformed: true).trim(),
         json.encode(encodeTlsRequest()),
       );
     });
@@ -351,32 +452,104 @@ void main() {
   });
 }
 
-/// Loopback server that accepts STARTTLS via the test upgrade seam, so a
-/// test can drive Hello / Error after the channel is secure.
-Future<_TlsJoinHarness> _tlsJoinHarness() async {
+/// Loopback server with a real TLS handshake and an exact test certificate pin.
+Future<_TlsJoinHarness> _tlsJoinHarness({
+  bool trustCertificate = true,
+  Completer<void>? releaseUpgrade,
+  Completer<void>? upgradeReady,
+}) async {
+  final identity = await TlsIdentity.generate();
   final server = await ServerSocket.bind('127.0.0.1', 0);
   final accepted = <Socket>[];
+  final plainBytes = <int>[];
+  final secureLines = <String>[];
+  final connectionSecureLines = <List<String>>[];
+  final helloSeen = Completer<void>();
+  final leavingSeen = Completer<void>();
+  var heldUpgrade = false;
   server.listen((s) {
     accepted.add(s);
+    final linesForConnection = <String>[];
+    connectionSecureLines.add(linesForConnection);
+    var upgrading = false;
     s.listen((bytes) {
-      if (utf8.decode(bytes, allowMalformed: true).contains('startTLS')) {
-        s.add(
-          utf8.encode(
-            '${json.encode({
-              'TLS': {'startTLS': 'true'},
-            })}\r\n',
-          ),
-        );
+      if (upgrading) return;
+      plainBytes.addAll(bytes);
+      if (!utf8.decode(plainBytes, allowMalformed: true).contains('startTLS')) {
+        return;
       }
+      upgrading = true;
+      unawaited(
+        () async {
+          s.add(utf8.encode('{"TLS":{"startTLS":"true"}}\r\n'));
+          await s.flush();
+          final secure = await SecureSocket.secureServer(
+            s,
+            identity.createServerContext(),
+          );
+          accepted.add(secure);
+          secure.done.ignore();
+          secure.listen((chunk) {
+            final line = utf8.decode(chunk);
+            secureLines.add(line);
+            linesForConnection.add(line);
+            if (secureLines.join().contains('Hello') &&
+                !helloSeen.isCompleted) {
+              helloSeen.complete();
+            }
+            if (!leavingSeen.isCompleted) {
+              final received = secureLines.join();
+              for (final frame in received.split('\r\n')) {
+                if (!frame.contains('"Chat"')) continue;
+                try {
+                  if ((json.decode(frame) as Map<String, dynamic>)['Chat'] ==
+                      encodeLeaving()) {
+                    leavingSeen.complete();
+                    break;
+                  }
+                } on FormatException {
+                  // Last frame may still be arriving in another TLS read.
+                }
+              }
+            }
+          }, onError: (Object _) {});
+        }().catchError((Object _) {}),
+      );
     }, onError: (_) {});
   });
   final client = SyncplayClient(
     livenessTimeout: const Duration(seconds: 3),
-    secureUpgrade: (plain, {required host}) async {
-      return _RecordingSocket(plain, <String>[]);
+    secureUpgrade: (plain, subscription, {required host}) async {
+      final secure = await RawSecureSocket.secure(
+        plain,
+        subscription: subscription,
+        host: host,
+        context: SecurityContext(withTrustedRoots: false),
+        onBadCertificate: (cert) =>
+            trustCertificate &&
+            constantTimeEqual(
+              sha256.convert(cert.der).bytes,
+              identity.certificateSha256,
+            ),
+      );
+      if (releaseUpgrade != null && !heldUpgrade) {
+        heldUpgrade = true;
+        upgradeReady?.complete();
+        await releaseUpgrade.future;
+      }
+      return secure;
     },
   );
-  return _TlsJoinHarness(client: client, server: server, accepted: accepted);
+  return _TlsJoinHarness(
+    client: client,
+    server: server,
+    accepted: accepted,
+    plainBytes: plainBytes,
+    secureLines: secureLines,
+    connectionSecureLines: connectionSecureLines,
+    helloSeen: helloSeen,
+    leavingSeen: leavingSeen,
+  );
 }
 
 class _TlsJoinHarness {
@@ -384,11 +557,21 @@ class _TlsJoinHarness {
     required this.client,
     required this.server,
     required this.accepted,
+    required this.plainBytes,
+    required this.secureLines,
+    required this.connectionSecureLines,
+    required this.helloSeen,
+    required this.leavingSeen,
   });
 
   final SyncplayClient client;
   final ServerSocket server;
   final List<Socket> accepted;
+  final List<int> plainBytes;
+  final List<String> secureLines;
+  final List<List<String>> connectionSecureLines;
+  final Completer<void> helloSeen;
+  final Completer<void> leavingSeen;
 
   int get port => server.port;
 
@@ -525,47 +708,6 @@ class _NullSocket implements Socket {
 
   @override
   Future<void> flush() async {}
-
-  @override
-  dynamic noSuchMethod(Invocation invocation) => null;
-}
-
-/// Wraps the plaintext socket the way a real [SecureSocket] would: writes are
-/// recorded instead of encrypted, reads come straight from the underlying
-/// socket so the client's normal listener still attaches.
-class _RecordingSocket extends StreamView<Uint8List> implements Socket {
-  factory _RecordingSocket(Socket inner, List<String> writes) {
-    final reads = StreamController<Uint8List>();
-    return _RecordingSocket._(inner, writes, reads);
-  }
-
-  _RecordingSocket._(this._inner, this._writes, this._reads)
-    : super(_reads.stream);
-
-  final Socket _inner;
-  final List<String> _writes;
-
-  /// Never closed: a live TLS socket does not report done just because the
-  /// server has nothing to say yet.
-  final StreamController<Uint8List> _reads;
-
-  @override
-  void add(List<int> data) => _writes.add(utf8.decode(data));
-
-  @override
-  void destroy() {
-    unawaited(_reads.close());
-    _inner.destroy();
-  }
-
-  @override
-  Future<void> close() async {}
-
-  @override
-  Future<void> flush() async {}
-
-  @override
-  Future<dynamic> get done => _inner.done;
 
   @override
   dynamic noSuchMethod(Invocation invocation) => null;

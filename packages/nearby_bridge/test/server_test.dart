@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:crypto/crypto.dart';
 import 'package:nearby_bridge/nearby_bridge.dart';
 import 'package:test/test.dart';
 
@@ -103,6 +105,7 @@ final class _Peer {
   bool expectAbortedWrite = false;
   int sequence = 0;
   String epoch = '';
+  String connectionId = '';
   void send(Map<String, Object?> fields) => socket.add(
     const NearbyFrameCodec().encode(NearbyFrame({'v': 1, ...fields})),
   );
@@ -164,13 +167,18 @@ void main() {
   final clientNonce = List.filled(32, 3);
 
   Future<_Peer> peer({bool login = false}) async {
-    final peer = _Peer(
-      await connectPinnedTls(
-        address: InternetAddress.loopbackIPv4,
-        port: server.port,
-        certificateSha256: identity.certificateSha256,
+    final socket = await SecureSocket.connect(
+      InternetAddress.loopbackIPv4,
+      server.port,
+      context: SecurityContext(withTrustedRoots: false),
+      supportedProtocols: [nearbyAlpn],
+      onBadCertificate: (cert) => constantTimeEqual(
+        sha256.convert(cert.der).bytes,
+        identity.certificateSha256,
       ),
     );
+    expect(socket.selectedProtocol, nearbyAlpn);
+    final peer = _Peer(socket);
     peers.add(peer);
     if (login) {
       peer.send({'type': 'auth.hello'});
@@ -194,6 +202,7 @@ void main() {
       });
       final accepted = await peer.next();
       expect(accepted.type, 'auth.ok');
+      peer.connectionId = accepted.fields['connectionId']! as String;
       expect(
         decodeBytes(accepted.fields['serverProof']! as String, 32),
         transcript.serverProof(
@@ -229,7 +238,10 @@ void main() {
       certificateSha256: identity.certificateSha256,
       store: store,
     );
-    final listener = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    final listener = await RawServerSocket.bind(
+      InternetAddress.loopbackIPv4,
+      0,
+    );
     var address = 20;
     server = NearbyServer.forTesting(
       listener: listener,
@@ -308,6 +320,10 @@ void main() {
         transcript.serverProof(invitation.pairSecret, token, secret),
       );
       credential = store.records[token]!;
+      expect(
+        await phone.frames.moveNext().timeout(const Duration(seconds: 3)),
+        false,
+      );
       final active = await peer(login: true);
       active.command('play', 'playback.play');
       expect((await active.result('play')).fields['ok'], true);
@@ -482,6 +498,45 @@ void main() {
     expect(handler.calls, isEmpty);
   });
 
+  test(
+    'abrupt TLS peer abort during server event writes closes cleanly',
+    () async {
+      final phone = await peer(login: true);
+      final oldConnectionId = phone.connectionId;
+      final released = authority.connectionsToClose.firstWhere(
+        (id) => id == oldConnectionId,
+      );
+      phone.expectAbortedWrite = true;
+      final body = {'data': List.filled(8, 'x' * 3900)};
+      for (var i = 0; i < 6; i++) {
+        handler.controller.add(NearbyServerEvent('presence', body));
+      }
+      _abort(phone.socket);
+      expect(
+        await released.timeout(const Duration(seconds: 3)),
+        oldConnectionId,
+      );
+      final replacement = await peer(login: true);
+      expect(replacement.connectionId, isNot(oldConnectionId));
+      expect(handler.calls, isEmpty);
+    },
+    skip: !(Platform.isWindows || Platform.isLinux),
+  );
+
+  test('raw TLS transport preserves consecutive large event frames', () async {
+    final phone = await peer(login: true);
+    final body = {'data': List.filled(8, 'x' * 3900)};
+    for (var i = 0; i < 5; i++) {
+      handler.controller.add(NearbyServerEvent('presence', body));
+    }
+    for (var i = 0; i < 5; i++) {
+      final frame = await phone.next();
+      expect(frame.type, 'presence');
+      expect(frame.fields['event'], body);
+      expect(frame.fields['seq'], i + 2);
+    }
+  });
+
   test('arrival cap applies before expensive TLS handshakes', () async {
     final rawSockets = <Socket>[];
     addTearDown(() {
@@ -505,6 +560,71 @@ void main() {
       ),
       throwsA(anyOf(isA<HandshakeException>(), isA<SocketException>())),
     );
+    expect(handler.calls, isEmpty);
+  });
+
+  test('silent TLS peers release sockets and admission at timeout', () async {
+    final sockets = <Socket>[];
+    final ended = <Future<void>>[];
+    addTearDown(() {
+      for (final socket in sockets) {
+        socket.destroy();
+      }
+    });
+    for (var i = 0; i < 8; i++) {
+      final socket = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        server.port,
+      );
+      sockets.add(socket);
+      final done = Completer<void>();
+      socket.listen(
+        (_) {},
+        onError: (Object _) {
+          if (!done.isCompleted) done.complete();
+        },
+        onDone: () {
+          if (!done.isCompleted) done.complete();
+        },
+      );
+      ended.add(done.future);
+    }
+    await Future.wait(ended).timeout(const Duration(seconds: 7));
+    final recovered = await peer();
+    expect(recovered.socket.selectedProtocol, nearbyAlpn);
+    recovered.send({'type': 'auth.hello'});
+    expect((await recovered.next()).type, 'auth.challenge');
+    expect(handler.calls, isEmpty);
+  });
+
+  test('stop disconnects each pending TLS handshake', () async {
+    final sockets = <Socket>[];
+    final ended = <Future<void>>[];
+    addTearDown(() {
+      for (final socket in sockets) {
+        socket.destroy();
+      }
+    });
+    for (var i = 0; i < 4; i++) {
+      final socket = await Socket.connect(
+        InternetAddress.loopbackIPv4,
+        server.port,
+      );
+      sockets.add(socket);
+      final done = Completer<void>();
+      socket.listen(
+        (_) {},
+        onError: (Object _) {
+          if (!done.isCompleted) done.complete();
+        },
+        onDone: () {
+          if (!done.isCompleted) done.complete();
+        },
+      );
+      ended.add(done.future);
+    }
+    await server.close();
+    await Future.wait(ended).timeout(const Duration(seconds: 2));
     expect(handler.calls, isEmpty);
   });
 
@@ -593,7 +713,7 @@ void main() {
         store: store,
       );
       server = NearbyServer.forTesting(
-        listener: await ServerSocket.bind(InternetAddress.loopbackIPv4, 0),
+        listener: await RawServerSocket.bind(InternetAddress.loopbackIPv4, 0),
         identity: identity,
         authority: authority,
         handler: handler,
@@ -725,4 +845,24 @@ void main() {
       expect(store.records.length, 1);
     },
   );
+}
+
+void _abort(Socket socket) {
+  final value = Uint8List(Platform.isWindows ? 4 : 8);
+  final linger = ByteData.view(value.buffer);
+  if (Platform.isWindows) {
+    linger.setUint16(0, 1, Endian.host);
+    linger.setUint16(2, 0, Endian.host);
+  } else {
+    linger.setInt32(0, 1, Endian.host);
+    linger.setInt32(4, 0, Endian.host);
+  }
+  socket.setRawOption(
+    RawSocketOption(
+      RawSocketOption.levelSocket,
+      Platform.isWindows ? 0x80 : 13,
+      value,
+    ),
+  );
+  socket.destroy();
 }

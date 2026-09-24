@@ -2,7 +2,7 @@
 
 > **Working draft; not ready to publish.** This is English project copy plus a
 > completion checklist. [STATUS.md](STATUS.md) is the source for current product
-> acceptance and remaining gates. The 104-second native submission candidate is
+> acceptance and remaining gates. The 116-second native submission candidate is
 > not the final submission film. No publication or submission is represented here.
 
 ## Project name and tagline

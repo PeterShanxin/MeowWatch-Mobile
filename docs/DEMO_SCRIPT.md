@@ -1,6 +1,6 @@
 # MeowWatch Mobile — demo script
 
-## Current edit: 104-second submission candidate
+## Current edit: 116-second submission candidate
 
 The [edit decision list](demo/submission-candidate.edl.json) and
 [source pins](demo/submission-candidate.edl.sources.json) assemble fresh native
@@ -8,10 +8,11 @@ phone/tablet footage, Local resume, landscape fullscreen and RevenueCat Test
 Store into one 1920 × 1080 film. It is a **review candidate**, not a published
 submission or a claim that the remaining [acceptance gates](STATUS.md) are done.
 
-The sources share the same app implementation: f16b148 and 9a4e29c differ in
-the retained-composer integration-test helper, not app code. Together/purchase
-use development runtimes; Local and fullscreen use normal release APKs.
-These are distinct recorded journeys, not one uninterrupted take or one binary.
+These source runs share the tablet layout fix at 6e46041; 9a3fc05 changes the
+integration assertions, not app code. Together/purchase use development
+runtimes; Local and fullscreen use normal release APKs. They are separate
+recorded journeys, not one uninterrupted take or one binary. The later history
+restoration fix at 5347142 has separate test evidence and is not in these clips.
 
 Rendering and strict decoding run on hosted CI. The development computer only
 downloads the small review package and displays static original/output frames.
@@ -28,18 +29,19 @@ sit outside the complete original capture; no app pixels are covered or cropped.
 | Output seconds | Source interval | Action and message |
 | --- | --- | --- |
 | 0–4 | Branded graphic | **Movie night, even miles apart.** |
-| 4–12 | phone 13–21 | Room becomes ready; **Start a room. Invite someone in.** |
-| 12–18 | Paired clock 24–30 | Guest joins the host's room. |
-| 18–36 | Paired clock 41–59 | Two-way play, pause and seek. |
-| 36–44 | Paired clock 59–67 | Chat messages and reactions beside the movie. |
-| 44–58 | local 56–70 | Continue Watching at 0:56, restored pause and explicit Play. |
-| 58–64 | fullscreen 10–16 | Actual phone landscape playback with controls hidden. |
-| 64–69 | paywall 50–55 | Daily free-session limit and purchase entry. |
-| 69–79 | purchase 8–18 | Native RevenueCat Test Store purchase and Plus activation. |
-| 79–85 | purchase 19–25 | Same-active-customer Restore and appearance selection. |
-| 85–93 | purchase 31–39 | Glass Aurora playback and Movie night reaction. |
-| 93–99 | purchase 49–55 | A distinct second Plus room in Cinema Noir. |
-| 99–104 | Branded graphic | Android, open source, AGPL-3.0-only and repository. |
+| 4–14 | phone 20–30 | Start a room on the phone. |
+| 14–21 | Paired clock 44–51 | Tablet guest joins the same room. |
+| 21–42 | Paired clock 60–81 | Two-way play, pause and seek. |
+| 42–50 | Paired clock 86–94 | Chat messages and a full heart beside the movie. |
+| 50–63 | local 52–65 | Saved 0:45 position returns paused, then explicit Play. |
+| 63–69 | fullscreen 10–16 | Actual handset landscape playback with hidden controls. |
+| 69–73 | paywall 50–54 | Free-session allowance and purchase entry. |
+| 73–89 | purchase 16–32 | Native Test Store dialog and Plus activation. |
+| 89–93 | purchase 34–38 | Restore for the same active customer in Settings. |
+| 93–97 | purchase 39–43 | Select Glass Aurora. |
+| 97–101 | purchase 58–62 | Movie night premium reaction. |
+| 101–111 | paid_second 7–17 | A second Plus session in Cinema Noir. |
+| 111–116 | Branded graphic | Android, open source, license and repository. |
 
 ## Pinned original sources
 
@@ -49,23 +51,21 @@ the EDL and source pins. The fetcher requires successful runs at those commits.
 
 | Source | Native run | Commit | Original size |
 | --- | --- | --- | --- |
-| Phone and tablet | [36031293517](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36031293517) | 9a4e29cd27843feb645699e713b72adc8b74a830 | 432 × 960 / 960 × 600 |
-| Local resume | [36029407933](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36029407933) | f16b148b963a3225ed514ffaf29705bc14a24235 | 432 × 960 |
-| Phone fullscreen | [36029407579](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36029407579) | f16b148b963a3225ed514ffaf29705bc14a24235 | 960 × 432 |
-| Paywall and purchase | [36029407726](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36029407726) | f16b148b963a3225ed514ffaf29705bc14a24235 | 480 × 1040 |
+| Phone and tablet | [36037966143](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36037966143) | 9a3fc050f2ecf95b51a5f4fc6dae9ed0940ffc8c | 432 × 960 / 960 × 600 |
+| Local resume | [36037410201](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36037410201) | 6e4604189161ffb2bff9339d5484adec0f0cecd3 | 432 × 960 |
+| Phone fullscreen | [36037410044](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36037410044) | 6e4604189161ffb2bff9339d5484adec0f0cecd3 | 960 × 432 |
+| Paywall and three purchase segments | [36037410075](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36037410075) | 6e4604189161ffb2bff9339d5484adec0f0cecd3 | 480 × 1040 |
 
-Fullscreen uses phone attempt 2; attempt 1 failed downloading an Android system
-image before any app launch. The paired timing manifest is SHA-256
-87793bf73589c80b62013eea57011303825b435c1a3fa3b283d82fe211d7ee32.
-Its estimated phone start is 0.000271 seconds after the tablet. These ADB
-command timestamps are approximate, not proof of frame synchronization. Neither
-device is independently retimed to make the players appear closer.
+The paired timing manifest is SHA-256
+c9bd3cae5e46549ec405732f8ddd024fb3375cd2215bcb252db7f963c87cfbd0.
+ADB command timestamps estimate recording alignment; they do not establish
+frame synchronization. Neither device is independently retimed. Every chosen
+shot stays inside continuous source coverage, without bridging recording gaps.
 
-The purchase originals have a **1.231-second recording gap**. Every selected
-shot stays inside one source segment, with visible editorial cuts for omitted
-actions and waits. The 30 fps export preserves source-held frames; it does not
-invent smoother motion. Native Together recordings contain 1,407 phone and
-1,386 tablet pictures across approximately 126 and 127 seconds respectively.
+Native Together originals contain 1,352 phone and 1,415 tablet pictures over
+approximately 167 and 169 seconds. The purchase recordings average roughly
+6–9 pictures per second, including static SDK screens and held frames. The
+30 fps output retains these original holds; it does not invent smoother motion.
 
 ## Review evidence and boundaries
 
@@ -85,12 +85,20 @@ d6fab4dd025df6643143205c834a92c59314ecc5f0f1d9e658175035f69b2e03.
 Captions and frames do not overlap the app. This review also exposes a tablet
 video-stage clipping defect: the keyboard compresses the visible video, and
 the reaction at the stage's lower edge is partly outside the scroll viewport.
-That original footage is retained. The defect needs correction and fresh native
-recording before this candidate can be accepted; editing must not conceal it.
+That original footage is retained and unaccepted. The app was fixed before
+recording the new Together source; editing does not conceal the original fault.
 
-- The Local excerpt includes the saved Continue Watching card and restored
-  pause. Process termination/relaunch is established by the full native receipt,
-  not this cut.
+The new original-frame reviews strictly decode the source videos. Local hash
+checks match all 114 Together, 34 lifecycle, 42 fullscreen and 47 purchase PNGs.
+Selected original frames support the planned actions, including the full tablet
+heart. The replacement 116-second composition still requires hosted rendering,
+output-frame review and full-motion acceptance before publication. The current
+slow-start network regression remains open in STATUS; a passing source journey
+does not cancel a separate failed acceptance run.
+
+- The Local excerpt begins after the brief Home/Continue Watching card and
+  shows the restored pause at 0:45, then explicit Play. Process restart and the
+  Home action are established by the full native receipt, not this cut.
 - Purchase is **RevenueCat Test Store, with no real charge**. It has one native
   Android player and an independent headless TLS peer. Restore keeps the same
   already-active customer; it does not show reinstall or lost-identity recovery.

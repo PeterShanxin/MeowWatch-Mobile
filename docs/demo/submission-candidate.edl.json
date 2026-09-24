@@ -3,70 +3,80 @@
   "purpose": "submission-edit",
   "sources": {
     "phone": {
-      "path": "sources/36031293517/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T171017Z-10615/evidence/phone-emulator-5554/segments/phone-000.mp4",
-      "sha256": "3127ae4485773152bf551ea1e81d151240cee0620c52bf69239c25fe6c057948",
+      "path": "sources/36037966143/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T180830Z-10785/evidence/phone-emulator-5554/segments/phone-000.mp4",
+      "sha256": "baf3ce8577ab26960a5413eaba49c89ea9173c8faf9367e82570815e35ec1cee",
       "width": 432,
       "height": 960,
       "kind": "native-recording",
       "runtime": "Android API 35 emulator",
-      "run": "36031293517",
-      "commit": "9a4e29cd27843feb645699e713b72adc8b74a830"
+      "run": "36037966143",
+      "commit": "9a3fc050f2ecf95b51a5f4fc6dae9ed0940ffc8c"
     },
     "tablet": {
-      "path": "sources/36031293517/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T171017Z-10615/evidence/tablet-emulator-5556/segments/tablet-000.mp4",
-      "sha256": "8ff84a570936f6c7ba2a285049e22146b76bbc6fbc25421bf99be2ade308770e",
+      "path": "sources/36037966143/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T180830Z-10785/evidence/tablet-emulator-5556/segments/tablet-000.mp4",
+      "sha256": "01379c056db002c91c31432dc521f1e9023d57df33e7e7a895b1ace7fad91148",
       "width": 960,
       "height": 600,
       "kind": "native-recording",
       "runtime": "Android API 35 emulator",
-      "run": "36031293517",
-      "commit": "9a4e29cd27843feb645699e713b72adc8b74a830"
+      "run": "36037966143",
+      "commit": "9a3fc050f2ecf95b51a5f4fc6dae9ed0940ffc8c"
     },
     "local": {
-      "path": "sources/36029407933/android-native-lifecycle-1/android-lifecycle-artifacts/native/lifecycle-02.mp4",
-      "sha256": "be7a748adf9572e1933ea404bc565e519806121b6bc2cebabacae3cb65cef49a",
+      "path": "sources/36037410201/android-native-lifecycle-1/android-lifecycle-artifacts/native/lifecycle-02.mp4",
+      "sha256": "3223e05d6447cd8a29dd7ddb19daf9176c1df1be7fcf3091f0ea0c06a54a95bc",
       "width": 432,
       "height": 960,
       "kind": "native-recording",
       "runtime": "Android API 35 emulator",
-      "run": "36029407933",
-      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+      "run": "36037410201",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
     },
     "fullscreen": {
-      "path": "sources/36029407579/android-fullscreen-phone-2/android-fullscreen-artifacts/native/lifecycle-02.mp4",
-      "sha256": "383e44a2f5bae3abf3523e3dd97b951e490e131237a479caa0963ee033acad66",
+      "path": "sources/36037410044/android-fullscreen-phone-1/android-fullscreen-artifacts/native/lifecycle-02.mp4",
+      "sha256": "241362da10909aec4d7ac09a0cbb7c057c045d7854a8b93628fccf7054db073f",
       "width": 960,
       "height": 432,
       "kind": "native-recording",
       "runtime": "Android API 35 emulator",
-      "run": "36029407579",
-      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+      "run": "36037410044",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
     },
     "paywall": {
-      "path": "sources/36029407726/production-purchase-1/production-purchase-artifacts/20260924T165218Z-4f9937cc/journey-001.mp4",
-      "sha256": "829ee6d43e02364447b94309e90ce9e01ba81a564cc81c67377110e3d8d5a8c6",
+      "path": "sources/36037410075/production-purchase-1/production-purchase-artifacts/20260924T180245Z-2f493ec0/journey-001.mp4",
+      "sha256": "056fa13cc763456e60223a1e561efbcf319ccb424e033082bc825969e054dc45",
       "width": 480,
       "height": 1040,
       "kind": "native-recording",
       "runtime": "Android API 35 emulator",
-      "run": "36029407726",
-      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+      "run": "36037410075",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
     },
     "purchase": {
-      "path": "sources/36029407726/production-purchase-1/production-purchase-artifacts/20260924T165218Z-4f9937cc/journey-002.mp4",
-      "sha256": "8a47da6c38b6280b6f9f6c7200531b7ba1c4320c56fe575dc220f75a3d027e8a",
+      "path": "sources/36037410075/production-purchase-1/production-purchase-artifacts/20260924T180245Z-2f493ec0/journey-002.mp4",
+      "sha256": "d3af113f0eb678c0f26957ebb4d8d222d18af5082748decb747b71c36a240977",
       "width": 480,
       "height": 1040,
       "kind": "native-recording",
       "runtime": "Android API 35 emulator",
-      "run": "36029407726",
-      "commit": "f16b148b963a3225ed514ffaf29705bc14a24235"
+      "run": "36037410075",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
+    },
+    "paid_second": {
+      "path": "sources/36037410075/production-purchase-1/production-purchase-artifacts/20260924T180245Z-2f493ec0/journey-003.mp4",
+      "sha256": "cdce44642ae79858ce890b34fe0a287b0d7479045bb0836afb702b206d394766",
+      "width": 480,
+      "height": 1040,
+      "kind": "native-recording",
+      "runtime": "Android API 35 emulator",
+      "run": "36037410075",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
     }
   },
   "timelines": {
     "together": {
-      "sha256": "87793bf73589c80b62013eea57011303825b435c1a3fa3b283d82fe211d7ee32",
-      "path": "sources/36031293517/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T171017Z-10615/evidence/meowwatch-two-device.mp4.manifest.json"
+      "sha256": "c9bd3cae5e46549ec405732f8ddd024fb3375cd2215bcb252db7f963c87cfbd0",
+      "path": "sources/36037966143/production-phone-tablet-1-compact-capture/android-multi-device/sessions/20260924T180830Z-10785/evidence/meowwatch-two-device.mp4.manifest.json"
     }
   },
   "shots": [
@@ -82,13 +92,13 @@
       "kind": "single",
       "source": "phone",
       "device": "phone",
-      "in": 13,
-      "out": 21,
+      "in": 20,
+      "out": 30,
       "speed": 1,
       "label": "Phone",
       "title": "Start a movie night.",
-      "caption": "Start a room. Invite someone in.",
-      "disclosure": "Android emulator / original app footage at 1x"
+      "caption": "Start a room on your phone. Invite someone in.",
+      "disclosure": "Original app footage / 1x"
     },
     {
       "id": "join",
@@ -96,13 +106,13 @@
       "timeline": "together",
       "phone": "phone",
       "tablet": "tablet",
-      "in": 24,
-      "out": 30,
+      "in": 44,
+      "out": 51,
       "speed": 1,
       "phone_label": "Phone / Host",
       "tablet_label": "Tablet / Guest",
-      "title": "An invitation brings you together.",
-      "caption": "Join the same room, on the screen you prefer.",
+      "title": "Two people, one room.",
+      "caption": "Join on a tablet while your host waits on the phone.",
       "disclosure": "Two independently running devices"
     },
     {
@@ -111,8 +121,8 @@
       "timeline": "together",
       "phone": "phone",
       "tablet": "tablet",
-      "in": 41,
-      "out": 59,
+      "in": 60,
+      "out": 81,
       "speed": 1,
       "phone_label": "Phone / Host",
       "tablet_label": "Tablet / Guest",
@@ -126,12 +136,12 @@
       "timeline": "together",
       "phone": "phone",
       "tablet": "tablet",
-      "in": 59,
-      "out": 67,
+      "in": 86,
+      "out": 94,
       "speed": 1,
       "phone_label": "Phone / Host",
       "tablet_label": "Tablet / Guest",
-      "title": "A message. A reaction. A shared moment.",
+      "title": "A message. A heart. A shared moment.",
       "caption": "Keep the conversation beside the movie.",
       "disclosure": "Two independently running devices"
     },
@@ -140,12 +150,12 @@
       "kind": "single",
       "source": "local",
       "device": "phone",
-      "in": 56,
-      "out": 70,
+      "in": 52,
+      "out": 65,
       "speed": 1,
       "label": "Phone",
       "title": "Your place, remembered.",
-      "caption": "Local mode restores your place. Press Play when you are ready.",
+      "caption": "Your saved place returns. Press Play when you are ready.",
       "disclosure": "Normal release / new-process history resume / 1x"
     },
     {
@@ -167,7 +177,7 @@
       "source": "paywall",
       "device": "phone",
       "in": 50,
-      "out": 55,
+      "out": 54,
       "speed": 1,
       "label": "Phone",
       "title": "One movie night is free.",
@@ -179,12 +189,12 @@
       "kind": "single",
       "source": "purchase",
       "device": "phone",
-      "in": 8,
-      "out": 18,
+      "in": 16,
+      "out": 32,
       "speed": 1,
       "label": "Phone",
       "title": "More movie nights, with Plus.",
-      "caption": "A RevenueCat Test Store purchase activates Plus in this demo.",
+      "caption": "A RevenueCat Test Store purchase activates Plus.",
       "disclosure": "RevenueCat Test Store / no real charge"
     },
     {
@@ -192,12 +202,12 @@
       "kind": "single",
       "source": "purchase",
       "device": "phone",
-      "in": 19,
-      "out": 25,
+      "in": 34,
+      "out": 38,
       "speed": 1,
       "label": "Phone",
-      "title": "Restore. Then make it yours.",
-      "caption": "Restore purchases in Settings. Pick the look you like.",
+      "title": "Restore your Plus.",
+      "caption": "Restore Plus in Settings for the same Test Store customer.",
       "disclosure": "Test Store / Restore for the same active customer"
     },
     {
@@ -205,21 +215,34 @@
       "kind": "single",
       "source": "purchase",
       "device": "phone",
-      "in": 31,
-      "out": 39,
+      "in": 39,
+      "out": 43,
       "speed": 1,
       "label": "Phone",
-      "title": "A little more personality.",
-      "caption": "Glass Aurora and Movie night reactions come with Plus.",
+      "title": "Make movie night yours.",
+      "caption": "Choose the Glass Aurora look with Plus.",
+      "disclosure": "Test Store / Glass Aurora appearance"
+    },
+    {
+      "id": "reaction",
+      "kind": "single",
+      "source": "purchase",
+      "device": "phone",
+      "in": 58,
+      "out": 62,
+      "speed": 1,
+      "label": "Phone",
+      "title": "React in the moment.",
+      "caption": "Send a Movie night reaction with Plus.",
       "disclosure": "Test Store / native phone and headless TLS peer"
     },
     {
       "id": "another",
       "kind": "single",
-      "source": "purchase",
+      "source": "paid_second",
       "device": "phone",
-      "in": 49,
-      "out": 55,
+      "in": 7,
+      "out": 17,
       "speed": 1,
       "label": "Phone",
       "title": "Another room. Another movie night.",

@@ -103,6 +103,10 @@ void main() {
     testWidgets('entry refocuses a retained composer ($profileMode)', (
       tester,
     ) async {
+      // Match the integration binding from the first entry: no stub client ID
+      // or clearClient callback. The real IME owns that platform channel.
+      tester.testTextInput.unregister();
+      addTearDown(tester.testTextInput.register);
       final controller = TextEditingController();
       addTearDown(controller.dispose);
       final changes = <String>[];
@@ -128,10 +132,6 @@ void main() {
         find.byType(EditableText),
       );
       await tester.showKeyboard(field);
-      // IntegrationTestWidgetsFlutterBinding leaves the test IME unregistered,
-      // so a real clearClient does not reset the binding's cached editable.
-      tester.testTextInput.unregister();
-      addTearDown(tester.testTextInput.register);
       controller.clear();
       original.widget.focusNode.unfocus();
       await tester.pump();

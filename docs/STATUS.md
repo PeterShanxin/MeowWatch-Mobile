@@ -9,7 +9,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Partial | Fresh 54b4203 API 35 debug, API 29 debug and API 35 release normal installs pass independent audit, including seven intake reviews and two confirmed playback cases per variant. The late SDK Setup ANR recovery branch is not exercised in this run. Physical acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 3f16a25 snapshot passes Gitleaks 8.30.1 with zero findings in 513 tracked files and 100 all-ref commits; no suspicious tracked paths. Later revisions need a final scan. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 8699d3e snapshot passes hosted Gitleaks 8.30.1 with zero findings in 528 tracked files and 127 fetched commits; no suspicious tracked paths. Later revisions need a final scan. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Partial | af45d24 passes all five first-use/layout drivers and teardown, including native keyboard visibility after invalid join. The guide's primary instructions and actions remain accessible. 5137e58 production Together passes actual Start, invitation review and Join on independent emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6c44e415 runtime matrix passes on two API 35 emulators after fixing the stale pause snapshot. c53fc6a production Together profile passes both-way play/pause and host seek on independent phone/tablet AVDs; settled checkpoints have equal native positions. Equal position checkpoints do not establish identical decoded frames or physical-device behavior |
 | 5 | Real-session chat/reactions/presence | Partial | c53fc6a production Together profile passes chat, reactions, presence and confirmed peer-link playback on independent phone/tablet emulators. 2fc38317 purchase also proves the premium reaction received by a TLS peer. Final submission film remains open |
@@ -31,8 +31,14 @@ formatting of 179 Dart files, static analysis and a normal debug APK build on
 unmodified Flutter 3.44.0 / Dart 3.12.0. The portable Nearby package separately
 passes **87 tests with zero skips**. Real local TLS tests use loopback and the
 explicit Windows WSL virtual adapter; these are not physical LAN checks.
-Gitleaks 8.30.1 at `3f16a25` finds no secrets in 513 tracked files or 100 reachable
-commits, with no suspicious tracked paths.
+Fresh hosted Check `36011242232` at `b523ed5` passes 748 app tests, 87
+portable Nearby tests and 14 platform tests with zero Dart skips, all analysis
+and formatting of 192 app/harness Dart files. Media contracts pass 15 tests.
+The automation suite skips two FFmpeg-dependent composition cases in the
+package job; they are now also assigned to the media job that installs FFmpeg.
+Hosted Gitleaks 8.30.1 `36012646995` at `8699d3e` finds no secrets in
+528 tracked files or 127 fetched commits, with no suspicious tracked paths.
+Raw findings are never uploaded; the retained receipt contains counts only.
 
 The current repairs and their acceptance boundaries are:
 
@@ -172,7 +178,12 @@ Remote follow-ups after reducing local load:
   Both recorders and AVD/server cleanup pass. Original segment hashes match;
   phone/tablet contain 1,622/1,554 pictures over 145.007/146.373 seconds. The
   1.377-second phone tail gap and approximate host-command alignment remain
-  disclosed. Hosted original-picture review `36010880333` is in progress.
+  disclosed. Hosted original-picture review `36010880333` strictly decodes both
+  segments. Mean picture rates are 11.18/10.63 fps; maximum PTS gaps are
+  3.755/2.669 seconds. Original pictures on either side show static launch
+  icons, so those maxima alone do not prove playback stutter. Selected player
+  PNGs show designed phone/tablet layouts and readable room chat; one retains
+  a real buffering spinner. Final-shot motion review remains open.
 - `36004195131` at `8aced90`: profile compilation and actual profile Dart startup
   pass, but bootstrap incorrectly requires successful store configuration.
   The normal profile build deliberately has no store key. No room, decoder,
@@ -192,9 +203,16 @@ Remote follow-ups after reducing local load:
   rejected or dropped reads. The extended driver then fails before exporting
   `result.json`: a filename list replaced Flutter's reserved screenshot-data
   field. `c07278a` preserves the framework records and gives filenames their own
-  key. Fresh complete run `36010265073` is running; report validation and final
-  outage acceptance remain open. No native threshold or production behavior
-  changed for this report repair.
+  key. Follow-up `36010265073` now exports the full report, but initial playback
+  fails before radio loss: a guest position jump is followed by about three
+  seconds of buffering and a residual 1.7-second gap. Reads take at most 186ms;
+  there are no peer-command or teardown errors. Source review identifies that
+  the startup watch is removed before its one corrective seek, and ordinary
+  drift handling only rewinds above four seconds. The jump is consistent with
+  that correction but lacks direct command evidence. `a6a2176` adds the existing
+  bounded native-command trace to both real players (at most160 records each),
+  including requested seek position, without URLs/room/user values. Follow-up
+  `36012430319` is running. No acceptance threshold or production behavior changed.
 - `35988489663` at `34b8ea6`: Together history recovery with a 160-record diagnostic
   cap for real native commands, room commands and the Play UI state. Observations
   contain no media URL, room code or participant name; the original 20-second
@@ -204,6 +222,14 @@ Remote follow-ups after reducing local load:
   endpoints and quota ledgers remain unchanged. The earlier timeout's cause is
   still unproven. Recorded segment gaps of 3.64 phone seconds and 1.49 tablet
   seconds remain disclosed. This is diagnostic footage, not a final cut.
+
+Current clean-install cohort `36011248229` at `b523ed5` passes the API35
+and API29 debug jobs; their artifacts await complete audit. The normal release
+job reaches the rendered onboarding, then is covered by a **Pixel Launcher**
+ANR, as the original failure PNG shows. The exact MeowWatch focus gate correctly
+fails; this is not evidence of a MeowWatch ANR. Only that failed job is being
+retried, with unchanged code and requirements. Fresh production Test Store
+journey `36013144021` is also running on hosted CI.
 
 ## Desktop and submission artifacts
 

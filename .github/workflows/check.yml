@@ -99,7 +99,9 @@ jobs:
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Verify pinned footage and render a labeled synthetic smoke clip
-        run: python3 -m unittest tools.submission_demo.test_compose -v
+        run: |
+          python3 -m unittest tools.submission_demo.test_compose -v
+          python3 -m unittest tools.android_multi_device.test_compose_side_by_side -v
 
   secrets:
     uses: ./.github/workflows/repository-audit.yml

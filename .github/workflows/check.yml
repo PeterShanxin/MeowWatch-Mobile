@@ -7,6 +7,10 @@ on:
         description: 'Run only the hosted secret scan; skip repeated build/test jobs'
         type: boolean
         default: false
+      native_observer_only:
+        description: 'Compile the independent Android observer and retain compiler diagnostics without building Flutter'
+        type: boolean
+        default: false
       submission_edit:
         description: 'Optional checked-in EDL path: render only the review film and secret audit on hosted CI'
         type: string
@@ -24,7 +28,7 @@ concurrency:
 
 jobs:
   check:
-    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
     name: Analyze and test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -44,7 +48,7 @@ jobs:
       - run: flutter test --no-pub --reporter expanded
 
   nearby:
-    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
     name: Nearby package contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -90,7 +94,7 @@ jobs:
           bash tools/android_multi_device/test_record_two_devices.sh
 
   demo:
-    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
     name: Submission media contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -110,6 +114,29 @@ jobs:
 
   secrets:
     uses: ./.github/workflows/repository-audit.yml
+
+  native-observer:
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
+    name: Native observer SDK compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest tools.android_native_ui.test_observer
+      - name: Compile independent observer against Android SDK
+        run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+      - name: Retain compiler and packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: native-observer-build
+          path: |
+            build/android-native-ui/build.json
+            build/android-native-ui/*.log
+          if-no-files-found: error
+          retention-days: 14
 
   film:
     if: ${{ inputs.submission_edit != '' && !inputs.repository_audit_only }}

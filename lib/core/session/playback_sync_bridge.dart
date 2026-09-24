@@ -6,8 +6,8 @@ import '../sync/peer_state.dart';
 import '../sync/sync_core.dart';
 
 /// Mobile adaptation of desktop MeowWatch's source-confirmed sync boundary.
-/// Player events feed heartbeats; only explicit user commands signal a change.
-/// This prevents delayed native seek/play events from echoing peer commands.
+/// Player events feed heartbeats; explicit user commands and settled native
+/// pauses signal a change. Delayed native seek/play events do not echo peers.
 class PlaybackSyncBridge {
   PlaybackSyncBridge({
     required this.target,
@@ -325,7 +325,10 @@ class PlaybackSyncBridge {
       return;
     }
     _considerRateCorrection(state);
-    _publish(state, changed: false);
+    // A persistent native pause must reach the room before its next heartbeat
+    // can replay the older peer Play over this phone's interrupted decoder.
+    final nativePause = !state.playing && _publishedPaused == false;
+    _publish(state, changed: nativePause);
   }
 
   void _recoverNetworkSource() {

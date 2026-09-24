@@ -642,11 +642,13 @@ void main() {
         final published = sync.published.length;
         emitNative(target, playing: false, buffering: false);
         expect(sync.published.length, published);
+        expect(sync.changes, isEmpty);
         clock.elapse(bridge.settleWindow - const Duration(milliseconds: 1));
         expect(sync.published.length, published);
         clock.elapse(const Duration(milliseconds: 1));
         expect(sync.published.length, published + 1);
         expect(sync.published.last.paused, isTrue);
+        expect(sync.changes, [false]);
         expect(target.snapshot.playing, isFalse);
 
         sync.peer(

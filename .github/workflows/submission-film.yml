@@ -36,6 +36,38 @@ jobs:
           ffmpeg -nostdin -v error -xerror -err_detect explode -threads 2 -i build/submission-film/MeowWatch-Mobile-Review.mp4 -f null - 2> build/submission-film/decode.log
           mkdir -p build/submission-film/review-frames
           ffmpeg -nostdin -v error -threads 2 -i build/submission-film/MeowWatch-Mobile-Review.mp4 -vf fps=1/4 -threads 1 build/submission-film/review-frames/frame-%02d.png
+      - name: Retain the beginning, midpoint and end of every edited shot
+        run: |
+          python3 - <<'PY'
+          import hashlib
+          import json
+          import subprocess
+          from pathlib import Path
+
+          root = Path('build/submission-film')
+          manifest = json.loads((root / 'MeowWatch-Mobile-Review.mp4.manifest.json').read_text())
+          selected = []
+          for shot in manifest['shots']:
+              first = round(shot['output_in'] * 30)
+              last = round(shot['output_out'] * 30) - 1
+              for position, frame in [('start', first), ('middle', (first + last) // 2), ('end', last)]:
+                  selected.append({'shot': shot['id'], 'position': position, 'frame': frame,
+                                   'outputSeconds': frame / 30})
+          assert len({entry['frame'] for entry in selected}) == len(selected)
+          target = root / 'shot-review-frames'
+          target.mkdir()
+          expression = '+'.join('eq(n\\,' + str(entry['frame']) + ')' for entry in selected)
+          subprocess.run(['ffmpeg', '-nostdin', '-v', 'error', '-xerror', '-threads', '2',
+                          '-i', str(root / 'MeowWatch-Mobile-Review.mp4'), '-vf', 'select=' + expression,
+                          '-fps_mode', 'passthrough', '-threads', '1', str(target / 'frame-%02d.png')],
+                         check=True, timeout=180)
+          images = sorted(target.glob('frame-*.png'))
+          assert len(images) == len(selected)
+          for entry, path in zip(selected, images):
+              entry['file'] = path.name
+              entry['sha256'] = hashlib.sha256(path.read_bytes()).hexdigest()
+          (target / 'frames.json').write_text(json.dumps(selected, indent=2) + '\n')
+          PY
       - name: Preserve review film and provenance
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
@@ -47,4 +79,5 @@ jobs:
             build/submission-film/source-runs.json
             build/submission-film/decode.log
             build/submission-film/review-frames/
+            build/submission-film/shot-review-frames/
           retention-days: 14

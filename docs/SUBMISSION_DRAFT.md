@@ -2,7 +2,7 @@
 
 > **Working draft; not ready to publish.** This is English project copy plus a
 > completion checklist. [STATUS.md](STATUS.md) is the source for current product
-> acceptance and remaining gates. The 116-second native submission candidate is
+> acceptance and remaining gates. The 98-second native review edit is
 > not the final submission film. No publication or submission is represented here.
 
 ## Project name and tagline
@@ -150,10 +150,11 @@ target changes consistent.
    chosen final build. Preserve the distinction between widget, emulator,
    physical-device and camera evidence.
 3. Finish a readable, smoothly recorded film strictly under two minutes. The
-   current **104-second submission candidate** combines `9a4e29c` Together footage
-   with `f16b148` Local/fullscreen/purchase footage. These share the same app
-   implementation, with different test drivers and development/release runtimes.
-   Source-held frames are retained. Its
+   current **98-second review edit** combines Together run `36037966143` at
+   `9a3fc05` with Local/fullscreen/purchase sources at `6e46041`. These share the
+   tablet-layout fix, with different test drivers and development/release
+   runtimes. Later history/rate fixes have separate acceptance evidence.
+   Source-held frames are retained; cloud render and review are pending. Its
    [demo script](DEMO_SCRIPT.md) retains original-speed cuts, source hashes,
    runtime labels and Test Store/Restore boundaries. It is not a final-build
    rehearsal, one uninterrupted take or submission-ready footage.

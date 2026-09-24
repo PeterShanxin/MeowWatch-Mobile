@@ -1553,3 +1553,227 @@ still shows loading; later unlocked-room/entitlement evidence establishes the
 result. Three native recording segments cover 98.07% of the journey with a
 1.751-second maximum gap. This is not uninterrupted visual or physical-device
 acceptance, nor a Google Play transaction.
+
+## Archived September 25 verification through the fdebec3 cohort
+
+Archived from STATUS on September 25 after the fresh 0454176 profile recovery
+pass. These are historical results and investigations, not the current verdict.
+
+Hosted Check `36043940260` at `1052a01` passes **780 app, 87 Nearby and 14
+platform tests**, formatting, analysis, media contracts and the secret audit.
+Same-source history restoration previously exposed a stale ready snapshot:
+standard-layout Together `36037410096` tapped a disabled Play before the new
+source finished loading. No native Play was sent. The app now shows an explicit
+restoring state and disables old controls until restoration completes; the
+driver waits for enabled controls and still taps only once. Fresh standard-layout
+Together `36041063625` passes all 26 host and 25 guest stages with compact
+recording, not altered UI size. Settled native positions match at 8,335, 53,361
+and 55,987 ms. Original-frame review `36043849885` strictly decodes the sources;
+all 144 exported PNG hashes match. Selected images show the real history
+reconnection and restored player at 1:05. Recording gaps remain in its manifest.
+
+The `6e46041` native cohort passes normal API 29/35 debug and API 35 release
+install, native playback, Nearby, five viewport journeys, the runtime matrix,
+normal release lifecycle, foreground audio focus, phone/tablet fullscreen,
+RevenueCat Test Store purchase and same-customer relaunch/expiry. Lifecycle
+`36037410201` changes process 3165 to 6071, restores 45 seconds without autoplay
+and advances only after explicit Play. Local-file `36037410039` was blocked by
+an emulator Google SDK Setup ANR over DocumentsUI; the strictly identified
+emulator-only recovery at `56fcd32` passes 22 lightweight contracts and fresh
+SAF relaunch `36039255967`, including the retained grant and 8-second position.
+
+Network `36037410071` remains **failed in both attempts** at initial playback,
+before the radio interruption begins. Attempt 1 times out reading the guest's
+native position after 5.359 seconds. Attempt 2 completes native reads but still
+has 19,845 / 22,342 ms positions after 30.128 seconds. Both clients remain
+connected without peer errors. Syncplay 1.7.5 normally selects the slowest
+watcher's position and `setBy` on ordinary heartbeats; the delayed guest causes
+the host to rewind, then one-sided rate correction does not converge in time.
+The guest sends no seek or user-change flag in that failed interval. Same-SHA
+profile comparison `36041671936` passes initial convergence in 7.565 seconds,
+then radio loss, no-autoplay recovery and explicit replay in 3.974 seconds at
+49,173 / 49,196 native ms. It uses one API 35 AVD with two real STARTTLS clients
+and two decoders; only the host is rendered. Peer and teardown errors are empty.
+This passing profile run does not cancel the debug failures.
+
+The new two-socket protocol regression models the service's automatic slowest-
+watcher anchor and reproduces missing local catch-up after a buffered rewind.
+Hosted Check `36042999733` at `4fc0caf` fails exactly that named assertion;
+the other 779 app tests pass. The narrow `b689602` production fix watches the
+native rewind's recovery using the existing 12-second/two-correction bounds,
+without sending another room command. Independent source review finds no
+blocking issue. Hosted Check `36043940260` at `1052a01` passes all 780 app tests,
+including that previously failing regression. Fresh native debug/profile gates
+are the next acceptance step for this production change.
+No threshold relaxation or repeated Play tap is accepted as a fix.
+
+The tablet stage fix at `6e46041` fits the available viewport and keyboard
+inset. Reactions retain their spoken label and fit at large text sizes.
+`9a3fc05` also corrects the reaction-echo test race and an unrelated offscreen
+title expectation from Check `36037410520`. Recording-display Together
+`36037966143` passes all 26 host and 25 guest stages. Hosted review `36040303581`
+strictly decodes its originals; all 114 extracted PNG hashes match. Selected
+original frames show complete video, chat and heart within the tablet stage.
+This is sampled visual evidence, not full-motion or physical-device acceptance.
+
+Fresh purchase `36037410075` passes 12 Test Store stages with fullyLive rendering
+during SDK waits. Review `36039033397` verifies 47 original PNG hashes. Selected
+frames show the native Test Store dialog, Plus activation, Restore feedback and
+appearances. Native recordings still average roughly 6–9 pictures per second;
+the 30 fps editorial export must preserve held frames and recording gaps.
+Fresh lifecycle/fullscreen reviews `36039504553` and `36039152529` verify 34
+and 42 PNG hashes respectively. These new sources are being edited into a
+replacement film; the candidate below remains retained and unaccepted.
+
+RevenueCat relaunch `36037410042` verifies the same customer's Plus state after
+a process restart. Its sixth expiry poll observes the active entitlement become
+inactive, refreshes the SDK cache and confirms Restore stays inactive. This is
+fresh SDK/receipt evidence, not continuous film of the wait, identity recovery
+after reinstall or Google Play production billing. Fresh SAF selection needs
+no launcher/setup recovery; the blocked earlier run and narrow recovery
+contracts are retained separately.
+
+The 104-second candidate at `8986850` renders and strictly decodes all 3,120
+frames in hosted run `36035397960`; its SHA-256 is
+`d6fab4dd025df6643143205c834a92c59314ecc5f0f1d9e658175035f69b2e03`.
+All 26 exported samples are inspected: captions and framing remain outside app
+pixels, but the actual tablet video stage clips its lower reaction and becomes
+a cropped strip above the keyboard. This is a rendered product defect requiring
+a layout fix and fresh native proof. The film remains a review candidate;
+full-motion acceptance, physical checks and publication remain open.
+
+The fresh `f16b148` PR cohort passes normal API 29/35 debug and API 35 release
+install, native playback, local-file relaunch, Nearby, purchase, RevenueCat
+relaunch/expiry, the runtime matrix, five layout journeys, lifecycle, foreground
+audio focus and debug network recovery. Fullscreen tablet passes; phone attempt
+one fails while downloading the Android system image (`ZipFile unknown archive`),
+before launching any emulator or application. Only that failed job is retried;
+the phone's second attempt passes the unchanged native gate.
+Standard-display Together `36029407646` reproduces the same second-entry test
+focus failure as the recording-display run below. The corrected recording-display
+Together `36031293517` at `9a4e29c` passes all 26 host and 25 guest stages,
+including repeated chat with real keyboard focus/bounds, shared links, media
+recovery, history and a fresh room. Hosted original-frame review `36033311843`
+strictly decodes both recordings; two source and 18 PNG hashes match. The phone
+records 1,407 pictures over 126.236 seconds; tablet 1,386 over 127.486 seconds.
+There is no claim of inter-device frame alignment or full film motion acceptance.
+
+Fresh receipts at that build show lifecycle `36029407933` restoring 56 seconds
+in a new process (3025 → 5921), with no autoplay and explicit native advancement.
+Focus `36029408003` completes the paused hierarchy within 1,279 ms of the native
+request; PID 2954 remains foreground and playback stays at 52 seconds through
+release until explicit Play. Debug network `36029407709` reconnects without
+autoplay and explicit replay converges in 3.872 seconds at 45,932 / 45,889 native
+ms; media, both controllers and the free-host ledger are preserved. Both focus
+helpers are removed and network peer/teardown errors are empty. These remain
+API 35 x86_64 emulator results, separate from physical acceptance.
+
+Purchase `36029407726` passes all 12 native Test Store stages, same-customer
+Restore, the premium reaction and two distinct Plus rooms. Hosted extraction
+`36030948296` strictly decodes its two originals; both source hashes and all 36
+PNG hashes match. Selected original frames show the actual SDK dialog, active
+Plus, Restore feedback and both appearances. The 1.231-second recording gap is
+retained. These sampled frames do not establish complete final-film motion
+acceptance. Hosted Check `36031826072` at `25fa5dc` passes 775 app, 87 Nearby and
+14 platform tests, analysis, formatting, media contracts and the secret audit.
+The new repeated-entry regression keeps the test IME unregistered from its first
+input, matching the native binding's missing cache-reset callback.
+
+The `3a0307f` PR cohort passes Check, normal install, native playback,
+local-file relaunch, Nearby, RevenueCat process relaunch, purchase, runtime
+matrix and debug radio loss/recovery. Check scans its actual PR merge checkout
+`4c260086`: 536 tracked files and 135 fetched commits, zero Gitleaks findings.
+Manual recording-display Together `36020865442` also passes; original footage
+and fresh purchase `36021221637` have passed hosted extraction/full decode in
+`36023313899` / `36023318162`. All 18 Together and 31 purchase extracted PNG
+hashes match. Selected original purchase frames show the real Test Store flow,
+active Plus appearance and paid rooms. Original tablet frame review exposed a
+real keyboard issue: opening chat reduced the body height enough to select the
+video-only landscape layout. `ff8a559` classifies the layout using height before
+keyboard reduction while retaining the resized body; the widget regression
+proves draft, focus and Send remain above the keyboard. The native two-device
+driver now requires the actual keyboard inset and visible focused composer.
+Fresh Together `36025427753` reaches the keyboard/composer bounds checks but
+fails the focused-field assertion before Send. The host subsequently times out
+waiting for that unsent message. `09d0c1d` fixes the remaining cause: an inserted
+typing-indicator Padding replaced the unkeyed composer Padding, disposing its
+text-field state. A stable composer key preserves focus/draft, and ChatStore
+excludes only the current assigned username's own typing echo. Independent
+review found no blocking issue. Peer typing insertion/removal and username
+reassignment regressions pass in hosted Check `36028137405`: 773 app, 87 Nearby
+and 14 platform tests, analysis, media contracts and secret audit. A fresh
+two-device recording `36028173522` confirms the first chat now retains focus,
+then fails before sending a second link: the test input helper reads an empty
+field. Flutter's `showKeyboard` caches the last EditableTextState and does not
+request focus again for the same retained composer after explicit unfocus. The
+real integration binding does not install the test IME callback that clears
+that cache. The helper now explicitly requests the keyboard before injection;
+debug/profile regressions retain the cached state with the test IME unregistered.
+Native verification passes in `36031293517`. This changes test input only, not the app's
+composer or quota assertions. Earlier footage is not the final submission film.
+
+The same cohort fails normal lifecycle and focus interruption with observed
+paused positions of 54 seconds versus a 49-second pre-action snapshot. These
+receipts include time spent returning the hierarchy and issuing the action;
+they do not isolate the product's pause latency. Fullscreen phone/tablet fail
+after one reveal touch when the returned tree still lacks controls. The runner
+now polls for the new tree within the original 35-second action budget, without
+repeating the touch; two regressions and 47 fullscreen contracts pass. Lifecycle
+and focus AVDs now use a 540x1200 framebuffer at 210 dpi, preserving the prior
+1080x2400-at-420-dpi layout. Only verified, task-named AVDs may be prepared;
+before/after configuration is retained. With unchanged assertions, normal
+release lifecycle `36024427344` at `7cf42de` passes: real HOME, 43-to-46-second
+pause, no autoplay, explicit replay and 63-second history restoration in a new
+app process. Fullscreen `36024422678` passes on phone and tablet: same-process
+native advancement, system bars/orientation, reveal controls and Back behavior.
+Hosted review `36027358617` strictly decodes their six original segments. All
+six source hashes and 33 extracted PNG hashes match; selected original phone
+and tablet frames show immersive video with hidden controls/bars and returned
+Home with matching history. This sampled review does not claim complete motion
+acceptance of the final film.
+
+Focus `36024431409` still fails the former displayed-position check (40 to 45).
+Its pre-action snapshot precedes the native focus request by 5.502 seconds;
+AudioService records application focus abandonment 97 ms after the helper
+request. Neither fact establishes an exact decoder pause time. `d07841e` uses
+the helper's elapsed-realtime timestamp immediately before requesting focus
+and the complete paused hierarchy's timestamp after traversal. The same-device
+ordering, XML hash and application PID must match, with completion within the
+unchanged 4,000 ms limit. Position rewind, foreground/history changes, unstable
+pause and autoplay still fail. This is a conservative observed-response bound;
+a slow observer cannot prove the deadline, and the pre-request snapshot cannot
+fully exclude an unrelated spontaneous pause. Both observer and helper protocol
+versions advance, with 73 local lightweight contracts passing. Fresh normal
+release run `36027348723` passes on API 35 x86_64 at `d07841e`: the complete
+paused hierarchy arrives within 1,706 device-clock ms of request start. App PID
+2907 remains foreground with no Activity pause/stop; position stays at 47
+seconds through focus hold, release and no-autoplay checks, then explicit Play
+advances to 65 seconds. Both owned helpers are removed. The failed originals
+remain retained; GSM/transient focus and physical audio are not established.
+
+Profile network `36021989188` successfully disables/restores both radios and
+reconnects without autoplay, but explicit replay fails convergence: after
+30.353 seconds the native positions are 59,893 / 57,864 ms. Both players are
+playing and no native error is reported. The log records repeated 0.95/1.0
+rate changes around buffering; the direction of causation is not established.
+`e54be35` retains the original correction budget across transient buffering,
+restores 1x immediately and requires stable ready playback plus a fresh advancing
+heartbeat before slowing again. Fresh profile network `36025432329` at
+`ff8a559` passes: initial convergence in 7.052 seconds (4,650 / 3,934 native ms),
+then real radio loss, no-autoplay reconnect and explicit replay convergence in
+10.448 seconds (45,488 / 44,639 ms). Both are within the unchanged one-second
+position / 30-second recovery limits. The same room, media, controller identities
+and quota ledger survive; peer and teardown errors are empty. This runtime is
+one API 35 emulator with two real TLS clients and Android decoders, only the host
+rendered. It does not replace the independent two-device journey or hardware
+acceptance. All owned radios/helpers/recorders are restored or removed.
+
+Hosted Check `36025421802` at `ff8a559` passes 771 app tests, static analysis,
+portable Nearby/platform tests, media contracts and the secret audit. No local
+Flutter build, emulator or video processing is used during this low-load phase.
+
+The prior TLS, startup synchronization, fullscreen, installation, billing and
+rendered-layout investigations are retained in
+[Acceptance history](ACCEPTANCE_HISTORY.md#archived-september-25-verification-details-through-the-3a0307f-cohort).
+Historical failures and unadopted SDK experiments are not erased or promoted to
+current acceptance. The normal app uses unmodified Flutter 3.44.0 / Dart 3.12.0.

@@ -1,6 +1,6 @@
 # MeowWatch Mobile — demo script
 
-## Current edit: 100-second submission candidate
+## Current edit: 98-second submission candidate
 
 The [edit decision list](demo/submission-candidate.edl.json) and
 [source pins](demo/submission-candidate.edl.sources.json) assemble fresh native
@@ -39,10 +39,10 @@ sit outside the complete original capture; no app pixels are covered or cropped.
 | 69–73 | paywall 50–54 | Free-session allowance and purchase entry. |
 | 73–79 | purchase 23–29 | Native Test Store dialog and Plus activation. |
 | 79–83 | purchase 34–38 | Restore for the same active customer in Settings. |
-| 83–87 | purchase 39–43 | Select Glass Aurora. |
-| 87–91 | purchase 58–62 | Movie night premium reaction. |
-| 91–95 | paid_second 6–10 | A second Plus session in Cinema Noir. |
-| 95–100 | Branded graphic | Android, open source, license and repository. |
+| 83–85 | purchase 38–40 | Select Glass Aurora. |
+| 85–89 | purchase 58–62 | Movie night premium reaction. |
+| 89–93 | paid_second 4–8 | A second Plus session in Cinema Noir. |
+| 93–98 | Branded graphic | Android, open source, license and repository. |
 
 ## Pinned original sources
 
@@ -104,11 +104,14 @@ refinement and full-motion acceptance. The current network regression remains
 open in STATUS; a passing source journey does not cancel a separate failed
 acceptance run.
 
-The 100-second revision shortens the native Test Store dialog excerpt and
-ends the second-room excerpt before the separate source-reopening action.
-Both remain uninterrupted 1× clips within their original recordings. The
-116-second version and its findings remain retained. Rendering and sampled
-review of this new edit are pending; full-motion acceptance is still required.
+The 100-second revision renders in `36057684349` and all 3,000 frames strictly
+decode. SHA-256: `d80ddac588835974211fa274399fd679618b1704efcd3aabb70a79e64b5da980`.
+All source pins match. Sixteen sampled PNGs are byte-identical to previously
+reviewed frames and the other nine are inspected directly. Purchase activation
+and Restore are clear. Two cuts still include room loading or the video picker.
+The 98-second revision tightens those intervals using inspected originals and
+adds per-shot start/middle/end samples to the hosted review. Its render and
+visual review are pending; full-motion acceptance remains required.
 
 - The Local excerpt begins after the brief Home/Continue Watching card and
   shows the restored pause at 0:45, then explicit Play. Process restart and the
@@ -129,7 +132,8 @@ review of this new edit are pending; full-motion acceptance is still required.
 Run the repository's **Check** workflow manually with
 submission_edit=docs/demo/submission-candidate.edl.json. The hosted film job
 fetches exact successful artifacts, verifies pins, renders the complete film,
-strictly decodes it and retains four-second review images. No Android instance
+strictly decodes it and retains four-second review images plus the beginning,
+midpoint and end of each shot. No Android instance
 starts in this rendering job. The resulting submission-film-review-1 artifact
 includes the film, resolved EDL, source runs, output hash and manifest.
 

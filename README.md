@@ -8,6 +8,10 @@ Android-first MeowWatch: synchronized playback, conversation, and nearby desktop
 
 This is the mobile counterpart to [MeowWatch for desktop](https://github.com/PeterShanxin/MeowWatch), with a new touch interface, Android playback, lifecycle handling, and subscription flow. **Active development: not yet submission-ready.** See the [acceptance ledger](docs/STATUS.md) for verified capabilities and remaining work.
 
+<p><img src="assets/submission/meowwatch-android-1179x2556.png" alt="MeowWatch Android home with Start a room, Join a room and Local Player Mode" width="260"></p>
+
+Actual Android emulator capture. [Original screenshot and source record](assets/submission/README.md).
+
 When a video is loaded on this device, **Enter full screen** expands the player
 and hides the system bars. Handsets request landscape; tablets keep their
 current orientation. Tap the picture to show controls. Paused playback and

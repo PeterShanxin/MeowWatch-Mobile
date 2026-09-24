@@ -32,7 +32,16 @@ matrix and debug radio loss/recovery. Check scans its actual PR merge checkout
 `4c260086`: 536 tracked files and 135 fetched commits, zero Gitleaks findings.
 Manual recording-display Together `36020865442` also passes; original footage
 and fresh purchase `36021221637` have passed hosted extraction/full decode in
-`36023313899` / `36023318162`, with visual review still pending.
+`36023313899` / `36023318162`. All 18 Together and 31 purchase extracted PNG
+hashes match. Selected original purchase frames show the real Test Store flow,
+active Plus appearance and paid rooms. Original tablet frame review exposed a
+real keyboard issue: opening chat reduced the body height enough to select the
+video-only landscape layout. `ff8a559` classifies the layout using height before
+keyboard reduction while retaining the resized body; the widget regression
+proves draft, focus and Send remain above the keyboard. The native two-device
+driver now requires the actual keyboard inset and visible focused composer.
+Fresh native recording is pending; earlier footage is not accepted as the final
+submission film.
 
 The same cohort fails normal lifecycle and focus interruption with observed
 paused positions of 54 seconds versus a 49-second pre-action snapshot. These
@@ -43,16 +52,47 @@ now polls for the new tree within the original 35-second action budget, without
 repeating the touch; two regressions and 47 fullscreen contracts pass. Lifecycle
 and focus AVDs now use a 540x1200 framebuffer at 210 dpi, preserving the prior
 1080x2400-at-420-dpi layout. Only verified, task-named AVDs may be prepared;
-before/after configuration is retained. All native timing assertions, production
-APKs and observer deadlines remain unchanged. New native results are pending.
+before/after configuration is retained. With unchanged assertions, normal
+release lifecycle `36024427344` at `7cf42de` passes: real HOME, 43-to-46-second
+pause, no autoplay, explicit replay and 63-second history restoration in a new
+app process. Fullscreen `36024422678` passes on phone and tablet: same-process
+native advancement, system bars/orientation, reveal controls and Back behavior.
+Their original footage is queued for hosted extraction and visual review.
+
+Focus `36024431409` still fails the former displayed-position check (40 to 45).
+Its pre-action snapshot precedes the native focus request by 5.502 seconds;
+AudioService records application focus abandonment 97 ms after the helper
+request. Neither fact establishes an exact decoder pause time. `d07841e` uses
+the helper's elapsed-realtime timestamp immediately before requesting focus
+and the complete paused hierarchy's timestamp after traversal. The same-device
+ordering, XML hash and application PID must match, with completion within the
+unchanged 4,000 ms limit. Position rewind, foreground/history changes, unstable
+pause and autoplay still fail. This is a conservative observed-response bound;
+a slow observer cannot prove the deadline, and the pre-request snapshot cannot
+fully exclude an unrelated spontaneous pause. Both observer and helper protocol
+versions advance, with 73 local lightweight contracts passing. Hosted native
+verification is pending; the failed originals remain retained.
 
 Profile network `36021989188` successfully disables/restores both radios and
 reconnects without autoplay, but explicit replay fails convergence: after
 30.353 seconds the native positions are 59,893 / 57,864 ms. Both players are
 playing and no native error is reported. The log records repeated 0.95/1.0
 rate changes around buffering; the direction of causation is not established.
-This failure remains open despite debug network `36021221601` passing. All
-owned radios/helpers/recorders are restored or removed in both runs.
+`e54be35` retains the original correction budget across transient buffering,
+restores 1x immediately and requires stable ready playback plus a fresh advancing
+heartbeat before slowing again. Fresh profile network `36025432329` at
+`ff8a559` passes: initial convergence in 7.052 seconds (4,650 / 3,934 native ms),
+then real radio loss, no-autoplay reconnect and explicit replay convergence in
+10.448 seconds (45,488 / 44,639 ms). Both are within the unchanged one-second
+position / 30-second recovery limits. The same room, media, controller identities
+and quota ledger survive; peer and teardown errors are empty. This runtime is
+one API 35 emulator with two real TLS clients and Android decoders, only the host
+rendered. It does not replace the independent two-device journey or hardware
+acceptance. All owned radios/helpers/recorders are restored or removed.
+
+Hosted Check `36025421802` at `ff8a559` passes 771 app tests, static analysis,
+portable Nearby/platform tests, media contracts and the secret audit. No local
+Flutter build, emulator or video processing is used during this low-load phase.
 
 The application changes at `773d41e` pass **748 app tests with zero skips**,
 formatting of 179 Dart files, static analysis and a normal debug APK build on

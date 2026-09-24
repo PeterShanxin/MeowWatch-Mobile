@@ -97,6 +97,15 @@ install, full rehearsal, remaining physical gates and the submission film remain
 open. Earlier acceptance and every retained failed experiment are documented in
 [Acceptance history](ACCEPTANCE_HISTORY.md), including the September 24 chronology.
 
+Remote follow-ups after reducing local load:
+- `35988087451` at `56ba16b`: normal release fullscreen/Back with actual fixture-duration parsing.
+- `35988087246` at `56ba16b`: motion probe with the session's adb path restored.
+- `35988489663` at `34b8ea6`: Together history recovery with a 160-record diagnostic
+  cap for real native commands, room commands and the Play UI state. Observations
+  contain no media URL, room code or participant name; the original 20-second
+  playback requirement is unchanged. Static analysis passes remotely; native
+  results are pending. This is diagnostic footage, not a final submission cut.
+
 ## Desktop and submission artifacts
 
 The desktop companion at `f5a91035973c7d8f1c2a20a6a5acd1e22fc70c8e` builds
@@ -108,11 +117,13 @@ Android-to-Windows LAN acceptance. [Desktop PR #279](https://github.com/PeterSha
 remains draft. Requested Copilot review returned an account-quota failure and
 performed no review; it is neither an approval nor a pending review.
 
-The companion's pending `bd931d5` dependency pin passes 38 Nearby tests,
+The companion at `dba4b57` adopts the `bd931d5` dependency pin and passes 38 Nearby tests,
 analysis and a normal Windows Release build. The first full local test process
 ended with incomplete tests; a separate retained run completed **1,494 tests**
-with exit zero. Its original log and exit receipt are retained. Required hosted
-Windows CI and fresh native/manual acceptance remain separate gates.
+with exit zero. Its original log and exit receipt are retained. Hosted Windows
+[Analyze & Test](https://github.com/PeterShanxin/MeowWatch/actions/runs/35988145930)
+and Package Check also pass at `dba4b57`. Fresh native/manual acceptance remains
+a separate gate before merge or release.
 
 The selected navy/cream/blue icon kit includes Android adaptive/themed icons,
 SVG/PNG and desktop ICO. The original 1179x2556 submission screenshot has no

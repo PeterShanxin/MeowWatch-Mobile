@@ -26,6 +26,18 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Current verification
 
+The tablet stage at `6e46041` now fits the available viewport, including the
+keyboard inset; decorative reactions keep their spoken label and fit within
+that stage at large text sizes. Native bounds checks cover the real player and
+reaction. Independent review found a test race between sending a reaction and
+the server echo; `9a3fc05` waits for that echo before checking its bounds. It
+also removes an unrelated offscreen-title expectation exposed by Check
+`36037410520`. Corrected hosted Check `36037961937` passes 776 app, 87 Nearby
+and 14 platform tests, formatting, analysis and the secret scan; the fresh native
+cohort and recording-display Together `36037966143` remain in progress. The
+purchase driver now keeps rendering during asynchronous waits. Fresh footage
+is required before replacing the reviewed candidate below.
+
 The 104-second candidate at `8986850` renders and strictly decodes all 3,120
 frames in hosted run `36035397960`; its SHA-256 is
 `d6fab4dd025df6643143205c834a92c59314ecc5f0f1d9e658175035f69b2e03`.

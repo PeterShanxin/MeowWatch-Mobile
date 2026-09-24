@@ -80,6 +80,26 @@ jobs:
               python3 tools/native_recording_review/extract.py --artifact "$artifact" --output "build/recording-review/$variant"
             done
           fi
+      - name: Retain small native receipts for lightweight local review
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          source = Path('build/source-artifacts').resolve()
+          destination = Path('build/recording-review/source-receipts')
+          names = {'result.json', 'run.json', 'meowwatch-two-device.mp4.manifest.json'}
+          receipts = sorted(path for path in source.rglob('*') if path.name in names and path.is_file())
+          if len(receipts) > 64 or sum(path.stat().st_size for path in receipts) > 16 * 1024 * 1024:
+              raise ValueError('Unexpectedly large native receipt bundle')
+          for path in receipts:
+              if not path.resolve().is_relative_to(source):
+                  raise ValueError('Native receipt escapes the downloaded artifact')
+              target = destination / path.relative_to(source)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(path, target)
+          print(f'Retained {len(receipts)} unchanged native receipts; no source video copied')
+          PY
       - name: Retain source provenance and exact review frames
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4

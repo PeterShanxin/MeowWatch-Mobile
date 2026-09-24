@@ -82,12 +82,12 @@
       "kind": "single",
       "source": "phone",
       "device": "phone",
-      "in": 9,
-      "out": 17,
+      "in": 13,
+      "out": 21,
       "speed": 1,
       "label": "Phone",
       "title": "Start a movie night.",
-      "caption": "Start a room. Send an invitation.",
+      "caption": "Start a room. Invite someone in.",
       "disclosure": "Android emulator / original app footage at 1x"
     },
     {
@@ -97,13 +97,13 @@
       "phone": "phone",
       "tablet": "tablet",
       "in": 24,
-      "out": 32,
+      "out": 30,
       "speed": 1,
       "phone_label": "Phone / Host",
       "tablet_label": "Tablet / Guest",
       "title": "An invitation brings you together.",
-      "caption": "Review the invitation. Join the same room.",
-      "disclosure": "Android emulators / approximate recording alignment / 1x"
+      "caption": "Join the same room, on the screen you prefer.",
+      "disclosure": "Two independently running devices"
     },
     {
       "id": "controls",
@@ -118,7 +118,7 @@
       "tablet_label": "Tablet / Guest",
       "title": "Two screens. Shared controls.",
       "caption": "Play, pause and seek from either device.",
-      "disclosure": "Android emulators / approximate recording alignment / 1x"
+      "disclosure": "Two independently running devices"
     },
     {
       "id": "chat",
@@ -133,7 +133,7 @@
       "tablet_label": "Tablet / Guest",
       "title": "A message. A reaction. A shared moment.",
       "caption": "Keep the conversation beside the movie.",
-      "disclosure": "Android emulators / approximate recording alignment / 1x"
+      "disclosure": "Two independently running devices"
     },
     {
       "id": "continue",
@@ -184,7 +184,7 @@
       "speed": 1,
       "label": "Phone",
       "title": "More movie nights, with Plus.",
-      "caption": "A real RevenueCat purchase unlocks unlimited hosting.",
+      "caption": "A RevenueCat Test Store purchase activates Plus in this demo.",
       "disclosure": "RevenueCat Test Store / no real charge"
     },
     {

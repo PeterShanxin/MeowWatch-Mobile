@@ -1,6 +1,7 @@
 """Audit original Together picture timing and extract bounded review PNGs."""
 
 import argparse
+import bisect
 import hashlib
 import json
 import math
@@ -27,6 +28,17 @@ def picture_timing(probe: dict) -> tuple[list[float], dict]:
                          'endSeconds': pts[index + 1], 'seconds': gaps[index]}
                         for index in longest],
     }
+
+
+def review_indices(pts: list[float], timing: dict) -> list[int]:
+    indices = {round((len(pts) - 1) * n / 6) for n in range(7)}
+    # Retain the picture actually held at each four-second editorial checkpoint.
+    # Cap extra samples at 45 per segment; preserve the endpoints and longest gap.
+    for tick in range(1, min(46, math.ceil((pts[-1] - pts[0]) / 4))):
+        indices.add(bisect.bisect_right(pts, pts[0] + tick * 4) - 1)
+    gap_index = timing['longestGaps'][0]['afterFrameIndex']
+    indices.update((gap_index, gap_index + 1))
+    return sorted(indices)
 
 
 def review(artifact: Path, output: Path) -> None:
@@ -67,11 +79,7 @@ def review(artifact: Path, output: Path) -> None:
             time_base = decoded['streams'][0]['time_base']
             if re.fullmatch(r'[1-9]\d*/[1-9]\d*', time_base) is None:
                 raise ValueError('Require a positive native source time base')
-            indices = {round((len(pts) - 1) * n / 6) for n in range(7)}
-            # Include the pictures immediately around the longest actual gap.
-            gap_index = timing['longestGaps'][0]['afterFrameIndex']
-            indices.update((gap_index, gap_index + 1))
-            indices = sorted(indices)
+            indices = review_indices(pts, timing)
             destination = output / source.stem
             destination.mkdir()
             selection = '+'.join(f'eq(n\\,{value})' for value in indices)

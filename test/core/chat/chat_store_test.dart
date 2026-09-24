@@ -132,6 +132,28 @@ void main() {
     await sync.dispose();
   });
 
+  test('typing echoes exclude only the currently assigned self name', () async {
+    final sync = FakeSync();
+    final store = ChatStore(sync: sync, initialUsername: 'me');
+    final events = <TypingEvent>[];
+    final subscription = store.typing.listen(events.add);
+    sync.incoming(ChatMessage(username: 'me', text: encodeTyping(true)));
+    sync.incoming(ChatMessage(username: 'friend', text: encodeTyping(true)));
+    await Future<void>.delayed(Duration.zero);
+    sync.connectedAs('me_');
+    await Future<void>.delayed(Duration.zero);
+    sync.incoming(ChatMessage(username: 'me_', text: encodeTyping(true)));
+    sync.incoming(ChatMessage(username: 'me', text: encodeTyping(true)));
+    sync.incoming(ChatMessage(username: 'friend', text: encodeTyping(false)));
+    await Future<void>.delayed(Duration.zero);
+    expect(events.map((event) => event.username), ['friend', 'me', 'friend']);
+    expect(events.map((event) => event.isTyping), [true, true, false]);
+    expect(store.messages, isEmpty);
+    await subscription.cancel();
+    await store.dispose();
+    await sync.dispose();
+  });
+
   test('leaving signal routes to leaving stream, not chat history', () async {
     final sync = FakeSync();
     final store = ChatStore(sync: sync);

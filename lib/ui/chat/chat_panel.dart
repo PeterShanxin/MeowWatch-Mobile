@@ -361,6 +361,9 @@ class _ChatPanelState extends State<ChatPanel> {
                 ),
               ),
             Padding(
+              // Typing presence inserts another Padding before this one.
+              // Preserve the field's state and keyboard focus across that edit.
+              key: const ValueKey('chat-composer'),
               padding: compact
                   ? const EdgeInsets.fromLTRB(8, 2, 8, 4)
                   : const EdgeInsets.fromLTRB(16, 8, 16, 12),

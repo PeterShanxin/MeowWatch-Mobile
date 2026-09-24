@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/app/app_controller.dart';
+import 'package:meowwatch_mobile/core/chat/chat_signals.dart';
 import 'package:meowwatch_mobile/core/media/media_item.dart';
 import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/sync/endpoint_settings.dart';
@@ -156,6 +157,38 @@ void main() {
       await tester.pumpAndSettle();
     }
   }
+
+  testWidgets('peer typing changes preserve the focused composer and draft', (
+    tester,
+  ) async {
+    await show(tester, 'Movie night');
+    final field = find.byType(TextField);
+    await tester.enterText(field, 'Keep my draft');
+    final original = tester.state<EditableTextState>(find.byType(EditableText));
+    for (final typing in [true, false, true, false]) {
+      await tester.runAsync(() async {
+        client.receive(
+          ChatMessage(username: 'Guest', text: encodeTyping(typing)),
+        );
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pumpAndSettle();
+      expect(
+        find.text('Guest typing…'),
+        typing ? findsOneWidget : findsNothing,
+      );
+      expect(tester.state(find.byType(EditableText)), same(original));
+      expect(original.widget.focusNode.hasFocus, isTrue);
+      expect(original.widget.controller.text, 'Keep my draft');
+      expect(find.byTooltip('Send message').hitTestable(), findsOneWidget);
+    }
+    await tester.tap(find.byTooltip('Send message'));
+    await tester.pump();
+    expect(client.sent, contains('Keep my draft'));
+    expect(original.widget.controller.text, isEmpty);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+  });
 
   for (final layout in [
     (name: 'phone', size: const Size(412, 892), hasPreview: true),

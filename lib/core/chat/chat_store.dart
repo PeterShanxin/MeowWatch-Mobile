@@ -133,7 +133,9 @@ class ChatStore {
         case ReactionSignal(:final emoji):
           _reactions.add(ReactionEvent(username: m.username, emoji: emoji));
         case TypingSignal(:final isTyping):
-          _typing.add(TypingEvent(username: m.username, isTyping: isTyping));
+          if (m.username != _myUsername) {
+            _typing.add(TypingEvent(username: m.username, isTyping: isTyping));
+          }
         case LeavingSignal():
           _leaving.add(m.username);
       }

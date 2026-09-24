@@ -507,7 +507,10 @@ void main() {
         for (final subscription in subscriptions) {
           await cleanup('connection subscription', subscription.cancel);
         }
-        binding.reportData = {
+        // Keep the framework's screenshot byte records for the extended driver.
+        // Its top-level `screenshots` key cannot contain our filename list.
+        binding.reportData ??= <String, dynamic>{};
+        binding.reportData!.addAll({
           'runId': _runId,
           'runtime': _runtime,
           'buildMode': kProfileMode
@@ -522,9 +525,9 @@ void main() {
           'protocolTrace': protocolTrace,
           'peerErrors': peerErrors,
           'failure': failure,
-          'screenshots': screenshots,
+          'screenshotNames': screenshots,
           'teardownErrors': teardownErrors,
-        };
+        });
         // Logcat truncates long lines. Keep this coordination marker bounded;
         // result.json retains the complete failure, samples, and stack trace.
         final message = failure?['message']?.toString().split('\n').first ?? '';

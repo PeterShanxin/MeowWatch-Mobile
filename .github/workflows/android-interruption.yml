@@ -29,6 +29,7 @@ jobs:
     timeout-minutes: 35
     env:
       INTERRUPTION_AVD_NAME: meowwatch_interruption_${{ github.run_id }}_${{ github.run_attempt }}
+      PHONE_ACCEPTANCE_AVD_NAME: meowwatch_interruption_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -42,7 +43,7 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - name: Check interruption evidence contracts
         run: |
-          python3 -m unittest tools.android_interruption_runtime.test_run -v
+          python3 -m unittest tools.android_interruption_runtime.test_run tools.android_lifecycle_runtime.test_prepare_avd -v
           python3 -m tools.android_interruption_runtime.run --help
           bash -n tools/android_interruption_runtime/ci.sh
       - name: Prepare reviewed 90-second media
@@ -75,6 +76,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           disable-animations: true
+          pre-emulator-launch-script: python3 -m tools.android_lifecycle_runtime.prepare_avd
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: bash tools/android_interruption_runtime/ci.sh
       - name: Upload original interruption evidence
@@ -84,6 +86,7 @@ jobs:
           name: android-foreground-audio-focus-${{ github.run_attempt }}
           path: |
             build/android-interruption-artifacts/
+            build/android-phone-acceptance-avd/
             build/android-interruption-server/
             build/android-interruption-fixture/*.json
             build/android-interruption-fixture/*.sha256

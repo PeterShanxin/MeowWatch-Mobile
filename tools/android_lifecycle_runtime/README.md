@@ -318,3 +318,11 @@ Run `35191578094` failed during `01-fixture-review`; its original XML and native
 screenshot show a Pixel Launcher ANR over onboarding, with no playback samples.
 It provides no HOME or restart evidence. This recovery needs a fresh native run;
 the Python regressions establish only the strict control and evidence rules.
+# Hosted rendering load
+
+The dedicated API 35 phone uses 540x1200 pixels at 210 dpi, preserving the
+411.43x914.29 dp layout of its original 1080x2400 / 420 dpi Pixel 6 profile.
+`prepare_avd.py` verifies the exact task-owned AVD name and original geometry
+before changing its pre-launch framebuffer. The artifact retains both configs.
+This reduces software rendering work; all pause, replay, process-restart and
+native observer assertions remain unchanged. It is emulator evidence.

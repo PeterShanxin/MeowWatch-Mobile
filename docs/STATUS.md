@@ -1,6 +1,6 @@
 # Delivery status
 
-Last updated: 2026-09-24 (Asia/Shanghai). **In development; not submission-ready.**
+Last updated: 2026-09-25 (Asia/Shanghai). **In development; not submission-ready.**
 
 The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUCT_SPEC.md). P0/P1/P2 define order, not scope cuts.
 
@@ -25,6 +25,34 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 15 | Shipaton submission confidence | Partial | Brand kit and original-size submission screenshot are prepared. Final under-two-minute film, full rehearsal, physical gates and remaining eligibility/legal checks remain open |
 
 ## Current verification
+
+The `3a0307f` PR cohort passes Check, normal install, native playback,
+local-file relaunch, Nearby, RevenueCat process relaunch, purchase, runtime
+matrix and debug radio loss/recovery. Check scans its actual PR merge checkout
+`4c260086`: 536 tracked files and 135 fetched commits, zero Gitleaks findings.
+Manual recording-display Together `36020865442` also passes; original footage
+and fresh purchase `36021221637` have passed hosted extraction/full decode in
+`36023313899` / `36023318162`, with visual review still pending.
+
+The same cohort fails normal lifecycle and focus interruption with observed
+paused positions of 54 seconds versus a 49-second pre-action snapshot. These
+receipts include time spent returning the hierarchy and issuing the action;
+they do not isolate the product's pause latency. Fullscreen phone/tablet fail
+after one reveal touch when the returned tree still lacks controls. The runner
+now polls for the new tree within the original 35-second action budget, without
+repeating the touch; two regressions and 47 fullscreen contracts pass. Lifecycle
+and focus AVDs now use a 540x1200 framebuffer at 210 dpi, preserving the prior
+1080x2400-at-420-dpi layout. Only verified, task-named AVDs may be prepared;
+before/after configuration is retained. All native timing assertions, production
+APKs and observer deadlines remain unchanged. New native results are pending.
+
+Profile network `36021989188` successfully disables/restores both radios and
+reconnects without autoplay, but explicit replay fails convergence: after
+30.353 seconds the native positions are 59,893 / 57,864 ms. Both players are
+playing and no native error is reported. The log records repeated 0.95/1.0
+rate changes around buffering; the direction of causation is not established.
+This failure remains open despite debug network `36021221601` passing. All
+owned radios/helpers/recorders are restored or removed in both runs.
 
 The application changes at `773d41e` pass **748 app tests with zero skips**,
 formatting of 179 Dart files, static analysis and a normal debug APK build on

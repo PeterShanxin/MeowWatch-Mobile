@@ -42,6 +42,8 @@ jobs:
     name: HOME, explicit replay and process-restart resume (API 35)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
+    env:
+      PHONE_ACCEPTANCE_AVD_NAME: meowwatch_lifecycle_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - name: Check out repository
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -57,7 +59,7 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - name: Check lifecycle runner
         run: |
-          python3 -m unittest tools.android_lifecycle_runtime.test_run tools.android_native_ui.test_observer -v
+          python3 -m unittest tools.android_lifecycle_runtime.test_run tools.android_lifecycle_runtime.test_prepare_avd tools.android_native_ui.test_observer -v
           python3 -m tools.android_lifecycle_runtime.run --help
           bash -n tools/android_lifecycle_runtime/ci.sh
       - name: Prepare reviewed 90-second media
@@ -83,10 +85,12 @@ jobs:
           target: google_apis
           arch: x86_64
           profile: pixel_6
+          avd-name: ${{ env.PHONE_ACCEPTANCE_AVD_NAME }}
           cores: 2
           ram-size: 4096M
           heap-size: 512M
           disable-animations: true
+          pre-emulator-launch-script: python3 -m tools.android_lifecycle_runtime.prepare_avd
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: bash tools/android_lifecycle_runtime/ci.sh
       - name: Upload lifecycle evidence
@@ -96,6 +100,7 @@ jobs:
           name: android-native-lifecycle-${{ github.run_attempt }}
           path: |
             build/android-lifecycle-artifacts/
+            build/android-phone-acceptance-avd/
             build/android-lifecycle-server/
             build/android-lifecycle-fixture/*.json
             build/android-lifecycle-fixture/*.tsv

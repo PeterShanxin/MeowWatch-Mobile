@@ -467,12 +467,18 @@ class Runner(LifecycleRunner):
             self.adb.run("shell", "input", "tap", str(state.width // 2), str(state.height // 2),
                          timeout=remaining_timeout(deadline, 3))
             self.require_observation_deadline(deadline)
-            xml = self.observe(deadline=deadline)
+            def revealed(fresh_xml: str) -> None:
+                fresh_state = display_state(self.last_window)
+                require_transition(baseline, fresh_state, self.form_factor, fullscreen=True)
+                require_visible_bounds(fresh_xml, fresh_state, fullscreen=True, controls=True)
+            # A successful touch injection does not synchronously publish a new
+            # Flutter semantics tree. Observe the result within the original
+            # action budget, without repeating the touch or using old bounds.
+            xml, _ = self.wait(phase, revealed, timeout=remaining_timeout(deadline, 35))
             self.require_observation_deadline(deadline)
             state = display_state(self.last_window)
-            require_transition(baseline, state, self.form_factor, fullscreen=fullscreen)
             if self.pid(deadline=deadline) != app_pid:
-                raise RuntimeFailure("playback process changed before the fresh Pause action")
+                raise ObserverIntegrityFailure("playback process changed before the fresh Pause action")
         require_visible_bounds(xml, state, fullscreen=fullscreen, controls=True)
         if not playback(xml, expected_duration_seconds=self.expected_duration_seconds).playing:
             raise RuntimeFailure("native playback stopped before the fresh Pause action")

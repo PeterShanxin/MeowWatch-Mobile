@@ -480,6 +480,48 @@ class OwnershipTests(unittest.TestCase):
             self.assertEqual(runner.tap.call_args.args[0].get("bounds"), "[340,700][420,780]")
             self.assertEqual((runner.output / "09-fresh-pause-control.xml").read_text(), fresh)
 
+    def test_reveal_waits_for_new_semantics_without_repeating_touch(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.output.mkdir()
+            baseline = display_state(window())
+            runner.last_window = window(width=2400, height=1080, rotation=1, bars=False)
+            runner.pid = Mock(return_value="123")
+            hidden = "<hierarchy>" + node("Video", (0, 0, 2400, 1080), clickable=True) + "</hierarchy>"
+            fresh = fullscreen_player(12, (340, 700, 420, 780))
+            runner.observe = Mock(side_effect=[hidden, hidden, fresh])
+            runner.adb.run = Mock(return_value=subprocess.CompletedProcess([], 0, b"", b""))
+            runner.tap = Mock()
+            with patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                runner.pause_after_recording("pause", baseline, fullscreen=True, app_pid="123")
+            self.assertEqual(runner.observe.call_count, 3)
+            runner.adb.run.assert_called_once()
+            runner.tap.assert_called_once()
+            self.assertEqual(runner.tap.call_args.args[0].get("bounds"), "[340,700][420,780]")
+
+    def test_reveal_cannot_extend_the_original_pause_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.output.mkdir()
+            baseline = display_state(window())
+            runner.last_window = window(width=2400, height=1080, rotation=1, bars=False)
+            runner.pid = Mock(return_value="123")
+            hidden = "<hierarchy>" + node("Video", (0, 0, 2400, 1080), clickable=True) + "</hierarchy>"
+            clock = [0]
+            def observe(*, deadline):
+                self.assertLessEqual(deadline, 35)
+                clock[0] += 18
+                return hidden
+            runner.observe = Mock(side_effect=observe)
+            runner.adb.run = Mock(return_value=subprocess.CompletedProcess([], 0, b"", b""))
+            runner.tap = Mock()
+            with patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
+                    patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                with self.assertRaisesRegex(RuntimeFailure, "deadline"):
+                    runner.pause_after_recording("pause", baseline, fullscreen=True, app_pid="123")
+            runner.adb.run.assert_called_once()
+            runner.tap.assert_not_called()
+
     def test_fresh_normal_pause_control_needs_no_extra_reveal_input(self):
         with tempfile.TemporaryDirectory() as directory:
             runner = self.runner(Path(directory))

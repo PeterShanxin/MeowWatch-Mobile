@@ -12,7 +12,10 @@ import time
 import xml.etree.ElementTree as ET
 
 from tools.billing_runtime.native_dialog import (
-    MAX_SYSTEM_ANR_RECOVERIES, UnsafeDialog, select_pixel_launcher_anr_close,
+    MAX_SYSTEM_ANR_RECOVERIES,
+    UnsafeDialog,
+    select_google_sdk_setup_anr_close,
+    select_pixel_launcher_anr_close,
 )
 
 
@@ -273,12 +276,13 @@ class DocumentsUiSelector:
         self.stop_event = stop_event
         self.selected = False
         self.launcher_recoveries = 0
+        self.setup_recoveries = 0
 
     def select(self) -> None:
         self.artifacts.mkdir(parents=True, exist_ok=True)
         self.diagnostics: dict[str, object] = {
             "selected": False, "phase": "initial", "searchFields": [],
-            "launcherRecoveries": 0,
+            "launcherRecoveries": 0, "setupRecoveries": 0,
         }
         try:
             self._select()
@@ -288,43 +292,54 @@ class DocumentsUiSelector:
         finally:
             self.diagnostics["selected"] = self.selected
             self.diagnostics["launcherRecoveries"] = self.launcher_recoveries
+            self.diagnostics["setupRecoveries"] = self.setup_recoveries
             (self.artifacts / "documentsui-selector.json").write_text(
                 json.dumps(self.diagnostics, indent=2) + "\n", encoding="utf-8"
             )
 
-    def _recover_pixel_launcher_anr(self, xml: str, window: str) -> bool:
-        for package in sorted(DOCUMENTS_PACKAGES):
-            try:
-                select_pixel_launcher_anr_close(
-                    xml, window, expected_underlying_package=package,
-                )
+    def _recover_emulator_system_anr(self, xml: str, window: str) -> bool:
+        match = None
+        for kind, select_close in (
+            ("launcher", select_pixel_launcher_anr_close),
+            ("setup", select_google_sdk_setup_anr_close),
+        ):
+            for package in sorted(DOCUMENTS_PACKAGES):
+                try:
+                    select_close(xml, window, expected_underlying_package=package)
+                    match = (kind, select_close, package)
+                    break
+                except UnsafeDialog:
+                    continue
+            if match is not None:
                 break
-            except UnsafeDialog:
-                continue
-        else:
+        if match is None:
             return False
-        if self.launcher_recoveries >= MAX_SYSTEM_ANR_RECOVERIES:
-            raise RuntimeError("Pixel Launcher ANR recovery limit reached")
+        kind, select_close, package = match
+        if self.launcher_recoveries + self.setup_recoveries >= MAX_SYSTEM_ANR_RECOVERIES:
+            raise RuntimeError("System ANR recovery limit reached")
         if not self.adb.verified_emulator():
-            raise RuntimeError("Pixel Launcher ANR recovery is emulator-only")
-        attempt = self.launcher_recoveries + 1
-        prefix = self.artifacts / f"documentsui-launcher-recovery-{attempt}"
+            raise RuntimeError("System ANR recovery is emulator-only")
+        attempt = (self.launcher_recoveries if kind == "launcher" else self.setup_recoveries) + 1
+        prefix = self.artifacts / f"documentsui-{kind}-recovery-{attempt}"
         prefix.with_suffix(".xml").write_text(xml, encoding="utf-8")
         prefix.with_suffix(".window.txt").write_text(window, encoding="utf-8")
         png = self.adb.screenshot()
         prefix.with_suffix(".png").write_bytes(png)
         width, height = image_size(png)
         fresh_xml, fresh_window = self.adb.observe()
-        target = select_pixel_launcher_anr_close(
+        target = select_close(
             fresh_xml, fresh_window, expected_underlying_package=package,
         )
         if target.bounds[2] > width or target.bounds[3] > height:
-            raise RuntimeError("Pixel Launcher close lies outside the screen")
+            raise RuntimeError("System ANR close lies outside the screen")
         prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
         prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
         x, y = target.center
         self.adb.run("shell", "input", "tap", str(x), str(y))
-        self.launcher_recoveries = attempt
+        if kind == "launcher":
+            self.launcher_recoveries = attempt
+        else:
+            self.setup_recoveries = attempt
         return True
 
     def _select(self) -> None:
@@ -336,7 +351,7 @@ class DocumentsUiSelector:
                 raise RuntimeError("DocumentsUI selection was cancelled")
             try:
                 xml, window = self.adb.observe()
-                if self._recover_pixel_launcher_anr(xml, window):
+                if self._recover_emulator_system_anr(xml, window):
                     continue
                 self.diagnostics["phase"] = phase
                 self.diagnostics["searchFields"] = search_field_diagnostics(xml)
@@ -345,7 +360,7 @@ class DocumentsUiSelector:
                 width, height = image_size(png)
                 # Expensive capture may change focus. Re-read before every tap.
                 xml, window = self.adb.observe()
-                if self._recover_pixel_launcher_anr(xml, window):
+                if self._recover_emulator_system_anr(xml, window):
                     continue
                 target = select_picker_target(xml, window, self.fixture_name, phase)
                 if target.bounds[2] > width or target.bounds[3] > height:

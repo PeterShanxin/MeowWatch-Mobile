@@ -59,6 +59,17 @@ LAUNCHER_XML = hierarchy(
     node(text="Close app", package="android", class_name="android.widget.Button",
          resource_id="android:id/aerr_close"),
 )
+SETUP_WINDOW = (
+    "mCurrentFocus=Window{123 u0 Application Not Responding: "
+    "com.google.android.googlesdksetup}\n"
+    f"mFocusedApp=ActivityRecord{{123 u0 {DOCS}/com.android.documentsui.files.FilesActivity t8}}"
+)
+SETUP_XML = hierarchy(
+    node(text="com.google.android.googlesdksetup isn't responding", package="android",
+         resource_id="android:id/alertTitle"),
+    node(text="Close app", package="android", class_name="android.widget.Button",
+         resource_id="android:id/aerr_close"),
+)
 
 
 class RecoveryAdb:
@@ -109,37 +120,73 @@ class PickerSelectorTests(unittest.TestCase):
             self.assertEqual(report["launcherRecoveries"], 1)
             self.assertTrue(report["selected"])
 
-    def test_launcher_recovery_is_emulator_only_and_bounded(self) -> None:
-        anr = (LAUNCHER_XML, LAUNCHER_WINDOW)
+    def test_setup_anr_recovery_then_real_exact_fixture_selection(self) -> None:
+        anr = (SETUP_XML, SETUP_WINDOW)
+        fixture = (hierarchy(node(text=FIXTURE)), FOCUS)
+        adb = RecoveryAdb([anr, anr, fixture, fixture])
         with tempfile.TemporaryDirectory() as directory:
-            adb = RecoveryAdb([anr, anr])
+            artifacts = Path(directory)
+            selector = DocumentsUiSelector(adb, artifacts, FIXTURE)
+            selector.select()
+            self.assertTrue(selector.selected)
+            self.assertTrue(adb.app_focused)
+            self.assertEqual(selector.setup_recoveries, 1)
+            self.assertEqual(selector.launcher_recoveries, 0)
+            self.assertEqual(adb.commands, [
+                ("shell", "input", "tap", "110", "50"),
+                ("shell", "input", "tap", "110", "50"),
+            ])
+            for suffix in ("xml", "window.txt", "png", "fresh.xml", "fresh.window.txt"):
+                self.assertTrue((artifacts / f"documentsui-setup-recovery-1.{suffix}").is_file())
+            report = json.loads((artifacts / "documentsui-selector.json").read_text())
+            self.assertEqual(report["setupRecoveries"], 1)
+            self.assertTrue(report["selected"])
+
+    def test_system_anr_recovery_is_emulator_only_and_shares_budget(self) -> None:
+        anr = (LAUNCHER_XML, LAUNCHER_WINDOW)
+        setup_anr = (SETUP_XML, SETUP_WINDOW)
+        with tempfile.TemporaryDirectory() as directory:
+            adb = RecoveryAdb([anr, setup_anr])
             selector = DocumentsUiSelector(adb, Path(directory), FIXTURE)
-            self.assertTrue(selector._recover_pixel_launcher_anr(*anr))
-            self.assertTrue(selector._recover_pixel_launcher_anr(*anr))
+            self.assertTrue(selector._recover_emulator_system_anr(*anr))
+            self.assertTrue(selector._recover_emulator_system_anr(*setup_anr))
             with self.assertRaisesRegex(RuntimeError, "recovery limit"):
-                selector._recover_pixel_launcher_anr(*anr)
+                selector._recover_emulator_system_anr(*setup_anr)
             self.assertEqual(len(adb.commands), 2)
             physical = RecoveryAdb([], emulator=False)
             selector = DocumentsUiSelector(physical, Path(directory), FIXTURE)
             with self.assertRaisesRegex(RuntimeError, "emulator-only"):
-                selector._recover_pixel_launcher_anr(*anr)
+                selector._recover_emulator_system_anr(*setup_anr)
             self.assertEqual(physical.commands, [])
 
-    def test_launcher_recovery_refuses_app_anr_foreign_activity_and_changed_focus(self) -> None:
+    def test_system_recovery_refuses_app_anr_foreign_activity_and_changed_focus(self) -> None:
         app_anr = (
-            LAUNCHER_XML.replace("Pixel Launcher", "MeowWatch"),
-            LAUNCHER_WINDOW.replace("com.google.android.apps.nexuslauncher", "com.meowwatch.meowwatch_mobile"),
+            SETUP_XML.replace("com.google.android.googlesdksetup", "MeowWatch"),
+            SETUP_WINDOW.replace("com.google.android.googlesdksetup", "com.meowwatch.meowwatch_mobile"),
         )
         with tempfile.TemporaryDirectory() as directory:
-            adb = RecoveryAdb([app_anr])
+            adb = RecoveryAdb([(SETUP_XML, SETUP_WINDOW.replace(DOCS, "com.other"))])
             selector = DocumentsUiSelector(adb, Path(directory), FIXTURE)
-            self.assertFalse(selector._recover_pixel_launcher_anr(*app_anr))
-            self.assertFalse(selector._recover_pixel_launcher_anr(
-                LAUNCHER_XML, LAUNCHER_WINDOW.replace(DOCS, "com.other"),
+            self.assertFalse(selector._recover_emulator_system_anr(*app_anr))
+            self.assertFalse(selector._recover_emulator_system_anr(
+                SETUP_XML, SETUP_WINDOW.replace(DOCS, "com.other"),
+            ))
+            self.assertFalse(selector._recover_emulator_system_anr(
+                SETUP_XML.replace("isn't responding", "has stopped"), SETUP_WINDOW,
             ))
             with self.assertRaises(RuntimeError):
-                selector._recover_pixel_launcher_anr(LAUNCHER_XML, LAUNCHER_WINDOW)
+                selector._recover_emulator_system_anr(SETUP_XML, SETUP_WINDOW)
             self.assertEqual(adb.commands, [])
+
+    def test_setup_recovery_accepts_both_documentsui_packages(self) -> None:
+        alternate = "com.android.documentsui"
+        anr = (SETUP_XML, SETUP_WINDOW.replace(DOCS, alternate))
+        with tempfile.TemporaryDirectory() as directory:
+            adb = RecoveryAdb([anr])
+            selector = DocumentsUiSelector(adb, Path(directory), FIXTURE)
+            self.assertTrue(selector._recover_emulator_system_anr(*anr))
+            self.assertEqual(selector.setup_recoveries, 1)
+            self.assertEqual(adb.commands, [("shell", "input", "tap", "110", "50")])
 
     def test_recovery_verifies_emulator_serial_and_qemu_property(self) -> None:
         adb = Adb("emulator-5554", "test")

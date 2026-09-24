@@ -783,16 +783,22 @@ def button(xml: str, *alternatives: str) -> ET.Element:
     return matches[0]
 
 
-def playback(xml: str, *, expected_duration_seconds: int = 90) -> Playback:
+def playback(xml: str, *, expected_duration_seconds: int = 90, allow_ended: bool = False) -> Playback:
     values = labels(xml)
     if not any(FIXTURE_NAME in value for value in values):
         raise RuntimeFailure("the loaded playback source is not the controlled fixture")
     if not any(node.get("class", "").endswith("SeekBar") for node in nodes(xml)):
         raise RuntimeFailure("the actual player timeline is unavailable")
-    times = sorted({parsed for value in values if (parsed := parse_time(value)) is not None})
+    parsed_times = [parsed for value in values if (parsed := parse_time(value)) is not None]
+    times = sorted(set(parsed_times))
+    # Diagnostic setup may rewind a completed fixture. Measured playback keeps
+    # the strict default; EOF requires both actual elapsed and duration labels.
+    ended = allow_ended and len(parsed_times) == 2 and len(times) == 1
+    if ended:
+        times.append(times[0])
     if (expected_duration_seconds <= 0 or len(times) != 2
             or not expected_duration_seconds - 1 <= times[1] <= expected_duration_seconds + 1
-            or times[0] >= times[1]):
+            or (times[0] >= times[1] and not ended)):
         raise RuntimeFailure(f"unique actual elapsed and {expected_duration_seconds}-second duration labels are required")
     play = [node for label in ("Play", "Play together") for node in exact(xml, label, clickable=True)]
     pause = [node for label in ("Pause", "Pause together") for node in exact(xml, label, clickable=True)]

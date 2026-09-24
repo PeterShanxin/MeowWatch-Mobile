@@ -17,7 +17,6 @@ import time
 
 from tools.android_install.runner import RuntimeFailure
 from tools.android_lifecycle_runtime.run import Runner, button, playback
-from tools.incoming_media_runtime.run import nodes
 
 
 BIT_RATE = 3_000_000
@@ -244,21 +243,38 @@ class Recording:
 
 
 def seek_to_start(runner: Runner, phase: str) -> tuple[dict[str, object], str]:
-    xml, state = runner.wait(phase + "-player", playback)
+    deadline = time.monotonic() + 45
+    def wait(suffix, check):
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            raise RuntimeFailure("native seek exceeded its original 45-second budget")
+        return runner.wait(phase + suffix, check, timeout=remaining)
+
+    def paused(xml, expected=None):
+        state = playback(xml, allow_ended=True)
+        if state.playing or expected is not None and abs(state.position_seconds - expected) > 1:
+            raise RuntimeFailure("native seek or pause was not acknowledged")
+        return state
+
+    xml, state = wait("-player", lambda value: playback(value, allow_ended=True))
     if state.playing:
-        runner.tap(button(xml, "Pause", "Pause together"))
-        xml, _ = runner.sample(phase + "-paused", playing=False)
-    bars = [node for node in nodes(xml) if node.get("class", "").endswith("SeekBar")]
-    if len(bars) != 1:
-        raise RuntimeFailure("expected one native player seek bar")
-    match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", bars[0].get("bounds", ""))
-    if match is None:
-        raise RuntimeFailure("native seek bar has no bounds")
-    left, top, right, bottom = map(int, match.groups())
-    x = left + round((right - left) * SEEK_SECOND / 90)
-    runner.adb.run("shell", "input", "tap", str(x), str((top + bottom) // 2))
-    xml, state = runner.wait(phase + "-seeked", lambda value: checked_seek(value))
-    return {"seekedPosition": state.position_seconds, "appPid": runner.pid()}, xml
+        runner.tap(button(xml, "Pause", "Pause together"), deadline=deadline)
+        xml, state = wait("-paused", paused)
+    steps = []
+    for step in range(11):
+        if 7 <= state.position_seconds <= 13:
+            checked_seek(xml)
+            return {"seekedPosition": state.position_seconds, "appPid": runner.pid(), "steps": steps}, xml
+        # Accessibility reports the slider thumb bounds, not its track. Use
+        # real fixed-step actions, first returning small offsets to zero.
+        before = state.position_seconds
+        backwards = before > 0
+        action = "Back 10 seconds" if backwards else "Forward 10 seconds"
+        expected = max(0, before - SEEK_SECOND) if backwards else SEEK_SECOND
+        runner.tap(button(xml, action), deadline=deadline)
+        xml, state = wait(f"-seek-{step + 1}", lambda value: paused(value, expected))
+        steps.append({"action": action, "before": before, "after": state.position_seconds})
+    raise RuntimeFailure("native seek did not return to the same Bee interval within 11 actions")
 
 
 def checked_seek(xml: str):
@@ -352,13 +368,13 @@ def phase(name: str, runners: dict[str, Runner], output: Path, seconds: int,
                     "positionSeconds": state.position_seconds,
                     "appPid": runner.pid(),
                 }
+                if state.playing:
+                    runner.tap(button(xml, "Pause", "Pause together"))
+                _, paused = runner.sample(f"{name}-{key}-paused-after-capture", playing=False, screenshot=False)
+                receipts.setdefault("pausedAfterCapture", {})[key] = {
+                    "positionSeconds": paused.position_seconds, "appPid": runner.pid()}
             except Exception as error:
                 receipts.setdefault("afterErrors", {})[key] = type(error).__name__ + ": " + str(error)
-        for key, runner in active.items():
-            try:
-                runner.output.joinpath(f"{name}-after.png").write_bytes(runner.adb.screenshot())
-            except Exception as error:
-                receipts.setdefault("afterScreenshotErrors", {})[key] = type(error).__name__ + ": " + str(error)
         for key, recording in recordings.items():
             if key in stop_errors:
                 continue
@@ -366,10 +382,17 @@ def phase(name: str, runners: dict[str, Runner], output: Path, seconds: int,
                 recording.wait_stopped()
             except Exception as error:
                 stop_errors[key] = type(error).__name__ + ": " + str(error)
+        for key, runner in active.items():
+            try:
+                runner.output.joinpath(f"{name}-after.png").write_bytes(runner.adb.screenshot())
+            except Exception as error:
+                receipts.setdefault("afterScreenshotErrors", {})[key] = type(error).__name__ + ": " + str(error)
         for key, recording in recordings.items():
-            if key in stop_errors:
-                recording.retain_partial()
-                receipts["recordings"][key] = {**recording.receipt, "error": stop_errors[key]}
+            if stop_errors:
+                # An unconfirmed recorder may still be consuming resources.
+                # Do not transfer or decode either file before AVD cleanup.
+                receipts["recordings"][key] = {**recording.receipt, "status": "unverified",
+                    "error": stop_errors.get(key, "offline analysis skipped because another recorder did not stop")}
                 continue
             try:
                 receipts["recordings"][key] = recording.analyze()
@@ -461,17 +484,28 @@ def main() -> int:
         report["completed"] = True
     except Exception as error:
         report["error"] = type(error).__name__ + ": " + str(error)
+        for key, runner in runners.items():
+            if not runner.evidence_started:
+                continue
+            runner.output.joinpath("failure.xml").write_text(runner.last_xml, encoding="utf-8")
+            runner.output.joinpath("failure-window.txt").write_text(runner.last_window, encoding="utf-8")
+            report.setdefault("failureObservations", {})[key] = {
+                "phase": runner.phase, "lastCompletedUiObservation": runner.last_observation,
+                "nativeUiObservations": runner.observer.observations[-8:],
+                "observationTimeouts": runner.observation_timeouts[-8:]}
         raise
     finally:
-        args.output.joinpath("result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
         for key, runner in runners.items():
             if key == "phone" and phone_closed:
                 continue
             try:
                 runner.cleanup()
             except Exception as error:
+                report["completed"] = False
+                report.setdefault("cleanupErrors", {})[key] = type(error).__name__ + ": " + str(error)
                 args.output.joinpath(f"{key}-cleanup-error.txt").write_text(str(error), encoding="utf-8")
-    return 0
+        args.output.joinpath("result.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
+    return 0 if report["completed"] else 1
 
 
 if __name__ == "__main__":

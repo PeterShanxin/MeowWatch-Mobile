@@ -202,6 +202,60 @@ vm.runInContext(source.split('document.getElementById("refreshEvidence").addEven
   assert.equal(video.src, undefined);
   assert.equal(vm.runInContext('selectedEvidence', sandbox), null);
   assert.equal(elements.get('capturedControls').hidden, true);
+
+  // A hung local upload must not retain an unbounded stream of recording blobs.
+  const requests = [];
+  let finishUpload;
+  const limits = [];
+  sandbox.AbortSignal = {timeout: (ms) => {limits.push(ms); return AbortSignal.timeout(ms);}};
+  sandbox.fakeRecorder = {state: 'recording', stops: 0, stop() {this.state = 'inactive'; this.stops++;}};
+  sandbox.fetch = async (url, options) => {
+    requests.push({url, options});
+    if (url.includes('/chunk')) return new Promise((resolve) => {finishUpload = resolve;});
+    return {ok: true};
+  };
+  vm.runInContext(`recordingSession = {sessionId:'owned', sessionSecret:'test'};
+    recording = fakeRecorder; recordingHealthy = true;
+    for (let i = 0; i < 4; i++) enqueueChunk({size: 4 * 1024 * 1024, type:'video/webm'});`, sandbox);
+  await Promise.resolve();
+  vm.runInContext('enqueueChunk({size: 1, type:"video/webm"})', sandbox);
+  assert.equal(sandbox.fakeRecorder.stops, 1, 'queue overflow must stop the encoder');
+  assert.equal(requests.filter((r) => r.url.includes('/interrupt')).length, 1);
+  assert.equal(vm.runInContext('queuedChunkBytes', sandbox), 16 * 1024 * 1024);
+  finishUpload({ok: true});
+  await vm.runInContext('uploadChain', sandbox);
+  assert.equal(requests.filter((r) => r.url.includes('/chunk')).length, 1,
+    'after interruption, queued blobs are released instead of starting more requests');
+  assert.equal(vm.runInContext('queuedChunks + queuedChunkBytes', sandbox), 0);
+  assert.deepEqual(limits, [15000]);
+
+  // Count is bounded even for tiny blobs, independently of the byte ceiling.
+  requests.length = 0;
+  sandbox.fakeRecorder.state = 'recording'; sandbox.fakeRecorder.stops = 0;
+  vm.runInContext(`recordingHealthy = true;
+    for (let i = 0; i < 5; i++) enqueueChunk({size: 1, type:'video/webm'});`, sandbox);
+  await vm.runInContext('uploadChain', sandbox);
+  assert.equal(sandbox.fakeRecorder.stops, 1);
+  assert.equal(requests.filter((r) => r.url.includes('/chunk')).length, 0);
+  assert.equal(vm.runInContext('queuedChunks + queuedChunkBytes', sandbox), 0);
+
+  // Exercise exhausted timed-out attempts without waiting or browser/network I/O.
+  requests.length = 0; limits.length = 0;
+  sandbox.fakeRecorder.state = 'recording'; sandbox.fakeRecorder.stops = 0;
+  sandbox.setTimeout = (callback) => {callback();};
+  sandbox.AbortSignal = {timeout: (ms) => {limits.push(ms); return AbortSignal.abort(new Error('timeout'));}};
+  sandbox.fetch = async (url, options) => {
+    requests.push({url, options});
+    if (url.includes('/chunk')) {options.signal.throwIfAborted();}
+    return {ok: true};
+  };
+  vm.runInContext(`recordingHealthy = true; enqueueChunk({size: 1024, type:'video/webm'});`, sandbox);
+  await vm.runInContext('uploadChain', sandbox);
+  assert.equal(sandbox.fakeRecorder.stops, 1);
+  assert.equal(requests.filter((r) => r.url.includes('/chunk')).length, 3);
+  assert.deepEqual(limits, [15000, 15000, 15000]);
+  assert.equal(vm.runInContext('queuedChunks + queuedChunkBytes', sandbox), 0);
+  assert.match(elements.get('recordingBadge').textContent, /Recording interrupted/);
 })().catch((error) => { console.error(error); process.exitCode = 1; });
 '''
         result = subprocess.run(

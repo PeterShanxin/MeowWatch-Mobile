@@ -23,6 +23,9 @@ const capturedTime = document.getElementById("capturedTime");
 const fullEvidence = document.getElementById("fullEvidence");
 const FRAME_STALE_MS = 5000;
 const CANVAS_FOOTER_HEIGHT = 100;
+const MAX_QUEUED_CHUNKS = 4;
+const MAX_QUEUED_CHUNK_BYTES = 16 * 1024 * 1024;
+const CHUNK_UPLOAD_TIMEOUT_MS = 15000;
 let frameSource = "Waiting for Android device";
 let devices = [];
 const deviceFrames = new Map();
@@ -37,6 +40,8 @@ let recording = null;
 let recordingSession = null;
 let chunkSequence = 0;
 let uploadChain = Promise.resolve();
+let queuedChunks = 0;
+let queuedChunkBytes = 0;
 let recordingHealthy = true;
 let finishing = false;
 let gracefulFinished = false;
@@ -535,6 +540,7 @@ async function uploadChunk(blob, sequence) {
           "X-Chunk-Sequence": String(sequence),
         }),
         body: blob,
+        signal: AbortSignal.timeout(CHUNK_UPLOAD_TIMEOUT_MS),
       });
       if (!response.ok) throw new Error(`chunk ${sequence} rejected (${response.status})`);
       return;
@@ -548,15 +554,30 @@ async function uploadChunk(blob, sequence) {
 
 function enqueueChunk(blob) {
   if (!recordingHealthy || !blob.size) return;
+  if (queuedChunks >= MAX_QUEUED_CHUNKS || queuedChunkBytes + blob.size > MAX_QUEUED_CHUNK_BYTES) {
+    failRecording("recording upload queue reached its memory limit");
+    return;
+  }
   const sequence = chunkSequence++;
-  uploadChain = uploadChain.then(() => uploadChunk(blob, sequence)).catch((error) => {
-    recordingHealthy = false;
-    stopButton.disabled = true;
-    badge.className = "badge error";
-    badge.textContent = `Recording upload stopped: ${error.message}`;
-    if (recording?.state === "recording") recording.stop();
-    sendInterrupt("recording upload retries exhausted");
+  queuedChunks += 1;
+  queuedChunkBytes += blob.size;
+  uploadChain = uploadChain.then(() => {
+    if (recordingHealthy) return uploadChunk(blob, sequence);
+  }).catch((error) => {
+    failRecording(`recording upload stopped: ${error.message}`);
+  }).finally(() => {
+    queuedChunks -= 1;
+    queuedChunkBytes -= blob.size;
   });
+}
+
+function failRecording(reason) {
+  recordingHealthy = false;
+  stopButton.disabled = true;
+  badge.className = "badge error";
+  badge.textContent = `Recording interrupted: ${reason}`;
+  if (recording?.state === "recording") recording.stop();
+  sendInterrupt(reason);
 }
 
 async function startRecording() {
@@ -579,6 +600,9 @@ async function startRecording() {
     recording.addEventListener("dataavailable", (event) => {
       enqueueChunk(event.data);
     });
+    recording.addEventListener("stop", () => {
+      recording.stream.getTracks().forEach((track) => track.stop());
+    }, { once: true });
     recording.addEventListener("error", (event) => {
       recordingHealthy = false;
       stopButton.disabled = true;

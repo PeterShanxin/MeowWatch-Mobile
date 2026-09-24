@@ -1,6 +1,6 @@
 # Delivery status
 
-Last updated: 2026-09-18 (Asia/Shanghai). **In development; not submission-ready.**
+Last updated: 2026-09-24 (Asia/Shanghai). **In development; not submission-ready.**
 
 The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUCT_SPEC.md). P0/P1/P2 define order, not scope cuts.
 
@@ -9,7 +9,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Partial | Fresh 54b4203 API 35 debug, API 29 debug and API 35 release normal installs pass independent audit, including seven intake reviews and two confirmed playback cases per variant. The late SDK Setup ANR recovery branch is not exercised in this run. Physical acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 54b4203 working-tree snapshot passes Gitleaks 8.30.1 with zero findings in 502 tracked files and 68 all-ref commits; no suspicious tracked paths. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 9f69ecc snapshot passes Gitleaks 8.30.1 with zero findings in 504 tracked files and 81 all-ref commits; no suspicious tracked paths. Subsequent edits need a final scan. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Partial | af45d24 passes all five first-use/layout drivers and teardown, including native keyboard visibility after invalid join. The guide's primary instructions and actions remain accessible. 5137e58 production Together passes actual Start, invitation review and Join on independent emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6c44e415 runtime matrix passes on two API 35 emulators after fixing the stale pause snapshot. 5137e58 production Together also passes all named two-way playback checkpoints. Equal position checkpoints do not establish identical decoded frames or physical-device behavior |
 | 5 | Real-session chat/reactions/presence | Partial | 5137e58 production Together passes chat, reactions, presence and confirmed peer-link playback on independent phone/tablet emulators. 2fc38317 purchase also proves the premium reaction received by a TLS peer. Final submission film remains open |
@@ -26,7 +26,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Latest targeted native verification
 
-Current local verification on official Flutter 3.44 passes formatting, analysis,
+The September 18 local verification on official Flutter 3.44 passes formatting, analysis,
 **725 app tests with zero skips**, and a normal debug APK build. Same-host Nearby
 TLS tests use the actual Windows WSL virtual adapter; this is not physical LAN
 acceptance. The short-landscape join regression now keeps both the editable text
@@ -39,6 +39,17 @@ review also reproduced stale fullscreen Retry callbacks overriding a later entry
 or replacement room; revision/lifecycle guards and owned-notice cleanup fix that
 case, including preserving unrelated queued app messages. All eighteen immersive
 platform/widget tests pass; these are included in the app total.
+
+September 24 resumed work preserves that application baseline. The test-only
+native observer now separates bounded cold startup from its original four-second
+hierarchy budget, propagates caller deadlines through fullscreen/system-dialog
+checks, and rejects late results. Its Android SDK 35 APK builds and verifies;
+189 related Python tests and another 53 network/audio-interruption tests pass.
+Fullscreen auto-hide now captures an observer-free native interval for explicit
+image/video review, because accessibility reads themselves reveal the controls.
+Fresh phone/tablet fullscreen and network runtime acceptance remain required.
+The development showcase recording resumes in a new file; the prior file's last
+saved chunk is September 18. The intervening gap is not continuous footage.
 
 The fresh PR cohort at `115454e3e93758fd9ef379ac441669bf20b1ab26`
 has ten passing workflows and four failures, including
@@ -144,8 +155,13 @@ capture succeeds with 19 nodes; measured root/refresh/traversal stages take
 not reach the old run's later failed observation, nor radio interruption.
 Per-player native read timing diagnostics are now implemented at `9150f4d`,
 with 32 passing Python contracts and clean Flutter analysis. Targeted run
-`35260820569` retains the original read and playback thresholds. Neither earlier
-failure establishes a production synchronization defect.
+`35260820569` retains the original read and playback thresholds. Its eight native
+reads all succeed in 12–640 ms; both players advance and pass `initial-ready`.
+The subsequent observer capture fails after three missing roots and a fourth
+partial traversal that exceeds its budget. PID 3604 remains focused. Radio
+interruption is not reached, and the externally stopped driver has no completed
+app teardown. Runner-owned cleanup passes. This does not establish a production
+synchronization defect; the incomplete hierarchy remains failed evidence.
 
 [Lifecycle 35256363876](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35256363876)
 at `8720304` passes independent original-evidence review. Real HOME retains PID
@@ -185,9 +201,15 @@ capture profile and assertions are unchanged. The previous stock Python server
 returned full HTTP 200 responses; Media3 discards preceding bytes when a nonzero
 seek receives 200. The replacement supports single byte-range 206/416 and bounded
 request diagnostics, preserving the previous socket timeout behavior. Twenty-three
-real Linux HTTP/ownership tests and the focused review pass. Native performance
-and film-quality conclusions remain pending; timely 206 delivery alone is not
-a smooth-playback result.
+real Linux HTTP/ownership tests and the focused review pass. Independent artifact
+review accepts the complete 26/25-step Together sequence and teardown, with seven
+zero-delta position comparisons. All four original recordings fully decode.
+Nine complete 206 responses write exactly the requested tail; five cancelled
+responses are recorded separately. Recovery movie motion improves, but the
+tablet still holds one movie image for 7.728 seconds during initial playback,
+including a 3.943-second whole-picture gap. These originals are not approved as
+the final professional film. Range support alone does not establish smooth
+playback or explain host/decoder/recording contention.
 
 [Runtime matrix 35241701885](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35241701885)
 at `6c44e415386e3a39ee3371aed5b6066e9ec9996c` passes all three jobs; original

@@ -7,9 +7,11 @@ import binascii
 from dataclasses import dataclass
 import hashlib
 from pathlib import Path
+import queue
 import re
 import secrets
 import subprocess
+import threading
 import time
 import xml.etree.ElementTree as ET
 
@@ -27,6 +29,10 @@ MAX_DEPTH = 48
 MAX_ATTRIBUTE = 4096
 MAX_CAPTURE_ATTEMPTS = 4
 MAX_STAGE_EVENTS = 40
+STARTUP_TIMEOUT_SECONDS = 20
+CAPTURE_TIMEOUT_SECONDS = 4
+RESULT_TIMEOUT_SECONDS = 2
+TOTAL_TIMEOUT_SECONDS = 26
 STAGES = frozenset({
     "on_create", "on_start", "automation_start", "automation_ready", "service_ready",
     "root_start", "root_ready", "refresh_start", "refresh_ready", "traverse_start",
@@ -35,10 +41,11 @@ STAGES = frozenset({
 STAGE_PREFIX = "INSTRUMENTATION_STATUS: observer_stage="
 STAGE_CODE = "INSTRUMENTATION_STATUS_CODE: 2"
 RETRYABLE_CAPTURE_ERRORS = frozenset({
-    "root_missing", "root_refresh_failed", "root_invisible", "child_missing", "capture_deadline",
+    "root_missing", "root_refresh_failed", "root_invisible", "child_missing",
     "flutter_semantics_unavailable",
 })
 CAPTURE_ERRORS = RETRYABLE_CAPTURE_ERRORS | {
+    "capture_deadline",
     "node_limit", "depth_limit", "attribute_limit", "byte_limit", "child_count_limit",
     "native_security_exception", "native_state_exception",
     "native_argument_exception", "serialization_io_exception", "native_exception",
@@ -47,6 +54,162 @@ CAPTURE_ERRORS = RETRYABLE_CAPTURE_ERRORS | {
 
 class ObserverIntegrityFailure(RuntimeFailure):
     """An invalid capture or a changed production process cannot be retried away."""
+
+
+class ObserverTimeout(subprocess.TimeoutExpired, ObserverIntegrityFailure):
+    """An expired owned capture must not buy a fresh cold-start budget."""
+
+    def __init__(self, command, timeout, *, phase, output=b"", stderr=b""):
+        subprocess.TimeoutExpired.__init__(self, command, timeout, output=output, stderr=stderr)
+        self.phase = phase
+
+
+def remaining_timeout(deadline: float | None, cap: float = 10) -> float:
+    remaining = cap if deadline is None else min(cap, deadline - time.monotonic())
+    if remaining <= 0:
+        raise ObserverTimeout("native accessibility snapshot", 0, phase="caller_deadline")
+    return remaining
+
+
+class InstrumentationBudget:
+    """One cold start and one capture; progress can never refresh a budget."""
+
+    def __init__(self, nonce: str, started: float, deadline: float):
+        self.nonce = nonce
+        self.total_deadline = min(deadline, started + TOTAL_TIMEOUT_SECONDS)
+        self.deadline = min(self.total_deadline, started + STARTUP_TIMEOUT_SECONDS)
+        self.phase = "startup"
+        self.events: list[dict[str, object]] = []
+        self.ready = False
+        self.finished = False
+        self.capture_uptime: int | None = None
+        self.traversed = False
+
+    def progress(self, output: bytes, now: float) -> None:
+        if now >= self.deadline:
+            raise ObserverTimeout("native accessibility snapshot", 0, phase=self.phase, output=output)
+        # A read can split UTF-8 or an instrumentation line. Only parse complete
+        # lines, and never treat a lone status line as permission to extend time.
+        complete = output[:output.rfind(b"\n") + 1]
+        _, events, status = _stage_output(complete, self.nonce, partial=True)
+        if status not in {"valid", "incomplete_status"}:
+            raise ObserverIntegrityFailure("native observer progress is invalid")
+        if events[:len(self.events)] != self.events:
+            raise ObserverIntegrityFailure("native observer progress changed")
+        startup = ("on_create", "on_start", "automation_start", "automation_ready", "service_ready")
+        for event in events[len(self.events):]:
+            name = event["stage"]
+            if self.finished:
+                raise ObserverIntegrityFailure("native observer emitted progress after finish")
+            if not self.ready:
+                if name == "finish":
+                    # A native startup exception may return a failed protocol
+                    # result; it still has no hierarchy or acceptance credit.
+                    self.finished = True
+                    self.phase = "result"
+                    self.deadline = min(self.deadline, now + RESULT_TIMEOUT_SECONDS)
+                elif (len(self.events) >= len(startup) or name != startup[len(self.events)]
+                      or event["attempt"] != 0 or event["visitedNodes"] != 0):
+                    raise ObserverIntegrityFailure("native observer startup sequence is invalid")
+                elif name == "service_ready":
+                    self.ready = True
+                    self.capture_uptime = event["uptimeMs"]
+                    self.phase = "capture"
+                    # Native code enforces four seconds of hierarchy work. Two
+                    # further seconds bound delivery of its final result.
+                    self.deadline = min(self.total_deadline,
+                                        now + CAPTURE_TIMEOUT_SECONDS + RESULT_TIMEOUT_SECONDS)
+            elif name in startup:
+                raise ObserverIntegrityFailure("native observer repeated startup readiness")
+            elif name == "traverse_ready":
+                if event["uptimeMs"] - self.capture_uptime >= CAPTURE_TIMEOUT_SECONDS * 1000:
+                    raise ObserverIntegrityFailure("native hierarchy exceeded its four-second capture budget")
+                self.traversed = True
+            elif name == "finish":
+                self.finished = True
+                self.phase = "result"
+                self.deadline = min(self.deadline, now + RESULT_TIMEOUT_SECONDS)
+            self.events.append(event)
+
+
+def collect_instrumentation(command: list[str], nonce: str, *, deadline: float) -> subprocess.CompletedProcess:
+    """Read bounded output from exactly the adb child launched by this call."""
+    started = time.monotonic()
+    remaining_timeout(deadline)
+    budget = InstrumentationBudget(nonce, started, deadline)
+    process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    chunks: queue.Queue = queue.Queue(maxsize=16)
+    stopping = threading.Event()
+    buffers = {"stdout": bytearray(), "stderr": bytearray()}
+
+    def reader(name, stream):
+        try:
+            while not stopping.is_set():
+                value = stream.read1(4096)
+                while not stopping.is_set():
+                    try:
+                        chunks.put((name, value), timeout=0.05)
+                        break
+                    except queue.Full:
+                        continue
+                if not value:
+                    return
+        except (OSError, ValueError):
+            while not stopping.is_set():
+                try:
+                    chunks.put((name, None), timeout=0.05)
+                    return
+                except queue.Full:
+                    continue
+
+    threads = [threading.Thread(target=reader, args=(name, getattr(process, name)), daemon=True)
+               for name in buffers]
+    for thread in threads:
+        thread.start()
+    try:
+        closed = set()
+        while len(closed) != 2 or process.poll() is None:
+            now = time.monotonic()
+            if now >= budget.deadline:
+                raise ObserverTimeout(command, budget.deadline - started, phase=budget.phase,
+                                      output=bytes(buffers["stdout"]), stderr=bytes(buffers["stderr"]))
+            try:
+                name, value = chunks.get(timeout=min(0.05, budget.deadline - now))
+            except queue.Empty:
+                continue
+            if value is None:
+                raise ObserverIntegrityFailure("native observer output pipe failed")
+            if not value:
+                closed.add(name)
+                continue
+            if sum(map(len, buffers.values())) + len(value) > MAX_OUTPUT_BYTES:
+                raise ObserverIntegrityFailure("native observer output exceeds its byte limit")
+            buffers[name].extend(value)
+            if name == "stdout":
+                budget.progress(bytes(buffers[name]), time.monotonic())
+        budget.progress(bytes(buffers["stdout"]), time.monotonic())
+        if not budget.finished:
+            raise ObserverIntegrityFailure("native observer exited without completed progress")
+        if b"INSTRUMENTATION_CODE: -1" in buffers["stdout"] and not (budget.ready and budget.traversed):
+            raise ObserverIntegrityFailure("native observer returned a hierarchy without a completed capture")
+        if process.returncode:
+            raise ObserverIntegrityFailure("native observer instrumentation exited unsuccessfully")
+        return subprocess.CompletedProcess(command, process.returncode,
+                                           bytes(buffers["stdout"]), bytes(buffers["stderr"]))
+    except ObserverIntegrityFailure as error:
+        error.output, error.stderr = bytes(buffers["stdout"]), bytes(buffers["stderr"])
+        raise
+    finally:
+        # No process-name selection or process-group signals. This Popen handle
+        # is our adb client only; Android helper cleanup stays package-scoped.
+        stopping.set()
+        if process.poll() is None:
+            process.kill()
+        process.wait(timeout=2)
+        for thread in threads:
+            thread.join(timeout=1)
+        for name in buffers:
+            getattr(process, name).close()
 
 
 class ObserverCaptureFailure(RuntimeFailure):
@@ -298,32 +461,44 @@ class NativeUiObserver:
                 "method": "UiAutomation.getRootInActiveWindow", "waitForIdle": False,
                 "installation": self.installation}
 
-    def production_pid(self) -> str:
-        pid = self.adb.run("shell", "pidof", PACKAGE, check=False, timeout=10).stdout.decode(
+    def production_pid(self, *, deadline: float | None = None) -> str:
+        pid = self.adb.run("shell", "pidof", PACKAGE, check=False,
+                           timeout=remaining_timeout(deadline)).stdout.decode(
             "ascii", errors="replace").strip()
+        remaining_timeout(deadline)
         if re.fullmatch(r"[0-9]+", pid) is None:
             raise ObserverIntegrityFailure("native UI capture requires exactly one live application process")
         return pid
 
-    def observe(self) -> tuple[str, str]:
+    def _instrument(self, nonce: str, *, deadline: float) -> subprocess.CompletedProcess:
+        return collect_instrumentation(self.adb.prefix + [
+            "shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
+            "-e", "expectedPackage", PACKAGE, COMPONENT], nonce, deadline=deadline)
+
+    def observe(self, *, deadline: float | None = None) -> tuple[str, str]:
         if not self.installed:
             raise ObserverIntegrityFailure("native UI observer has not been installed and verified")
         nonce = secrets.token_hex(16)
         started = time.monotonic()
+        deadline = min(started + TOTAL_TIMEOUT_SECONDS,
+                       deadline if deadline is not None else float("inf"))
         evidence: dict[str, object] = {"status": "failure", "requestNonce": nonce,
-                                      "startedAtMonotonic": started}
+                                      "startedAtMonotonic": started, "deadlineAtMonotonic": deadline,
+                                      "startupTimeoutSeconds": STARTUP_TIMEOUT_SECONDS,
+                                      "captureTimeoutSeconds": CAPTURE_TIMEOUT_SECONDS,
+                                      "resultTimeoutSeconds": RESULT_TIMEOUT_SECONDS}
         stage = "application_pid_before"
         try:
-            before_pid = self.production_pid()
+            before_pid = self.production_pid(deadline=deadline)
             evidence["applicationPid"] = int(before_pid)
             stage = "instrumentation"
             try:
-                result = self.adb.run("shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
-                                      "-e", "expectedPackage", PACKAGE,
-                                      COMPONENT, timeout=10)
-            except subprocess.TimeoutExpired as error:
-                evidence["instrumentationProgress"] = stage_diagnostics(error.output, nonce)
-                evidence["instrumentationStderr"] = stage_diagnostics(error.stderr, nonce)
+                result = self._instrument(nonce, deadline=deadline)
+            except (subprocess.TimeoutExpired, ObserverIntegrityFailure) as error:
+                evidence["instrumentationProgress"] = stage_diagnostics(getattr(error, "output", None), nonce)
+                evidence["instrumentationStderr"] = stage_diagnostics(getattr(error, "stderr", None), nonce)
+                if isinstance(error, subprocess.TimeoutExpired):
+                    evidence["timeoutPhase"] = getattr(error, "phase", "instrumentation")
                 # Stop only our independently installed helper, never the app.
                 self.adb.run("shell", "am", "force-stop", OBSERVER_PACKAGE, timeout=10)
                 if self.production_pid() != before_pid:
@@ -333,8 +508,10 @@ class NativeUiObserver:
             evidence["stdoutSha256"] = hashlib.sha256(result.stdout).hexdigest()
             evidence["instrumentationProgress"] = stage_diagnostics(result.stdout, nonce)
             stage = "window"
-            window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode(
+            window = self.adb.run("shell", "dumpsys", "window", "displays",
+                                  timeout=remaining_timeout(deadline)).stdout.decode(
                 "utf-8", errors="replace")
+            remaining_timeout(deadline)
             focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window)
             evidence["window"] = {
                 "bytes": len(window.encode("utf-8")), "sha256": hashlib.sha256(window.encode()).hexdigest(),
@@ -343,12 +520,13 @@ class NativeUiObserver:
                     rf"\b{re.escape(PACKAGE)}/[^\s}}]+", focuses[0]) is not None,
             }
             stage = "application_pid_after"
-            after_pid = self.production_pid()
+            after_pid = self.production_pid(deadline=deadline)
             evidence["applicationPidAfter"] = int(after_pid)
             if after_pid != before_pid:
                 raise ObserverIntegrityFailure("application process changed during native UI capture")
             stage = "response"
             snapshot = parse_snapshot(result.stdout, nonce, previous_uptime_ms=self.previous_uptime_ms)
+            remaining_timeout(deadline)
             self.previous_uptime_ms = snapshot.uptime_ms
             evidence.update({"status": "success", "capturedAtUptimeMs": snapshot.uptime_ms,
                              "nodeCount": snapshot.node_count, "attempts": list(snapshot.attempts),

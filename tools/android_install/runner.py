@@ -262,8 +262,8 @@ class Adb:
             raise RuntimeFailure(f"adb {command} failed with exit {result.returncode}")
         return result
 
-    def screenshot(self) -> bytes:
-        value = self.run("exec-out", "screencap", "-p").stdout
+    def screenshot(self, *, timeout: float = 25) -> bytes:
+        value = self.run("exec-out", "screencap", "-p", timeout=timeout).stdout
         validate_png(value)
         return value
 
@@ -302,21 +302,29 @@ class Adb:
                 "".join(diagnostics), encoding="utf-8"
             )
 
-    def observe(self) -> tuple[str, str]:
+    def observe(self, *, deadline: float | None = None) -> tuple[str, str]:
+        def remaining() -> float:
+            value = 10 if deadline is None else min(10, deadline - time.monotonic())
+            if value <= 0:
+                raise subprocess.TimeoutExpired("native accessibility snapshot", 0)
+            return value
+
+        remaining()
         self.observation += 1
         remote = f"{self.remote_prefix}ui-{self.observation}.xml"
         self.remote_files.append(remote)
         self.run(
-            "shell", "uiautomator", "dump", "--compressed", remote, timeout=10
+            "shell", "uiautomator", "dump", "--compressed", remote, timeout=remaining()
         )
         xml = self.run(
-            "exec-out", "cat", remote, timeout=10
+            "exec-out", "cat", remote, timeout=remaining()
         ).stdout.decode("utf-8", errors="strict")
         window = self.run(
-            "shell", "dumpsys", "window", "displays", timeout=10
+            "shell", "dumpsys", "window", "displays", timeout=remaining()
         ).stdout.decode(
             "utf-8", errors="replace"
         )
+        remaining()
         return xml, window
 
     def cleanup(self) -> None:

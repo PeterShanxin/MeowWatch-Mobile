@@ -20,7 +20,7 @@ from tools.android_lifecycle_runtime.run import (
     MAX_RECORDING_BYTES, MAX_FILE_QUERY_BYTES, MAX_LIVE_READ_SUMMARIES,
 )
 from tools.billing_runtime.native_dialog import LAUNCHER_PACKAGE, SETUP_PACKAGE
-from tools.android_native_ui.observer import OBSERVER_PACKAGE, ObserverIntegrityFailure
+from tools.android_native_ui.observer import OBSERVER_PACKAGE, ObserverIntegrityFailure, ObserverTimeout
 from tools.android_native_ui.test_observer import node as native_node, response as native_response
 
 
@@ -82,15 +82,15 @@ class PreparationAdb:
         self.taps = []
         self.captures = 0
 
-    def observe(self):
+    def observe(self, *, deadline=None):
         return next(self.frames)
 
-    def screenshot(self):
+    def screenshot(self, *, timeout=25):
         self.captures += 1
         return (b"\x89PNG\r\n\x1a\n" + b"\x00\x00\x00\rIHDR"
                 + (400).to_bytes(4, "big") + (500).to_bytes(4, "big"))
 
-    def run(self, *arguments):
+    def run(self, *arguments, **kwargs):
         if arguments == ("shell", "getprop", "ro.kernel.qemu"):
             return subprocess.CompletedProcess([], 0, self.qemu)
         if arguments[:3] == ("shell", "input", "tap"):
@@ -1222,6 +1222,40 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 self.assertEqual(adb.captures, 0)
                 self.assertEqual(runner.preparation_recoveries, [])
 
+    def test_preparation_ownership_and_screenshot_share_remaining_deadline(self):
+        for late in (None, "getprop", "screenshot"):
+            with self.subTest(late=late), tempfile.TemporaryDirectory() as directory:
+                clock = [10.0]
+                adb = PreparationAdb([preparation_anr()])
+                runner = preparation_runner(Path(directory), adb)
+                original_run, original_screenshot = adb.run, adb.screenshot
+                calls = []
+                def command(*arguments, **kwargs):
+                    if arguments == ("shell", "getprop", "ro.kernel.qemu"):
+                        calls.append(("getprop", kwargs["timeout"]))
+                        clock[0] = 11.0 if late == "getprop" else 10.4
+                    return original_run(*arguments, **kwargs)
+                def screenshot(**kwargs):
+                    calls.append(("screenshot", kwargs["timeout"]))
+                    if late == "screenshot":
+                        clock[0] = 11.0
+                    return original_screenshot(**kwargs)
+                adb.run, adb.screenshot = command, screenshot
+                with patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]):
+                    if late:
+                        with self.assertRaises(ObserverIntegrityFailure):
+                            runner.recover_preparation_anr(*preparation_anr(), deadline=11)
+                        self.assertEqual(adb.taps, [])
+                    else:
+                        self.assertTrue(runner.recover_preparation_anr(*preparation_anr(), deadline=11))
+                        self.assertEqual(len(adb.taps), 1)
+                self.assertEqual(calls[0], ("getprop", 1.0))
+                if late == "getprop":
+                    self.assertEqual(len(calls), 1)
+                else:
+                    self.assertEqual(calls[1][0], "screenshot")
+                    self.assertAlmostEqual(calls[1][1], 0.6)
+
     def test_initial_recovery_refuses_app_anr_foreign_activity_and_changed_focus(self):
         anr = preparation_anr()
         app_anr = preparation_anr(PACKAGE)
@@ -1270,8 +1304,8 @@ class LifecycleRuntimeTests(unittest.TestCase):
         anr = preparation_anr()
         clock = [0.0]
         class SlowRecoveryAdb(PreparationAdb):
-            def run(self, *arguments):
-                result = super().run(*arguments)
+            def run(self, *arguments, **kwargs):
+                result = super().run(*arguments, **kwargs)
                 if arguments[:3] == ("shell", "input", "tap"):
                     clock[0] = 66.0
                 return result
@@ -1467,6 +1501,9 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 self.fail(f"Unexpected observation command: {arguments[:3]}")
 
             with patch("tools.android_install.runner.subprocess.run", side_effect=native_command), patch(
+                "tools.android_native_ui.observer.collect_instrumentation",
+                side_effect=lambda command, nonce, *, deadline: native_command(command),
+            ), patch(
                 "tools.android_lifecycle_runtime.run.time.sleep",
             ):
                 xml, state = runner.sample("04-advanced", playing=True, screenshot=False)
@@ -1548,7 +1585,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
             runner = Runner("emulator-5554", apk, fixture, root)
             clock = [0.0]
 
-            def expired_observation():
+            def expired_observation(*, deadline=None):
                 clock[0] = 46.0
                 raise subprocess.TimeoutExpired(["adb", "-s", "emulator-5554", "exec-out", "cat"], 10)
 
@@ -1578,6 +1615,48 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertEqual(taps, ["tap"])
             self.assertEqual(observe.call_count, 1)
             self.assertEqual(runner.observation_timeouts, [])
+
+    def test_late_xml_never_calls_predicate_and_late_predicate_never_passes(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            for late_at in ("observation", "predicate"):
+                runner = Runner("emulator-5554", apk, fixture, root)
+                clock = [0.0]
+                deadlines, checks = [], []
+                def observation(*, deadline=None):
+                    deadlines.append(deadline)
+                    if late_at == "observation":
+                        clock[0] = 11
+                    return player()
+                def check(xml):
+                    checks.append(xml)
+                    clock[0] = 11
+                    return playback(xml)
+                with self.subTest(late_at=late_at), patch.object(runner, "observe", side_effect=observation), \
+                        patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
+                        patch("tools.android_lifecycle_runtime.run.time.sleep"), \
+                        self.assertRaisesRegex(RuntimeFailure, "deadline"):
+                    runner.wait("late-result", check, timeout=10)
+                self.assertEqual(deadlines, [10])
+                self.assertEqual(len(checks), 0 if late_at == "observation" else 1)
+                self.assertFalse((root / "late-result.xml").exists())
+
+    def test_expired_observer_budget_is_terminal_without_cold_restart(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            with patch.object(runner, "observe", side_effect=ObserverTimeout(
+                "native accessibility snapshot", 20, phase="startup")) as observe, \
+                    self.assertRaises(ObserverTimeout):
+                runner.wait("startup-budget", playback)
+            self.assertEqual(observe.call_count, 1)
+            self.assertEqual(runner.samples, [])
 
     def test_observation_timeout_diagnostics_never_include_raw_payloads(self):
         for command in ["adb secret-private-data", ["adb", "-s", "emulator-5554", "shell", "private-value"]]:

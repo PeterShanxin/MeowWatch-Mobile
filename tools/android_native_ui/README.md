@@ -78,10 +78,12 @@ unknown exception is an immediate integrity failure; its message is never emitte
 Android can temporarily return a missing root or child while a new accessibility
 connection or updated tree is being published. For these transient reasons,
 the helper permits at most four attempts in the **same** `UiAutomation` connection,
-100 ms apart, under a four-second capture budget checked during traversal. Each
+100 ms apart, under a four-second capture budget checked during traversal. This
+budget starts after UiAutomation and accessibility service configuration are
+ready; cold instrumentation startup does not spend the hierarchy budget. Each
 attempt obtains and refreshes a new active root, resets its node count and XML
 buffer, and recycles the entire previous traversal. It never returns partial XML.
-The ten-second host watchdog still bounds a blocked Android framework call.
+An independent host watchdog still bounds a blocked Android framework call.
 Exceeding the internal time budget produces `capture_deadline`; structural limits
 and native exceptions are never retried inside the connection or by callers that
 honor `ObserverIntegrityFailure`. No acceptance deadline or timeline requirement
@@ -109,9 +111,22 @@ count and terminal success/failure consistency before retaining any diagnostics.
 Only transient failures may precede another attempt. A successful final tree
 must independently satisfy the existing node-count and XML checks.
 
-Each capture has a ten-second instrumentation timeout. If it expires, the host
-stops only the owned helper package, confirms that the app PID stayed unchanged,
-and lets the caller retry within its original deadline. `observations` now records
+The host streams bounded output from its own adb child. It allows at most twenty
+seconds from instrumentation dispatch to a validated `service_ready`, then four
+seconds of native hierarchy work and at most two seconds of result delivery.
+The entire observation, including PID/window checks, has a twenty-six-second
+absolute limit, capped by any earlier caller deadline. The service-ready marker
+must follow the exact startup sequence with the same fresh nonce and helper PID.
+Repeated or foreign readiness cannot reset a deadline. A native traversal at or
+beyond four seconds is rejected even if response-delivery time remains. `finish`
+can only shorten the remaining result deadline; it cannot grant more time.
+
+An expired startup/capture/caller budget is terminal: the host reaps only its own
+adb process, stops only the owned helper package when instrumentation is active,
+and confirms that the app PID stayed unchanged. It never retries a cold start to
+replace an expired budget. Cleanup may finish after the acceptance deadline but
+cannot earn phase credit. Lifecycle callers pass their original absolute deadline
+and reject late results before and after their UI predicate. `observations` records
 both `status: success` and `status: failure`. Successful evidence retains the
 nonce, device and host timestamps, app PID, node count and XML hash. Failed
 captures retain fixed failure codes, validated attempt diagnostics when available,
@@ -138,8 +153,8 @@ Python accepts only complete progress records with the current nonce, one
 positive helper PID, consecutive sequence numbers, nondecreasing uptime, known
 stages and bounded attempt/node counts. `instrumentationProgress` records these
 stages plus output byte count and SHA-256 on success and failure. On the unchanged
-ten-second host timeout it retains the validated prefix available in
-`TimeoutExpired.output`, then stops only the helper as before. Incomplete or
+startup/capture timeout it retains the validated prefix available in
+`TimeoutExpired.output`, then stops only the helper. Incomplete or
 malformed trailing diagnostics are classified with fixed codes. Arbitrary
 partial XML and stderr text are never copied into diagnostics; stderr retains
 only the same bounded metadata. Logcat independently retains stages emitted
@@ -149,9 +164,11 @@ Progress alone never satisfies capture. The final Protocol 2 response must still
 pass all nonce, freshness, complete hierarchy, attribute and structural checks;
 malformed progress also rejects a completed response. The 360,000-byte response
 limit still accommodates the maximum 256 KiB XML plus all 40 stage records.
-The four-second internal budget, four attempts, 100 ms retry interval and all
-caller acceptance deadlines are unchanged. Diagnostics do not authorize extending
-these limits or using a previous/partial tree after a failed capture.
+The four-second hierarchy budget, four attempts, 100 ms retry interval and all
+caller acceptance deadlines remain unchanged. Startup has its separate bounded
+allowance; no previous/partial tree may replace a failed capture. The twenty-second
+startup setting addresses observed API 35 cold connection delays, not a guarantee
+under arbitrary system load. The full helper still needs fresh native acceptance.
 
 The local tests establish parsing, freshness, process and ownership rules.
 Compilation establishes Android API compatibility. A successful native lifecycle

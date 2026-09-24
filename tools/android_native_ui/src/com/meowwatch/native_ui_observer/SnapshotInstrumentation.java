@@ -48,7 +48,6 @@ public final class SnapshotInstrumentation extends Instrumentation {
 
     @Override
     public void onStart() {
-        deadline = SystemClock.uptimeMillis() + CAPTURE_BUDGET_MS;
         stage("on_start");
         StringBuilder attempts = new StringBuilder();
         try {
@@ -64,6 +63,9 @@ public final class SnapshotInstrumentation extends Instrumentation {
             service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
             service.flags &= ~AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
             automation.setServiceInfo(service);
+            // Cold instrumentation/accessibility setup has its own host budget.
+            // All hierarchy attempts still share this single four-second limit.
+            deadline = SystemClock.uptimeMillis() + CAPTURE_BUDGET_MS;
             stage("service_ready");
             for (int attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
                 captureAttempt = attempt;

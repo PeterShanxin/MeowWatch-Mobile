@@ -17,9 +17,9 @@ import xml.etree.ElementTree as ET
 from tools.android_install.runner import PACKAGE, RuntimeFailure, focused_component, verify_build_mode
 from tools.android_lifecycle_runtime.run import (
     LifecycleRecording, Playback, Runner as LifecycleRunner, button,
-    playback, require_paused_stability, require_playing_advance,
+    playback, recording_device_elapsed, require_paused_stability, require_playing_advance,
 )
-from tools.android_native_ui.observer import DEFAULT_APK, ObserverIntegrityFailure
+from tools.android_native_ui.observer import DEFAULT_APK, OBSERVER_PACKAGE, ObserverIntegrityFailure, remaining_timeout
 from tools.billing_runtime.native_dialog import image_size
 from tools.incoming_media_runtime.run import center, exact, nodes
 
@@ -192,39 +192,48 @@ class Runner(LifecycleRunner):
         self.log_file = None
         self.fullscreen_entry_pid = ""
         self.immersive_confirmations: list[dict] = []
+        self.controls_auto_hide_review: dict | None = None
 
-    def require_owned_avd(self) -> None:
+    def require_owned_avd(self, *, deadline: float | None = None) -> None:
+        def read(*arguments: str) -> subprocess.CompletedProcess:
+            value = self.adb.run(*arguments, timeout=remaining_timeout(deadline, 25))
+            self.require_observation_deadline(deadline)
+            return value
+
         if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
                 or self.form_factor not in {"phone", "tablet"}
                 or re.fullmatch(rf"meowwatch_fullscreen_{self.form_factor}_[A-Za-z0-9_]+", self.avd_name) is None):
             raise RuntimeFailure("an explicit task-owned fullscreen AVD is required")
-        name = [line.strip() for line in self.adb.run("emu", "avd", "name").stdout.decode().splitlines()
+        name = [line.strip() for line in read("emu", "avd", "name").stdout.decode().splitlines()
                 if line.strip() and line.strip() != "OK"]
         if name != [self.avd_name]:
             raise RuntimeFailure("selected AVD does not belong to this fullscreen gate")
-        if (self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"
-                or self.adb.run("shell", "getprop", "ro.build.version.sdk").stdout.strip() != b"35"):
+        if (read("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"
+                or read("shell", "getprop", "ro.build.version.sdk").stdout.strip() != b"35"):
             raise RuntimeFailure("fullscreen gate requires a dedicated API 35 emulator")
 
-    def require_entry_pid(self) -> None:
-        if not self.fullscreen_entry_pid or self.pid() != self.fullscreen_entry_pid:
+    def require_entry_pid(self, *, deadline: float | None = None) -> None:
+        if not self.fullscreen_entry_pid or self.pid(deadline=deadline) != self.fullscreen_entry_pid:
             raise ObserverIntegrityFailure("fullscreen tip handling changed or lost the normal app process")
 
-    def acknowledge_immersive_confirmation(self, xml: str, window: str) -> None:
+    def acknowledge_immersive_confirmation(self, xml: str, window: str, *, deadline: float | None = None) -> None:
+        self.require_observation_deadline(deadline)
         if self.phase != "07-entered-fullscreen" or self.immersive_confirmations:
             raise ObserverIntegrityFailure("fullscreen tip acknowledgement is allowed once at first entry only")
-        self.require_owned_avd()
-        self.require_entry_pid()
+        self.require_owned_avd(deadline=deadline)
+        self.require_entry_pid(deadline=deadline)
         prefix = self.output / "07-immersive-confirmation"
         prefix.with_suffix(".xml").write_text(xml, encoding="utf-8")
         prefix.with_suffix(".window.txt").write_text(window, encoding="utf-8")
         immersive_confirmation_button(xml, window)
-        png = self.adb.screenshot()
+        png = self.adb.screenshot(timeout=remaining_timeout(deadline, 25))
+        self.require_observation_deadline(deadline)
         prefix.with_suffix(".png").write_bytes(png)
         dimensions = image_size(png)
         # UIAutomator is used only for this idle Android system dialog. The
         # resumed app must still pass the standalone fresh native observer.
-        fresh_xml, fresh_window = self.adb.observe()
+        fresh_xml, fresh_window = self.adb.observe(deadline=deadline)
+        self.require_observation_deadline(deadline)
         self.last_xml, self.last_window = fresh_xml, fresh_window
         prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
         prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
@@ -232,32 +241,39 @@ class Runner(LifecycleRunner):
         current = re.findall(r"\bcur=(\d+)x(\d+)\b", fresh_window)
         if dimensions != tuple(map(int, current[0])):
             raise RuntimeFailure("fullscreen tip display changed between screenshot and fresh confirmation")
-        self.require_entry_pid()
+        self.require_entry_pid(deadline=deadline)
+        self.require_observation_deadline(deadline)
         receipt = {"phase": self.phase, "attempt": 1, "status": "tap-sent",
                    "pid": int(self.fullscreen_entry_pid), "evidencePrefix": prefix.name,
                    "observedAtMonotonic": time.monotonic()}
         self.immersive_confirmations.append(receipt)
         try:
-            self.tap(target)
+            self.tap(target, deadline=deadline)
+            self.require_observation_deadline(deadline)
         except (RuntimeFailure, subprocess.TimeoutExpired) as error:
             receipt["status"] = "uncertain"
             raise ObserverIntegrityFailure("fullscreen tip tap was not confirmed; refusing another tap") from error
-        self.require_entry_pid()
+        self.require_entry_pid(deadline=deadline)
 
-    def observe(self) -> str:
+    def observe(self, *, deadline: float | None = None) -> str:
+        self.require_observation_deadline(deadline)
         if self.phase == "07-entered-fullscreen":
-            self.require_entry_pid()
-            window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode()
+            self.require_entry_pid(deadline=deadline)
+            window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=remaining_timeout(deadline)).stdout.decode()
+            self.require_observation_deadline(deadline)
             focuses = re.findall(r"mCurrentFocus=([^\r\n]+)", window)
             if any("ImmersiveModeConfirmation" in value for value in focuses) and not self.immersive_confirmations:
-                xml, window = self.adb.observe()
+                xml, window = self.adb.observe(deadline=deadline)
+                self.require_observation_deadline(deadline)
                 self.last_xml, self.last_window = xml, window
-                self.acknowledge_immersive_confirmation(xml, window)
-        xml = super().observe()
+                self.acknowledge_immersive_confirmation(xml, window, deadline=deadline)
+        xml = super().observe(deadline=deadline)
         if self.phase == "07-entered-fullscreen":
-            self.require_entry_pid()
+            self.require_entry_pid(deadline=deadline)
+            self.require_observation_deadline(deadline)
             if self.immersive_confirmations:
                 self.immersive_confirmations[0]["status"] = "acknowledged"
+        self.require_observation_deadline(deadline)
         return xml
 
     def evidence(self, phase: str, state: Display, xml: str) -> None:
@@ -309,6 +325,76 @@ class Runner(LifecycleRunner):
                 - float(self.recordings[-2]["stopRequestedAtMonotonic"]))
         if display_state(self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode()) != state:
             raise RuntimeFailure("native display changed while the new recording segment was starting")
+
+    def observer_disconnected(self, deadline: float) -> bool:
+        def read(*arguments: str, check: bool = True) -> subprocess.CompletedProcess:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeFailure("observer disconnect verification exceeded its deadline")
+            return self.adb.run("shell", *arguments, check=check, timeout=min(2, remaining))
+        process = read("pidof", OBSERVER_PACKAGE, check=False)
+        enabled = read("settings", "get", "secure", "accessibility_enabled").stdout.strip()
+        if process.returncode not in (0, 1) or enabled not in (b"0", b"1"):
+            raise RuntimeFailure("observer disconnect evidence is missing or invalid")
+        # Android 15 AccessibilityManagerService.updateAccessibilityEnabledSettingLocked
+        # includes UiAutomation.canIntrospect in this read-only system setting.
+        return not process.stdout.strip() and enabled == b"0"
+
+    def capture_controls_idle_window(self, baseline: Display) -> None:
+        self.phase = "08-controls-idle-visual-review"
+        self.controls_auto_hide_review = {
+            "status": "pending", "visualReviewRequired": True,
+            "phase": self.phase, "requiredQuietSeconds": 4,
+            "boundary": "Original screenshots and video require visual review; elapsed time is not hidden-control proof.",
+        }
+        review = self.controls_auto_hide_review
+        if not self.observer.owns_package or not self.observer.installed:
+            raise ObserverIntegrityFailure("idle capture may stop only this gate's installed observer")
+        if self.recording is None or self.recording.metadata.get("status") != "recording":
+            raise RuntimeFailure("idle capture requires the live fullscreen recording")
+        self.require_owned_avd()
+        self.require_entry_pid()
+        self.adb.run("shell", "am", "force-stop", OBSERVER_PACKAGE, timeout=3)
+        deadline = time.monotonic() + 5
+        while not self.observer_disconnected(deadline):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeFailure("observer or accessibility service did not disconnect")
+            time.sleep(min(0.2, remaining))
+        review["observerDisconnectedAtMonotonic"] = time.monotonic()
+
+        def capture(suffix: str) -> float:
+            prefix = self.output / f"{self.phase}{suffix}"
+            window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=3).stdout.decode()
+            state = display_state(window)
+            require_transition(baseline, state, self.form_factor, fullscreen=True)
+            Path(str(prefix) + ".window.txt").write_text(window, encoding="utf-8")
+            png = self.adb.screenshot()
+            # Append extensions: Path.with_suffix would collapse the .before prefix.
+            Path(str(prefix) + ".png").write_bytes(png)
+            if image_size(png) != (state.width, state.height):
+                raise RuntimeFailure("idle screenshot dimensions disagree with the native display")
+            fresh = self.adb.run("shell", "dumpsys", "window", "displays", timeout=3).stdout.decode()
+            Path(str(prefix) + ".after-screenshot.window.txt").write_text(fresh, encoding="utf-8")
+            if display_state(fresh) != state:
+                raise RuntimeFailure("system bars/orientation changed across the idle screenshot")
+            self.require_entry_pid()
+            elapsed = recording_device_elapsed(self.adb.run("exec-out", "cat", "/proc/uptime", timeout=3).stdout)
+            review.setdefault("screenshots", []).append({
+                "file": prefix.name + ".png", "deviceElapsedSecondsAfterCapture": elapsed,
+                "observedAtMonotonic": time.monotonic(), **asdict(state),
+            })
+            return elapsed
+
+        started = capture(".before")
+        time.sleep(4)
+        if not self.observer_disconnected(time.monotonic() + 5):
+            raise RuntimeFailure("observer or accessibility service reconnected during the idle window")
+        ended = capture("")
+        if ended - started < 4:
+            raise RuntimeFailure("native device clock does not cover the required idle interval")
+        review.update({"evidenceCaptured": True, "quietDeviceSeconds": ended - started,
+                       "recordingFile": self.recording.metadata.get("file")})
 
     def recording_input(self, deadline: float, *arguments: str) -> None:
         remaining = deadline - time.monotonic()
@@ -380,11 +466,10 @@ class Runner(LifecycleRunner):
         self.start_recording(action_name="fullscreen-play", startup_action=lambda deadline:
                              self.recording_input(deadline, "tap", *coordinates))
 
-        # Observe the production idle auto-hide, then show the actual controls
-        # with one native surface tap. A bounded hidden-state wait cannot
-        # distinguish a tap-hide result from the three-second auto-hide timer.
-        self.system_sample("08-controls-auto-hidden", baseline, fullscreen=True, controls=False)
-        self.recording.observe_startup_result("08-controls-auto-hidden")
+        # Reading Flutter's accessibility tree itself enables accessibleNavigation
+        # and keeps controls visible. Keep this idle interval free of tree queries.
+        self.capture_controls_idle_window(baseline)
+        self.recording.observe_startup_result("08-controls-idle-visual-review")
         self.center_tap(full)
         fullscreen_advance = self.pause_after_fullscreen_advance(full, entered)
         xml, _, full_paused = self.system_sample("10-fullscreen-paused", baseline, fullscreen=True, playing=False)
@@ -428,8 +513,9 @@ class Runner(LifecycleRunner):
             "sameMediaAndPausedPositionAfterFirstBack": True,
             "systemBarsHiddenByActualInsetsSources": True,
             "systemBarsAndOrientationRestored": True,
-            "secondBackReturnsHome": True, "controlsAutoHiddenDuringPlayback": True,
-            "controlsShownByNativeTap": True,
+            "secondBackReturnsHome": True, "controlsAutoHideVisualReviewRequired": True,
+            "controlsAutoHideReview": self.controls_auto_hide_review,
+            "controlsVisibleAfterNativeTap": True,
             "nativeVisibleBoundsWithinPhysicalDisplay": True,
             "states": self.states, "samples": self.samples,
             "immersiveConfirmations": self.immersive_confirmations,
@@ -437,7 +523,8 @@ class Runner(LifecycleRunner):
             "recordings": self.recordings,
             "boundary": "Dedicated API 35 emulator, normal release lib/main.dart; no physical device proof. "
                         "Rotation gaps are explicit, not continuous footage. PNGs remain uncropped. "
-                        "Bounds checks do not replace visual review of original screenshots.",
+                        "Bounds checks do not replace visual review of original screenshots. "
+                        "Controls auto-hide remains pending original-image/video visual review.",
         })
         return report
 
@@ -479,6 +566,8 @@ def main() -> int:
         report = {"completed": False, "phase": runner.phase, "error": f"{type(error).__name__}: {error}",
                   "states": runner.states, "samples": runner.samples,
                   "immersiveConfirmations": runner.immersive_confirmations,
+                  "controlsAutoHideVisualReviewRequired": True,
+                  "controlsAutoHideReview": runner.controls_auto_hide_review,
                   "nativeUiObservations": runner.observer.observations,
                   "observationTimeouts": runner.observation_timeouts}
         if runner.evidence_started:

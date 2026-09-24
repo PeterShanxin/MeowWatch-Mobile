@@ -338,6 +338,30 @@ class FirstRunSetupRecoveryTests(unittest.TestCase):
         self.assertEqual(adb.commands.count(('shell', 'input', 'tap', '70', '130')), 1)
 
 
+class ObservationDeadlineTests(unittest.TestCase):
+    def test_android_queries_share_caller_deadline_and_reject_late_window(self):
+        adb = Adb("emulator-5554", "deadline-test")
+        clock = [0.0]
+        commands = []
+        def run(*args, **kwargs):
+            commands.append((args, kwargs["timeout"]))
+            clock[0] += 2
+            return subprocess.CompletedProcess([], 0, b"<hierarchy/>")
+        with patch.object(adb, "run", side_effect=run), \
+                patch("tools.android_install.runner.time.monotonic", side_effect=lambda: clock[0]), \
+                self.assertRaises(subprocess.TimeoutExpired):
+            adb.observe(deadline=5)
+        self.assertEqual([timeout for _, timeout in commands], [5, 3, 1])
+
+    def test_expired_deadline_sends_no_device_command(self):
+        adb = Adb("emulator-5554", "deadline-test")
+        with patch.object(adb, "run") as run, \
+                patch("tools.android_install.runner.time.monotonic", return_value=6), \
+                self.assertRaises(subprocess.TimeoutExpired):
+            adb.observe(deadline=5)
+        run.assert_not_called()
+
+
 class StorageReadinessTests(unittest.TestCase):
     def test_caller_receives_probe_errors_without_writing_default_output(self):
         adb = Adb("emulator-5554", "storage-test")

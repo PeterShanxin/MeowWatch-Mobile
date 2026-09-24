@@ -30,7 +30,7 @@ from tools.billing_runtime.native_dialog import (
     LAUNCHER_PACKAGE, SETUP_PACKAGE, UnsafeDialog, image_size,
     select_google_sdk_setup_anr_close, select_pixel_launcher_anr_close,
 )
-from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver, ObserverIntegrityFailure
+from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver, ObserverIntegrityFailure, remaining_timeout
 
 
 FIXTURE_NAME = "sync-fixture.mp4"
@@ -864,22 +864,32 @@ class Runner:
             "normalLibMainEntrypoint": True,
         }
 
-    def pid(self) -> str:
-        value = self.adb.run("shell", "pidof", PACKAGE, check=False).stdout.decode().strip()
+    def pid(self, *, deadline: float | None = None) -> str:
+        self.require_observation_deadline(deadline)
+        value = self.adb.run("shell", "pidof", PACKAGE, check=False,
+                             timeout=25 if deadline is None else min(25, deadline - time.monotonic())).stdout.decode().strip()
+        self.require_observation_deadline(deadline)
         if value and not re.fullmatch(r"\d+", value):
             raise RuntimeFailure("expected exactly one app process")
         return value
 
-    def observe(self) -> str:
-        xml, window = self.observer.observe()
+    def observe(self, *, deadline: float | None = None) -> str:
+        xml, window = self.observer.observe(deadline=deadline)
+        self.require_observation_deadline(deadline)
         self.last_xml = xml
         self.last_window = window
-        if self.recover_preparation_anr(xml, window):
+        if self.recover_preparation_anr(xml, window, deadline=deadline):
             raise RuntimeFailure("initial emulator ANR closed; awaiting fresh application UI")
         focused_component(window)
+        self.require_observation_deadline(deadline)
         return xml
 
-    def recover_preparation_anr(self, xml: str, window: str) -> bool:
+    @staticmethod
+    def require_observation_deadline(deadline: float | None) -> None:
+        if deadline is not None and time.monotonic() >= deadline:
+            raise ObserverIntegrityFailure("native observation exceeded the caller deadline")
+
+    def recover_preparation_anr(self, xml: str, window: str, *, deadline: float | None = None) -> bool:
         if self.phase != "01-fixture-review":
             return False
         for package, selector in (
@@ -895,20 +905,26 @@ class Runner:
             return False
         if len(self.preparation_recoveries) >= MAX_PREPARATION_ANR_RECOVERIES:
             raise PreparationRecoveryFailure("initial emulator ANR recovery limit reached")
+        self.require_observation_deadline(deadline)
         if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
-                or self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.decode().strip() != "1"):
+                or self.adb.run("shell", "getprop", "ro.kernel.qemu",
+                                timeout=remaining_timeout(deadline, 25)).stdout.decode().strip() != "1"):
             raise PreparationRecoveryFailure("initial ANR recovery is emulator-only")
+        self.require_observation_deadline(deadline)
         attempt = len(self.preparation_recoveries) + 1
         prefix = self.output / f"01-preparation-anr-{attempt}"
         prefix.with_suffix(".xml").write_text(xml, encoding="utf-8")
         prefix.with_suffix(".window.txt").write_text(window, encoding="utf-8")
-        png = self.adb.screenshot()
+        png = self.adb.screenshot(timeout=remaining_timeout(deadline, 25))
+        self.require_observation_deadline(deadline)
         prefix.with_suffix(".png").write_bytes(png)
         try:
             width, height = image_size(png)
         except UnsafeDialog as error:
             raise PreparationRecoveryFailure("initial ANR screenshot dimensions are invalid") from error
-        fresh_xml, fresh_window = self.observer.observe()
+        self.require_observation_deadline(deadline)
+        fresh_xml, fresh_window = self.observer.observe(deadline=deadline)
+        self.require_observation_deadline(deadline)
         self.last_xml, self.last_window = fresh_xml, fresh_window
         prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
         prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
@@ -925,16 +941,21 @@ class Runner:
         self.preparation_recoveries.append(row)
         x, y = target.center
         try:
-            self.adb.run("shell", "input", "tap", str(x), str(y))
+            self.require_observation_deadline(deadline)
+            self.adb.run("shell", "input", "tap", str(x), str(y),
+                         timeout=25 if deadline is None else min(25, deadline - time.monotonic()))
         except (RuntimeFailure, subprocess.TimeoutExpired) as error:
             row["status"] = "uncertain"
             raise PreparationRecoveryFailure("initial ANR close was not confirmed; refusing another tap") from error
         row["status"] = "closed"
         return True
 
-    def tap(self, node: ET.Element) -> None:
+    def tap(self, node: ET.Element, *, deadline: float | None = None) -> None:
         x, y = center(node)
-        self.adb.run("shell", "input", "tap", str(x), str(y))
+        self.require_observation_deadline(deadline)
+        self.adb.run("shell", "input", "tap", str(x), str(y),
+                     timeout=25 if deadline is None else min(25, deadline - time.monotonic()))
+        self.require_observation_deadline(deadline)
 
     def wait(self, phase: str, check: Callable[[str], T], timeout: float = 45) -> tuple[str, T]:
         self.phase = phase
@@ -943,7 +964,8 @@ class Runner:
         observation_timeouts = 0
         while time.monotonic() < deadline:
             try:
-                xml = self.observe()
+                xml = self.observe(deadline=deadline)
+                self.require_observation_deadline(deadline)
             except (PreparationRecoveryFailure, ObserverIntegrityFailure):
                 raise
             except subprocess.TimeoutExpired as error:
@@ -976,6 +998,7 @@ class Runner:
                     "observedAtMonotonic": time.monotonic(),
                 }
                 result = check(xml)
+                self.require_observation_deadline(deadline)
                 self.output.joinpath(f"{phase}.xml").write_text(xml, encoding="utf-8")
                 return xml, result
             except RuntimeFailure as error:

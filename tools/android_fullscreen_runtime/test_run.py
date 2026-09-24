@@ -12,7 +12,7 @@ from tools.android_fullscreen_runtime.run import (
 )
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_lifecycle_runtime.run import Playback
-from tools.android_native_ui.observer import ObserverIntegrityFailure
+from tools.android_native_ui.observer import OBSERVER_PACKAGE, ObserverIntegrityFailure
 
 
 # Native API 35 hierarchy/window shape from phone run 35250983436, phase 07.
@@ -252,7 +252,13 @@ class OwnershipTests(unittest.TestCase):
                     return (full_xml if kwargs["fullscreen"] else normal_xml), state, Playback(position, 90, False)
                 runner.system_sample = Mock(side_effect=system_sample)
                 runner.evidence = Mock(side_effect=lambda phase, *_: events.append(phase))
-                runner.pause_after_fullscreen_advance = Mock(return_value=2)
+                def idle(_baseline):
+                    runner.phase = "08-controls-idle-visual-review"
+                    events.append(runner.phase)
+                    runner.controls_auto_hide_review = {"status": "pending", "visualReviewRequired": True}
+                runner.capture_controls_idle_window = Mock(side_effect=idle)
+                runner.center_tap = Mock(side_effect=lambda *_: events.append("center-tap"))
+                runner.pause_after_fullscreen_advance = Mock(side_effect=lambda *_: events.append("09-native-advance") or 2)
                 def wait(phase, check, **_kwargs):
                     runner.phase = phase
                     events.append(phase)
@@ -297,7 +303,12 @@ class OwnershipTests(unittest.TestCase):
                             with self.assertRaisesRegex(RuntimeFailure, "paused playback advanced"):
                                 runner.run()
                         else:
-                            self.assertTrue(runner.run()["completed"])
+                            report = runner.run()
+                            self.assertTrue(report["completed"])
+                            self.assertTrue(report["controlsAutoHideVisualReviewRequired"])
+                            self.assertEqual(report["controlsAutoHideReview"]["status"], "pending")
+                            self.assertNotIn("controlsAutoHiddenDuringPlayback", report)
+                            self.assertNotIn("controlsShownByNativeTap", report)
                     finally:
                         if runner.log_file is not None:
                             runner.log_file.close()
@@ -308,10 +319,12 @@ class OwnershipTests(unittest.TestCase):
                 else:
                     self.assertEqual(names, ["normal-play", "fullscreen-play", "return-home"])
                     self.assertEqual(startup_inputs[-1][1], ("keyevent", "KEYCODE_BACK"))
-                    self.assertEqual(first_observations, ["03-normal-playing", "08-controls-auto-hidden", "15-normal-return-home"])
+                    self.assertEqual(first_observations, ["03-normal-playing", "08-controls-idle-visual-review", "15-normal-return-home"])
                     self.assertLess(events.index("ready-1"), events.index("03-normal-playing"))
                     self.assertLess(events.index("07-entered-fullscreen"), events.index("owned-2"))
-                    self.assertLess(events.index("ready-2"), events.index("08-controls-auto-hidden"))
+                    self.assertLess(events.index("ready-2"), events.index("08-controls-idle-visual-review"))
+                    self.assertLess(events.index("08-controls-idle-visual-review"), events.index("center-tap"))
+                    self.assertLess(events.index("center-tap"), events.index("09-native-advance"))
                     self.assertLess(events.index("14-normal-player-restored"), events.index("owned-3"))
                     self.assertLess(events.index("ready-3"), events.index("15-normal-return-home"))
 
@@ -339,11 +352,128 @@ class OwnershipTests(unittest.TestCase):
             full = display_state(window(width=2400, height=1080, rotation=1, bars=False))
             runner.observe = Mock(return_value=fullscreen_player(10, (100, 700, 180, 780)))
             runner.tap = Mock()
-            with patch("tools.android_lifecycle_runtime.run.time.sleep"), \
-                    patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=[0, 1, 1, 11]), \
+            clock = [0]
+            with patch("tools.android_lifecycle_runtime.run.time.sleep", side_effect=lambda _: clock.__setitem__(0, 11)), \
+                    patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
                     self.assertRaisesRegex(RuntimeFailure, "has not advanced"):
                 runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
             runner.tap.assert_not_called()
+
+
+class IdleVisualEvidenceTests(unittest.TestCase):
+    def runner(self, directory):
+        runner = OwnershipTests().runner(directory)
+        runner.output.mkdir()
+        runner.require_owned_avd = Mock()
+        runner.fullscreen_entry_pid = "123"
+        runner.pid = Mock(return_value="123")
+        runner.observer.owns_package = runner.observer.installed = True
+        runner.recording = Mock(metadata={"status": "recording", "file": "native/lifecycle-02.mp4"})
+        runner.observe = Mock(side_effect=AssertionError("idle window must not query a hierarchy"))
+        runner.observer.observe = Mock(side_effect=AssertionError("idle window must not query accessibility"))
+        runner.adb.observe = Mock(side_effect=AssertionError("idle window must not use UIAutomator"))
+        png = b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + (2400).to_bytes(4, "big") + (1080).to_bytes(4, "big")
+        runner.adb.screenshot = Mock(side_effect=[png + b"before-original", png + b"after-original"])
+        self.uptimes = iter((b"100.00 0.00", b"104.50 0.00"))
+        def command(*args, **kwargs):
+            if args == ("shell", "pidof", OBSERVER_PACKAGE):
+                return subprocess.CompletedProcess([], 1, b"", b"")
+            if args == ("shell", "settings", "get", "secure", "accessibility_enabled"):
+                return subprocess.CompletedProcess([], 0, b"0\n", b"")
+            if args == ("shell", "dumpsys", "window", "displays"):
+                return subprocess.CompletedProcess([], 0, window(width=2400, height=1080, rotation=1, bars=False).encode(), b"")
+            if args == ("exec-out", "cat", "/proc/uptime"):
+                return subprocess.CompletedProcess([], 0, next(self.uptimes), b"")
+            self.assertEqual(args, ("shell", "am", "force-stop", OBSERVER_PACKAGE))
+            return subprocess.CompletedProcess([], 0, b"", b"")
+        runner.adb.run = Mock(side_effect=command)
+        return runner
+
+    def test_original_images_and_device_interval_are_retained_without_tree_or_pass_claim(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            with patch("tools.android_fullscreen_runtime.run.time.sleep") as sleep:
+                runner.capture_controls_idle_window(display_state(window()))
+            sleep.assert_called_once_with(4)
+            runner.observe.assert_not_called()
+            runner.observer.observe.assert_not_called()
+            runner.adb.observe.assert_not_called()
+            receipt = runner.controls_auto_hide_review
+            self.assertEqual(receipt["status"], "pending")
+            self.assertTrue(receipt["visualReviewRequired"])
+            self.assertTrue(receipt["evidenceCaptured"])
+            self.assertEqual(receipt["quietDeviceSeconds"], 4.5)
+            self.assertEqual(receipt["recordingFile"], "native/lifecycle-02.mp4")
+            self.assertEqual(len(receipt["screenshots"]), 2)
+            for suffix, ending in ((".before", b"before-original"), ("", b"after-original")):
+                prefix = runner.output / f"08-controls-idle-visual-review{suffix}"
+                self.assertTrue(Path(str(prefix) + ".png").read_bytes().endswith(ending))
+                self.assertTrue(Path(str(prefix) + ".window.txt").is_file())
+                self.assertTrue(Path(str(prefix) + ".after-screenshot.window.txt").is_file())
+            self.assertFalse(list(runner.output.glob("*.xml")))
+
+    def test_unowned_helper_or_missing_recording_cannot_be_stopped(self):
+        for bad in ("ownership", "installed", "recording"):
+            with self.subTest(bad=bad), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                if bad == "ownership":
+                    runner.observer.owns_package = False
+                elif bad == "installed":
+                    runner.observer.installed = False
+                else:
+                    runner.recording = None
+                with self.assertRaises(RuntimeFailure):
+                    runner.capture_controls_idle_window(display_state(window()))
+                runner.adb.run.assert_not_called()
+                runner.adb.screenshot.assert_not_called()
+
+    def test_disconnect_requires_no_helper_and_disabled_accessibility_and_valid_evidence(self):
+        for pid, code, enabled, expected in ((b"", 1, b"0", True), (b"123", 0, b"0", False),
+                                            (b"", 1, b"1", False), (b"", 1, b"null", None),
+                                            (b"", 2, b"0", None)):
+            with self.subTest(pid=pid, enabled=enabled), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                runner.adb.run.side_effect = [subprocess.CompletedProcess([], code, pid, b""),
+                                             subprocess.CompletedProcess([], 0, enabled, b"")]
+                with patch("tools.android_fullscreen_runtime.run.time.monotonic", return_value=0):
+                    if expected is None:
+                        with self.assertRaisesRegex(RuntimeFailure, "missing or invalid"):
+                            runner.observer_disconnected(5)
+                    else:
+                        self.assertIs(runner.observer_disconnected(5), expected)
+
+    def test_disconnect_deadline_and_reconnection_do_not_produce_visual_evidence_success(self):
+        for case in ("deadline", "reconnect"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                runner.observer_disconnected = Mock(side_effect=[False] if case == "deadline" else [True, False])
+                clock = [0, 6] if case == "deadline" else [0, 0, 0, 5]
+                with patch("tools.android_fullscreen_runtime.run.time.monotonic", side_effect=clock), \
+                        patch("tools.android_fullscreen_runtime.run.time.sleep"), self.assertRaises(RuntimeFailure):
+                    runner.capture_controls_idle_window(display_state(window()))
+                self.assertNotIn("evidenceCaptured", runner.controls_auto_hide_review)
+                self.assertEqual(runner.controls_auto_hide_review["status"], "pending")
+                self.assertEqual(runner.adb.screenshot.call_count, 0 if case == "deadline" else 1)
+
+    def test_short_device_interval_changed_process_or_changed_insets_fail_closed(self):
+        for case in ("short-clock", "process", "insets", "image-size"):
+            with self.subTest(case=case), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                if case == "short-clock":
+                    self.uptimes = iter((b"100 0", b"103.99 0"))
+                elif case == "process":
+                    runner.pid.side_effect = ["123", "456"]
+                elif case == "insets":
+                    with_insets = window(width=2400, height=1080, rotation=1, bars=True).encode()
+                    original = runner.adb.run.side_effect
+                    runner.adb.run.side_effect = lambda *args, **kwargs: subprocess.CompletedProcess([], 0, with_insets, b"") if args == (
+                        "shell", "dumpsys", "window", "displays") else original(*args, **kwargs)
+                else:
+                    runner.adb.screenshot.side_effect = [b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR"
+                                                         + (1080).to_bytes(4, "big") + (2400).to_bytes(4, "big")]
+                with patch("tools.android_fullscreen_runtime.run.time.sleep"), self.assertRaises(RuntimeFailure):
+                    runner.capture_controls_idle_window(display_state(window()))
+                self.assertNotIn("evidenceCaptured", runner.controls_auto_hide_review)
 
 
 class ImmersiveConfirmationTests(unittest.TestCase):
@@ -402,7 +532,7 @@ class ImmersiveConfirmationTests(unittest.TestCase):
             runner = self.runner(Path(directory))
             fresh = IMMERSIVE_XML.replace("[1611,436][1793,562]", "[1511,436][1693,562]")
             runner.adb.observe.side_effect = [(IMMERSIVE_XML, immersive_window()), (fresh, immersive_window())]
-            def tap(target):
+            def tap(target, *, deadline=None):
                 self.assertEqual(target.get("bounds"), "[1511,436][1693,562]")
                 self.assertEqual((runner.output / "07-immersive-confirmation.xml").read_text(), IMMERSIVE_XML)
                 self.assertEqual((runner.output / "07-immersive-confirmation.fresh.xml").read_text(), fresh)
@@ -428,6 +558,57 @@ class ImmersiveConfirmationTests(unittest.TestCase):
             runner.adb.observe.assert_not_called()
             runner.tap.assert_not_called()
             runner.observer.observe.assert_called_once()
+
+    def test_first_entry_forwards_one_deadline_to_both_observers_and_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            with patch("tools.android_fullscreen_runtime.run.time.monotonic", return_value=10):
+                self.assertEqual(runner.observe(deadline=15), "<hierarchy/>")
+            self.assertEqual(runner.adb.observe.call_count, 2)
+            self.assertTrue(all(call.kwargs == {"deadline": 15} for call in runner.adb.observe.call_args_list))
+            runner.observer.observe.assert_called_once_with(deadline=15)
+            runner.adb.screenshot.assert_called_once_with(timeout=5)
+            self.assertEqual(runner.tap.call_args.kwargs, {"deadline": 15})
+            self.assertEqual(runner.adb.run.call_args.kwargs["timeout"], 5)
+
+    def test_expired_entry_deadline_never_reads_or_taps(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            with patch("tools.android_fullscreen_runtime.run.time.monotonic", return_value=15), \
+                    self.assertRaises(ObserverIntegrityFailure):
+                runner.observe(deadline=15)
+            runner.adb.run.assert_not_called()
+            runner.adb.observe.assert_not_called()
+            runner.observer.observe.assert_not_called()
+            runner.tap.assert_not_called()
+
+    def test_late_fresh_system_tip_cannot_authorize_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            clock = [10]
+            def late_tip(**kwargs):
+                clock[0] = 15
+                return IMMERSIVE_XML, immersive_window()
+            runner.adb.observe.side_effect = late_tip
+            with patch("tools.android_fullscreen_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
+                    self.assertRaises(ObserverIntegrityFailure):
+                runner.acknowledge_immersive_confirmation(IMMERSIVE_XML, immersive_window(), deadline=15)
+            runner.tap.assert_not_called()
+            self.assertEqual(runner.immersive_confirmations, [])
+
+    def test_late_native_app_result_never_acknowledges_or_returns_entry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            clock = [10]
+            def late_app(**kwargs):
+                clock[0] = 15
+                return "<hierarchy/>", window(width=2400, height=1080, bars=False)
+            runner.observer.observe.side_effect = late_app
+            with patch("tools.android_fullscreen_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
+                    self.assertRaises(ObserverIntegrityFailure):
+                runner.observe(deadline=15)
+            runner.tap.assert_called_once()
+            self.assertEqual(runner.immersive_confirmations[0]["status"], "tap-sent")
 
     def test_system_tip_is_never_accepted_as_fresh_fullscreen_app_evidence(self):
         with tempfile.TemporaryDirectory() as directory:

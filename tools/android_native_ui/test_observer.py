@@ -1,8 +1,11 @@
 import base64
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
+import time
 import unittest
+from unittest.mock import patch
 import xml.etree.ElementTree as ET
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
@@ -10,6 +13,7 @@ from tools.android_native_ui.observer import (
     COMPONENT, SHORT_COMPONENT, MAX_ATTRIBUTE, MAX_DEPTH, MAX_NODES, MAX_OUTPUT_BYTES, MAX_XML_BYTES,
     NativeUiObserver, OBSERVER_PACKAGE, ObserverCaptureFailure, ObserverIntegrityFailure, parse_snapshot,
     installation_diagnostics, stage_diagnostics, MAX_STAGE_EVENTS,
+    InstrumentationBudget, ObserverTimeout, collect_instrumentation,
 )
 
 
@@ -207,7 +211,7 @@ class SnapshotParserTests(unittest.TestCase):
                      "flutter_semantics_unavailable"):
             with self.assertRaisesRegex(ObserverCaptureFailure, "complete active-window") as caught:
                 parse_snapshot(failure_response(code), NONCE)
-            self.assertNotIsInstance(caught.exception, ObserverIntegrityFailure)
+            self.assertEqual(isinstance(caught.exception, ObserverIntegrityFailure), code == "capture_deadline")
             self.assertEqual(caught.exception.reason, code)
         for xml in ("<hierarchy/>", "<hierarchy>" + node() * 2 + "</hierarchy>",
                     "<wrong>" + node() + "</wrong>"):
@@ -314,7 +318,13 @@ class NativeObserverTests(unittest.TestCase):
     def helper(self, root, adb):
         apk = root / "observer.apk"
         apk.write_bytes(b"helper apk")
-        return NativeUiObserver(adb, apk)
+        observer = NativeUiObserver(adb, apk)
+        # These tests own the app/PID/result protocol. The actual streaming
+        # subprocess and watchdogs have separate tests below.
+        observer._instrument = lambda nonce, *, deadline: adb.run(
+            "shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
+            "-e", "expectedPackage", PACKAGE, COMPONENT, timeout=26)
+        return observer
 
     def test_install_is_verified_emulator_only_and_targets_its_own_package(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -447,7 +457,7 @@ class NativeObserverTests(unittest.TestCase):
             self.assertEqual([item["status"] for item in observer.observations], ["failure", "success"])
             capture_timeouts = [kwargs["timeout"] for args, kwargs in adb.commands
                                 if args[:3] == ("shell", "am", "instrument")]
-            self.assertEqual(capture_timeouts, [10, 10])
+            self.assertEqual(capture_timeouts, [26, 26])
 
     def test_timeout_preserves_connected_stage_and_discards_partial_ui_output(self):
         def partial(nonce):
@@ -473,7 +483,7 @@ class NativeObserverTests(unittest.TestCase):
             self.assertEqual(observer.observations[-1]["status"], "success")
             self.assertFalse(any(args == ("shell", "am", "force-stop", PACKAGE) for args, _ in adb.commands))
             self.assertEqual([kwargs["timeout"] for args, kwargs in adb.commands
-                              if args[:3] == ("shell", "am", "instrument")], [10, 10])
+                              if args[:3] == ("shell", "am", "instrument")], [26, 26])
 
     def test_completed_capture_retains_stages_on_success_and_native_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -569,6 +579,29 @@ class NativeObserverTests(unittest.TestCase):
             self.assertTrue(observer.observations[0]["integrityFailure"])
             self.assertEqual(observer.observations[0]["failure"], "native_exception")
 
+    def test_late_complete_result_and_pid_query_cannot_escape_caller_deadline(self):
+        with tempfile.TemporaryDirectory() as directory:
+            for late_at in ("instrumentation", "pid"):
+                adb = FakeAdb()
+                observer = self.helper(Path(directory), adb)
+                observer.install()
+                clock = [0.0]
+                original = adb.run
+                def command(*args, **kwargs):
+                    value = original(*args, **kwargs)
+                    if ((late_at == "instrumentation" and args[:3] == ("shell", "am", "instrument"))
+                            or (late_at == "pid" and args == ("shell", "pidof", PACKAGE))):
+                        clock[0] = 9
+                    return value
+                with self.subTest(late_at=late_at), patch.object(adb, "run", side_effect=command), \
+                        patch("tools.android_native_ui.observer.time.monotonic", side_effect=lambda: clock[0]), \
+                        self.assertRaises(ObserverTimeout):
+                    observer.observe(deadline=8)
+                self.assertEqual(observer.observations[-1]["status"], "failure")
+                self.assertNotIn("xmlSha256", observer.observations[-1])
+                if late_at == "pid":
+                    self.assertEqual(adb.nonces, [])
+
     def test_checked_in_manifest_has_no_permissions_activity_or_production_target(self):
         root = ET.parse(Path(__file__).with_name("AndroidManifest.xml")).getroot()
         self.assertEqual(root.get("package"), OBSERVER_PACKAGE)
@@ -578,6 +611,127 @@ class NativeObserverTests(unittest.TestCase):
         self.assertEqual(len(instrumentation), 1)
         self.assertEqual(instrumentation[0].get("{http://schemas.android.com/apk/res/android}targetPackage"),
                          OBSERVER_PACKAGE)
+
+
+def startup_progress(*, nonce=NONCE, pid=567, ready_uptime=7000):
+    names = ("on_create", "on_start", "automation_start", "automation_ready", "service_ready")
+    return b"".join(progress(name, nonce=nonce, pid=pid, sequence=index + 1,
+                             uptime=ready_uptime - 4 + index) for index, name in enumerate(names))
+
+
+class InstrumentationBudgetTests(unittest.TestCase):
+    def test_slow_cold_start_does_not_spend_the_hierarchy_budget(self):
+        budget = InstrumentationBudget(NONCE, 0, 100)
+        budget.progress(startup_progress(), 12)
+        self.assertEqual(budget.phase, "capture")
+        self.assertEqual(budget.deadline, 18)  # Four for tree, two for delivery.
+        data = startup_progress() + progress("finish", sequence=6, uptime=10000, attempt=1, nodes=1)
+        budget.progress(data, 15)
+        self.assertEqual(budget.deadline, 17)
+        self.assertTrue(budget.finished)
+
+    def test_startup_cap_and_total_cap_are_independent(self):
+        budget = InstrumentationBudget(NONCE, 0, 100)
+        with self.assertRaises(ObserverTimeout) as caught:
+            budget.progress(startup_progress(), 20)
+        self.assertEqual(caught.exception.phase, "startup")
+        budget = InstrumentationBudget(NONCE, 0, 100)
+        budget.progress(startup_progress(), 19.9)
+        self.assertLessEqual(budget.deadline, 26)
+        with self.assertRaises(ObserverTimeout):
+            budget.progress(startup_progress(), 26)
+
+    def test_caller_deadline_dominates_readiness_and_result(self):
+        budget = InstrumentationBudget(NONCE, 0, 8)
+        budget.progress(startup_progress(), 7)
+        self.assertEqual(budget.deadline, 8)
+        with self.assertRaises(ObserverTimeout):
+            budget.progress(startup_progress() + progress("finish", sequence=6, uptime=7100), 8)
+
+    def test_wrong_nonce_pid_sequence_or_repeated_ready_cannot_extend_time(self):
+        first = startup_progress()
+        for data in (startup_progress(nonce="b" * 32),
+                     first + progress("service_ready", sequence=6, uptime=7001),
+                     first + progress("root_start", sequence=6, uptime=7001, pid=568),
+                     progress("service_ready"),
+                     first + progress("finish", sequence=6, uptime=7001)
+                     + progress("finish", sequence=7, uptime=7002)):
+            budget = InstrumentationBudget(NONCE, 0, 100)
+            with self.subTest(data=data[-120:]), self.assertRaises(ObserverIntegrityFailure):
+                budget.progress(data, 10)
+
+    def test_incomplete_ready_is_not_a_new_budget_and_repeated_buffer_does_not_refresh(self):
+        data = startup_progress()
+        budget = InstrumentationBudget(NONCE, 0, 100)
+        budget.progress(data.rsplit(b"INSTRUMENTATION_STATUS_CODE", 1)[0], 12)
+        self.assertEqual(budget.deadline, 20)
+        budget.progress(data, 13)
+        self.assertEqual(budget.deadline, 19)
+        budget.progress(data, 18)
+        self.assertEqual(budget.deadline, 19)
+
+    def test_capture_deadline_is_terminal_and_does_not_grant_another_connection(self):
+        with self.assertRaises(ObserverIntegrityFailure) as caught:
+            parse_snapshot(failure_response("capture_deadline"), NONCE)
+        self.assertIsInstance(caught.exception, ObserverCaptureFailure)
+
+    def test_native_traversal_over_four_seconds_cannot_use_response_delivery_allowance(self):
+        for uptime, accepted in ((10999, True), (11000, False), (12000, False)):
+            budget = InstrumentationBudget(NONCE, 0, 100)
+            budget.progress(startup_progress(), 12)
+            data = startup_progress() + progress("traverse_ready", sequence=6, uptime=uptime,
+                                                attempt=1, nodes=1)
+            if accepted:
+                budget.progress(data, 16.5)
+                self.assertTrue(budget.traversed)
+            else:
+                with self.assertRaisesRegex(ObserverIntegrityFailure, "four-second"):
+                    budget.progress(data, 16.5)
+
+
+class InstrumentationPipeTests(unittest.TestCase):
+    def command(self, payload, *, after=""):
+        return [sys.executable, "-u", "-c",
+                f"import sys,time;sys.stdout.buffer.write({payload!r});sys.stdout.buffer.flush();{after}"]
+
+    def test_actual_child_stream_delivers_complete_owned_response(self):
+        data = startup_progress() + progress("traverse_ready", sequence=6, uptime=7100, attempt=1, nodes=1)
+        data += progress("finish", sequence=7, uptime=7101, attempt=1, nodes=1)
+        data += response(uptime=7100)
+        result = collect_instrumentation(self.command(data), NONCE, deadline=time.monotonic() + 5)
+        self.assertEqual(parse_snapshot(result.stdout, NONCE).node_count, 1)
+        self.assertEqual(result.stderr, b"")
+
+    def test_expired_child_is_reaped_and_partial_xml_is_never_returned(self):
+        child = []
+        real_popen = subprocess.Popen
+        def launch(*args, **kwargs):
+            process = real_popen(*args, **kwargs)
+            child.append(process)
+            return process
+        with patch("tools.android_native_ui.observer.subprocess.Popen", side_effect=launch), \
+                self.assertRaises(ObserverTimeout) as caught:
+            collect_instrumentation(self.command(b"partial private XML", after="time.sleep(5)"),
+                                    NONCE, deadline=time.monotonic() + 0.5)
+        self.assertEqual(len(child), 1)
+        self.assertIsNotNone(child[0].poll())
+        self.assertEqual(caught.exception.phase, "startup")
+        self.assertLessEqual(len(caught.exception.output), MAX_OUTPUT_BYTES)
+
+    def test_excessive_output_and_unready_success_are_rejected(self):
+        for data in (b"x" * (MAX_OUTPUT_BYTES + 1),
+                     progress("finish") + response()):
+            with self.subTest(size=len(data)), self.assertRaises(ObserverIntegrityFailure):
+                # Keep the command line bounded even on Windows.
+                command = ([sys.executable, "-u", "-c", f"import sys;sys.stdout.buffer.write(b'x'*{len(data)})"]
+                           if len(data) > MAX_OUTPUT_BYTES else self.command(data))
+                collect_instrumentation(command, NONCE, deadline=time.monotonic() + 5)
+
+    def test_expired_caller_never_starts_an_instrumentation_child(self):
+        with patch("tools.android_native_ui.observer.subprocess.Popen") as launch, \
+                self.assertRaises(ObserverTimeout):
+            collect_instrumentation(["must-not-start"], NONCE, deadline=time.monotonic() - 1)
+        launch.assert_not_called()
 
 
 if __name__ == "__main__":

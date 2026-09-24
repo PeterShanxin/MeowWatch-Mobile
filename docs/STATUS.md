@@ -88,7 +88,22 @@ The current repairs and their acceptance boundaries are:
   The originals are 165.678/165.496 seconds with 1,544/1,412 pictures; tablet
   has a 0.173-second final gap. Guest recovery/history observations retain
   buffering=true, so these checkpoints do not prove completed frame rendering.
-  Hosted original-frame review `36019377413` remains pending.
+  Hosted original-frame review `36019377413` strictly decodes both originals;
+  all retained frame hashes match. Eight original PNGs were inspected. The
+  largest picture gaps, 4.640/3.567 seconds, both show static launch icons;
+  selected player/chat frames are readable and some retain buffering. Mean
+  picture rates are 9.32/8.53 fps. Full-motion acceptance remains separate.
+  `8bb79bc` passes hosted Check `36019746397`: 767 app, 87 Nearby and 14 platform
+  tests with zero Dart skips, all analysis/formatting and secret scans. Profile
+  network `36019751369` reaches the initial-ready checkpoint in about 3.3
+  seconds, with native positions 2,499/1,724 ms. No rate command was necessary,
+  so it does not exercise native slowdown. The run then fails radio disable:
+  wifi reads off but mobile data remains enabled. Original radios and all
+  owned resources are restored. No result.json is delivered after runner
+  termination, so the retained log/phase/position receipts establish only this
+  partial result. The runner now retains `svc` stdout/stderr to diagnose a
+  zero-exit framework error or unapplied request without guessing its cause.
+  The fresh `3a0307f` PR cohort covers the updated product.
 - **Fullscreen intent (`6829cc7`).** Buffering-end may report not-playing
   before the native playing event. Preserving the accepted play intent fixes
   unwanted idle-timer resets, while explicit pause, completion and errors still

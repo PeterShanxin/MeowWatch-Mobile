@@ -72,6 +72,7 @@ jobs:
       - name: Build the MainApp network acceptance APK
         run: >-
           flutter build apk --${NETWORK_BUILD_MODE} --target=integration_test/network_interruption_test.dart
+          --target-platform android-x64
           --dart-define=NETWORK_RUN_ID=${{ env.NETWORK_RUN_ID }}
       - name: Build independent native accessibility observer
         run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0

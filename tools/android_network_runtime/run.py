@@ -191,7 +191,15 @@ class Radios:
         failures: list[str] = []
         for name in ("wifi", "data"):
             try:
-                self.adb.run("shell", "svc", name, "enable" if desired[name] else "disable", timeout=10)
+                result = self.adb.run(
+                    "shell", "svc", name, "enable" if desired[name] else "disable", timeout=10)
+                # svc may report a framework failure on stderr with exit 0.
+                # Preserve that response even when the later state read fails.
+                self.record({"operation": "radio-command", "phase": operation,
+                             "radio": name, "enabled": desired[name],
+                             "exitCode": result.returncode,
+                             "stdout": result.stdout[:2048].decode("utf-8", errors="replace"),
+                             "stderr": result.stderr[:2048].decode("utf-8", errors="replace")})
             except (OSError, RuntimeFailure, subprocess.TimeoutExpired) as error:
                 failures.append(f"{name}: {error}")
         actual = None

@@ -6,6 +6,12 @@ real STARTTLS connection and Android decoder. Only the host player is rendered.
 This is **one emulator and one process**, not a two-device or physical-phone test.
 Both clients lose that emulator's network together.
 
+The acceptance APK contains only the x86_64 ABI used by this dedicated AVD;
+normal-application install workflows separately build the distributable APKs.
+Each `svc` request retains bounded stdout/stderr and its exit code before the
+existing radio-state confirmation. An exit code alone never proves that Android
+changed the radio. Playback, radio confirmation and outage thresholds are unchanged.
+
 The production UI starts a host room, loads the controlled 90-second fixture, and
 starts playback. One free hosted session must be consumed. A successful socket
 probe records the actual public Syncplay endpoint's resolved address and port.

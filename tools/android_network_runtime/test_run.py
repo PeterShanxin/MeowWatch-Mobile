@@ -134,7 +134,28 @@ class OwnershipTests(unittest.TestCase):
         self.assertFalse(adb.radios["wifi"])
         radios.restore()
         self.assertEqual(adb.radios, {"wifi": True, "data": False})
-        self.assertTrue(evidence[-2]["commandErrors"])
+        disabled = next(item for item in evidence if item["operation"] == "disable")
+        self.assertTrue(disabled["commandErrors"])
+
+    def test_zero_exit_framework_error_is_retained_as_command_evidence(self):
+        adb, evidence = FakeAdb(), []
+        original = adb.run
+
+        def report_warning(*args, **kwargs):
+            result = original(*args, **kwargs)
+            if args[:3] == ("shell", "svc", "data"):
+                result.stderr = b"Mobile data operation failed: framework error"
+            return result
+
+        adb.run = report_warning
+        radios = Radios(adb, AVD, evidence.append)
+        radios.capture_initial()
+        radios.disable()
+        command = next(item for item in evidence
+                       if item["operation"] == "radio-command" and item["radio"] == "data")
+        self.assertEqual(command["exitCode"], 0)
+        self.assertIn("framework error", command["stderr"])
+        self.assertEqual(evidence[-1]["actual"], {"wifi": False, "data": False})
 
     def test_no_mutation_without_captured_state(self):
         adb = FakeAdb()

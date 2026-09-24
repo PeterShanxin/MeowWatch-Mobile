@@ -1003,6 +1003,51 @@ void main() {
     );
 
     test(
+      'a moderate lead reaches subsecond sync during five seconds of progress',
+      () async {
+        await useRateTarget();
+        var roomMs = 30000;
+        var nativeMs = 31400;
+        // Model two advancing decoders after the slower player becomes the
+        // room anchor. Feed the rate actually requested by the bridge back
+        // into the leading decoder; no peer seek or user command occurs.
+        for (var tick = 0; tick < 10; tick++) {
+          heartbeat(Duration(milliseconds: roomMs));
+          emitNativePosition(
+            target,
+            Duration(milliseconds: nativeMs),
+            playing: true,
+          );
+          // Drain the serialized native command, without waiting for a real
+          // five-second movie. Each pair above is a fresh room observation.
+          await Future<void>.delayed(Duration.zero);
+          final rate = rateTarget.rates.isEmpty ? 1.0 : rateTarget.rates.last;
+          roomMs += 500;
+          nativeMs += (500 * rate).round();
+        }
+        expect(nativeMs - roomMs, lessThan(1000));
+        expect(target.commands, isEmpty);
+        expect(sync.changes, isEmpty);
+
+        // Once close, keep the gentler finish and then restore normal speed.
+        heartbeat(Duration(milliseconds: nativeMs - 700));
+        emitNativePosition(
+          target,
+          Duration(milliseconds: nativeMs),
+          playing: true,
+        );
+        await until(() => rateTarget.rates.last == 0.95);
+        heartbeat(Duration(milliseconds: nativeMs - 400));
+        emitNativePosition(
+          target,
+          Duration(milliseconds: nativeMs),
+          playing: true,
+        );
+        await until(() => rateTarget.rates.last == 1);
+      },
+    );
+
+    test(
       'buffer chatter restores 1x and waits for stable ready playback',
       () async {
         await useRateTarget();

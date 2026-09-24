@@ -31,9 +31,18 @@ native resume policy; this test does not redefine it.
    It requests permanent `AUDIOFOCUS_GAIN` through the real AudioManager. Both
    its `AUDIOFOCUS_REQUEST_GRANTED` result and Android's current top focus owner
    must identify the exact helper UID. The result is also bound to its live PID,
-   logcat PID, nonce, increasing sequence and device uptime.
-5. Without a Pause tap, require MeowWatch to pause within four displayed seconds
-   of the immediate pre-request observation. After a four-second hold, its
+   logcat PID, nonce, increasing sequence and device elapsed realtime.
+5. Without a Pause tap, require a complete paused hierarchy within four seconds
+   of the helper's timestamp immediately before `requestAudioFocus`. Both clocks
+   use Android `elapsedRealtime`, including time asleep. The hierarchy must
+   start after the granted result, finish within 4,000 ms of the request start,
+   and match the sampled XML hash and unchanged application PID. This is an
+   upper bound including traversal, not a precise decoder pause timestamp.
+   The pre-request displayed position remains diagnostic: hierarchy return and
+   command transport delays must not be counted as application reaction time.
+   The controlled fixture, previous advancing sample and unchanged foreground
+   history do not by themselves exclude an unrelated spontaneous pause between
+   observations. After a four-second hold, its
    position must remain stable within one displayed second and the helper must
    still own focus.
 6. Explicitly abandon the same focus request. Verify the release result and

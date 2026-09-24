@@ -231,6 +231,8 @@ class Snapshot:
     uptime_ms: int
     node_count: int
     attempts: tuple[dict[str, object], ...]
+    capture_started_elapsed_ms: int
+    capture_completed_elapsed_ms: int
 
 
 def parse_attempts(value: str) -> tuple[dict[str, object], ...]:
@@ -354,8 +356,9 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
         else:
             raise ObserverIntegrityFailure("native observer returned an unexpected response")
     common = {"observer_protocol", "observer_nonce", "observer_uptime_ms", "observer_attempts"}
-    expected = common | ({"observer_nodes", "observer_xml"} if code == "-1" else {"observer_error"})
-    if code not in {"0", "-1"} or set(fields) != expected or fields["observer_protocol"] != "2":
+    timing_fields = {"observer_capture_started_elapsed_ms", "observer_capture_completed_elapsed_ms"}
+    expected = common | ({"observer_nodes", "observer_xml"} | timing_fields if code == "-1" else {"observer_error"})
+    if code not in {"0", "-1"} or set(fields) != expected or fields["observer_protocol"] != "3":
         raise ObserverIntegrityFailure("native observer response protocol is invalid")
     if (re.fullmatch(r"[a-f0-9]{32}", fields["observer_nonce"]) is None
             or not secrets.compare_digest(fields["observer_nonce"], nonce)):
@@ -372,6 +375,12 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
             raise ObserverIntegrityFailure("native observer failure diagnostics do not match")
         failure_type = ObserverCaptureFailure if reason in RETRYABLE_CAPTURE_ERRORS else ObserverNativeFailure
         raise failure_type(reason, uptime, attempts)
+    if any(re.fullmatch(r"[0-9]{1,16}", fields[name]) is None for name in timing_fields):
+        raise ObserverIntegrityFailure("native observer elapsed clock is invalid")
+    capture_started = int(fields["observer_capture_started_elapsed_ms"])
+    capture_completed = int(fields["observer_capture_completed_elapsed_ms"])
+    if not 0 < capture_started <= capture_completed:
+        raise ObserverIntegrityFailure("native observer elapsed clock is invalid")
     if (re.fullmatch(r"[0-9]{1,4}", fields["observer_nodes"]) is None
             or attempts[-1]["reason"] != "ok"):
         raise ObserverIntegrityFailure("native observer snapshot metadata is invalid")
@@ -414,7 +423,7 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
         # The helper must retry this known Android-container-only response while
         # its accessibility connection is alive, never label it a complete tree.
         raise ObserverIntegrityFailure("native observer returned an incomplete Flutter accessibility shell")
-    return Snapshot(xml, uptime, count, attempts)
+    return Snapshot(xml, uptime, count, attempts, capture_started, capture_completed)
 
 
 class NativeUiObserver:
@@ -529,6 +538,8 @@ class NativeUiObserver:
             remaining_timeout(deadline)
             self.previous_uptime_ms = snapshot.uptime_ms
             evidence.update({"status": "success", "capturedAtUptimeMs": snapshot.uptime_ms,
+                             "captureStartedAtElapsedRealtimeMs": snapshot.capture_started_elapsed_ms,
+                             "captureCompletedAtElapsedRealtimeMs": snapshot.capture_completed_elapsed_ms,
                              "nodeCount": snapshot.node_count, "attempts": list(snapshot.attempts),
                              "xmlSha256": hashlib.sha256(snapshot.xml.encode()).hexdigest()})
             return snapshot.xml, window

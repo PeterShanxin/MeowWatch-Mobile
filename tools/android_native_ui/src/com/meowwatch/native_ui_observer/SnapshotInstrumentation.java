@@ -131,6 +131,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
                 throw new CaptureFailure("root_invisible");
             }
             long capturedAt = SystemClock.uptimeMillis();
+            long captureStartedElapsed = SystemClock.elapsedRealtime();
             BoundedOutput output = new BoundedOutput();
             XmlSerializer serializer = Xml.newSerializer();
             serializer.setOutput(output, "UTF-8");
@@ -151,6 +152,8 @@ public final class SnapshotInstrumentation extends Instrumentation {
             }
             Bundle result = new Bundle();
             result.putString("observer_uptime_ms", Long.toString(capturedAt));
+            result.putString("observer_capture_started_elapsed_ms", Long.toString(captureStartedElapsed));
+            result.putString("observer_capture_completed_elapsed_ms", Long.toString(SystemClock.elapsedRealtime()));
             result.putString("observer_nodes", Integer.toString(nodes));
             result.putString("observer_xml", Base64.encodeToString(output.toByteArray(), Base64.NO_WRAP));
             return result;
@@ -162,7 +165,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
     }
 
     private void metadata(Bundle result, StringBuilder attempts) {
-        result.putString("observer_protocol", "2");
+        result.putString("observer_protocol", "3");
         result.putString("observer_nonce", nonce);
         result.putString("observer_attempts", attempts.toString());
     }

@@ -1,3 +1,4 @@
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,7 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_interruption_runtime.run import (
     FOCUS_HEADER, HELPER, LIFECYCLE_TAGS, Runner, focus_stack, lifecycle_events,
     package_uid, probe_events, require_focus, require_foreground_history, require_resumed_baseline,
-    require_owned_avd,
+    require_owned_avd, require_prompt_pause,
 )
 from tools.android_lifecycle_runtime.run import Playback
 
@@ -35,8 +36,9 @@ def audio(*rows):
 
 
 def event(name="requested", *, sequence=1, nonce=NONCE, pid=4321, uid=10179, result=1, **extra):
-    value = dict(protocol=1, nonce=nonce, sequence=sequence, event=name, result=result,
-                 gain=1, pid=pid, uid=uid, uptimeMs=1000 + sequence)
+    value = dict(protocol=2, nonce=nonce, sequence=sequence, event=name, result=result,
+                 gain=1, pid=pid, uid=uid, elapsedRealtimeMs=1000 + sequence,
+                 requestStartedElapsedRealtimeMs=1000)
     value.update(extra)
     return "1789600000.100 4321 4321 I MWFocusProbe: " + json.dumps(value)
 
@@ -73,12 +75,31 @@ class FocusEvidenceTests(unittest.TestCase):
         raw = event(nonce="b" * 32) + "\n" + event() + "\n" + event("released", sequence=2)
         self.assertEqual([row["event"] for row in probe_events(raw, NONCE, 10179, 4321)], ["requested", "released"])
         for raw in (event(pid=123), event(uid=10180), event(sequence=2), event(gain=2),
-                    event(protocol=2), event(uptimeMs=0), event(result=0),
+                    event(protocol=1), event(elapsedRealtimeMs=0), event(result=0),
+                    event(requestStartedElapsedRealtimeMs=1002), event(elapsedRealtimeMs=True),
                     event("watchdog-expired"), event("focus-change", result=-1),
-                    event() + "\n" + event("released", sequence=2, uptimeMs=999),
+                    event() + "\n" + event("released", sequence=2, elapsedRealtimeMs=999),
+                    event() + "\n" + event("released", sequence=2, requestStartedElapsedRealtimeMs=1001),
                     "MWFocusProbe: " + event().split(": ", 1)[-1], event(unexpected=True)):
             with self.subTest(raw=raw), self.assertRaises(RuntimeFailure):
                 probe_events(raw, NONCE, 10179, 4321)
+
+    def test_pause_bound_includes_full_traversal_and_cannot_use_stale_or_other_xml(self):
+        request = probe_events(event(), NONCE, 10179, 4321)[0]
+        xml = "paused-hierarchy"
+        observation = dict(status="success", applicationPid=4444, applicationPidAfter=4444,
+                           xmlSha256=hashlib.sha256(xml.encode()).hexdigest(),
+                           captureStartedAtElapsedRealtimeMs=1200,
+                           captureCompletedAtElapsedRealtimeMs=5000)
+        self.assertEqual(require_prompt_pause(request, observation, xml, "4444")["pauseUpperBoundMs"], 4000)
+        for fields in (dict(captureCompletedAtElapsedRealtimeMs=5001),
+                       dict(captureStartedAtElapsedRealtimeMs=1000),
+                       dict(captureCompletedAtElapsedRealtimeMs=1199),
+                       dict(captureStartedAtElapsedRealtimeMs=None),
+                       dict(xmlSha256="other"), dict(status="failure"),
+                       dict(applicationPid=4445), dict(applicationPidAfter=4445)):
+            with self.subTest(fields=fields), self.assertRaises(RuntimeFailure):
+                require_prompt_pause(request, {**observation, **fields}, xml, "4444")
 
     def test_background_events_or_lost_history_cannot_count_as_focus_acceptance(self):
         previous = [f"1789600000.000 100 101 I wm_on_paused_called: [1,{PACKAGE}.MainActivity,old]"]
@@ -148,16 +169,31 @@ class FlowTests(unittest.TestCase):
             runner.tap = lambda node: events.append("tap:" + node.get("content-desc"))
             xml = (f'<hierarchy><node package="{PACKAGE}" content-desc="Local mode"/>'
                    f'<node package="{PACKAGE}" content-desc="Play" clickable="true"/></hierarchy>')
-            samples = [(0, False), (2, True), (5, True), (6, True), (8, False), (8, False),
-                       (8, False), (8, False), (8, True), (11, True)]
-            runner.sample = Mock(side_effect=[(xml, Playback(position, 90, playing)) for position, playing in samples])
+            runner.helper_events = probe_events(event(), NONCE, 10179, 4321)
+            runner.observer.observations = [dict(status="success", applicationPid=4444, applicationPidAfter=4444,
+                captureStartedAtElapsedRealtimeMs=1500, captureCompletedAtElapsedRealtimeMs=2000,
+                xmlSha256=hashlib.sha256(xml.encode()).hexdigest())]
+            # The pre-action snapshot can be old: five displayed seconds do
+            # not imply a slow response to a later native focus request.
+            samples = [(0, False), (2, True), (5, True), (6, True), (11, False), (11, False),
+                       (11, False), (11, False), (11, True), (14, True)]
+            iterator = iter(samples)
+            def sample(phase, **kwargs):
+                events.append("sample:" + phase)
+                position, playing = next(iterator)
+                return xml, Playback(position, 90, playing)
+            runner.sample = sample
             with patch("tools.android_interruption_runtime.run.time.sleep"):
                 report = runner.run()
             self.assertTrue(report["completed"])
             self.assertEqual(events.count("tap:Play"), 2)
             self.assertLess(events.index("acquire"), events.index("focus:" + HELPER))
+            self.assertLess(events.index("acquire"), events.index("sample:08-focus-paused"))
+            self.assertLess(events.index("sample:08-focus-paused"), events.index("focus:" + HELPER))
             self.assertLess(events.index("release"), events.index("focus:None"))
             self.assertEqual(report["replayAdvanceSeconds"], 3)
+            self.assertEqual(report["pauseTiming"]["pauseUpperBoundMs"], 1000)
+            self.assertEqual(report["preActionDisplayedAdvanceSeconds"], 5)
             self.assertIn("no GSM call", report["scope"])
             self.assertIn("quota", report["scope"])
 

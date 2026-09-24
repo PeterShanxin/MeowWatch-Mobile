@@ -91,18 +91,44 @@ def probe_events(raw: str, nonce: str, uid: int, pid: int | None = None) -> list
             row = json.loads(match[2])
         except json.JSONDecodeError as error:
             raise RuntimeFailure("focus helper event JSON is invalid") from error
-        if (set(row) != {"protocol", "nonce", "sequence", "event", "result", "gain", "pid", "uid", "uptimeMs"}
-                or row["protocol"] != 1 or row["nonce"] != nonce or row["gain"] != 1
+        if (set(row) != {"protocol", "nonce", "sequence", "event", "result", "gain", "pid", "uid",
+                         "elapsedRealtimeMs", "requestStartedElapsedRealtimeMs"}
+                or row["protocol"] != 2 or row["nonce"] != nonce or row["gain"] != 1
                 or row["uid"] != uid or row["pid"] != int(match[1])
                 or (pid is not None and row["pid"] != pid)
                 or row["sequence"] != len(result) + 1
-                or not isinstance(row["uptimeMs"], int) or row["uptimeMs"] <= 0
-                or (result and row["uptimeMs"] < result[-1]["uptimeMs"])):
+                or type(row["elapsedRealtimeMs"]) is not int
+                or type(row["requestStartedElapsedRealtimeMs"]) is not int
+                or not 0 < row["requestStartedElapsedRealtimeMs"] <= row["elapsedRealtimeMs"]
+                or (result and (row["elapsedRealtimeMs"] < result[-1]["elapsedRealtimeMs"]
+                                or row["requestStartedElapsedRealtimeMs"] != result[0]["requestStartedElapsedRealtimeMs"]))):
             raise RuntimeFailure("focus helper event identity, order or device clock is invalid")
         if row["event"] not in ("requested", "released") or row["result"] != 1:
             raise RuntimeFailure("focus helper was denied, interrupted or reached its watchdog")
         result.append(row)
     return result
+
+
+def require_prompt_pause(request: dict, observation: dict, xml: str, app_pid: str) -> dict:
+    """Conservative device-clock upper bound, including the entire UI traversal."""
+    start = request.get("requestStartedElapsedRealtimeMs")
+    granted = request.get("elapsedRealtimeMs")
+    capture_start = observation.get("captureStartedAtElapsedRealtimeMs")
+    capture_end = observation.get("captureCompletedAtElapsedRealtimeMs")
+    if (any(type(value) is not int for value in (start, granted, capture_start, capture_end))
+            or not 0 < start <= granted <= capture_start <= capture_end
+            or request.get("event") != "requested" or request.get("result") != 1
+            or observation.get("status") != "success"
+            or observation.get("applicationPid") != int(app_pid)
+            or observation.get("applicationPidAfter") != int(app_pid)
+            or observation.get("xmlSha256") != hashlib.sha256(xml.encode()).hexdigest()):
+        raise RuntimeFailure("focus pause timing is not bound to a fresh same-process hierarchy")
+    elapsed = capture_end - start
+    if elapsed > 4000:
+        raise RuntimeFailure("audio-focus pause was not observed within four device-clock seconds")
+    return {"requestStartedAtElapsedRealtimeMs": start,
+            "pausedHierarchyCompletedAtElapsedRealtimeMs": capture_end,
+            "pauseUpperBoundMs": elapsed, "limitMs": 4000}
 
 
 def lifecycle_events(raw: str) -> list[str]:
@@ -256,10 +282,12 @@ class Runner(LifecycleRunner):
         self.foreground("06-before-focus-request")
         _, before_focus = self.sample("06-immediate-playing", playing=True, screenshot=False)
         self.command("acquire")
+        xml, paused = self.sample("08-focus-paused", playing=False)
+        pause_timing = require_prompt_pause(self.helper_events[0], self.observer.observations[-1],
+                                            xml, self.expected_pid)
+        if paused.position_seconds < before_focus.position_seconds - 1:
+            raise RuntimeFailure("audio-focus interruption unexpectedly rewound the media")
         self.focus("07-focus-held", HELPER)
-        _, paused = self.sample("08-focus-paused", playing=False)
-        if not -1 <= paused.position_seconds - before_focus.position_seconds <= 4:
-            raise RuntimeFailure("audio-focus loss did not pause within four displayed seconds")
         self.foreground("08-focus-paused")
         time.sleep(4)
         _, held = self.sample("09-held-stable", playing=False)
@@ -284,6 +312,8 @@ class Runner(LifecycleRunner):
         self.foreground("14-replay-advanced")
         self.finish_recording(required_phase="14-replay-advanced")
         report.update(completed=True, initialAdvanceSeconds=initial_advance, replayAdvanceSeconds=replay_advance,
+                      pauseTiming=pause_timing,
+                      preActionDisplayedAdvanceSeconds=paused.position_seconds - before_focus.position_seconds,
                       observedPause=asdict(paused), samples=self.samples, focusChecks=self.checks,
                       helperEvents=self.helper_events, nativeUiObservations=self.observer.observations,
                       sameAppPid=self.expected_pid, noActivityPauseOrStop=True,

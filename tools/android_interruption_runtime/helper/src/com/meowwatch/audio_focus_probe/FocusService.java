@@ -26,6 +26,7 @@ public final class FocusService extends Service {
     private AudioFocusRequest request;
     private String nonce;
     private int sequence;
+    private long requestStartedElapsed;
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -61,6 +62,7 @@ public final class FocusService extends Service {
                     event("focus-change", change);
                 }
             }, handler).build();
+        requestStartedElapsed = SystemClock.elapsedRealtime();
         int result = audio.requestAudioFocus(request);
         event("requested", result);
         if (result != AudioManager.AUDIOFOCUS_REQUEST_GRANTED) release("not-granted");
@@ -73,10 +75,11 @@ public final class FocusService extends Service {
     private void event(String name, int result) {
         try {
             JSONObject value = new JSONObject();
-            value.put("protocol", 1).put("nonce", nonce).put("sequence", ++sequence)
+            value.put("protocol", 2).put("nonce", nonce).put("sequence", ++sequence)
                 .put("event", name).put("result", result).put("gain", AudioManager.AUDIOFOCUS_GAIN)
                 .put("pid", Process.myPid()).put("uid", Process.myUid())
-                .put("uptimeMs", SystemClock.elapsedRealtime());
+                .put("requestStartedElapsedRealtimeMs", requestStartedElapsed)
+                .put("elapsedRealtimeMs", SystemClock.elapsedRealtime());
             Log.i(TAG, value.toString());
         } catch (JSONException impossible) { throw new IllegalStateException(impossible); }
     }

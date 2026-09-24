@@ -39,7 +39,9 @@ def response(xml=None, *, nonce=NONCE, uptime=1234, node_count=None, attempts=No
     xml = "<hierarchy>" + node() + "</hierarchy>" if xml is None else xml
     if node_count is None:
         node_count = len(list(ET.fromstring(xml).iter("node")))
-    fields = {"observer_protocol": "2", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+    fields = {"observer_protocol": "3", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+              "observer_capture_started_elapsed_ms": str(uptime + 100),
+              "observer_capture_completed_elapsed_ms": str(uptime + 125),
               "observer_attempts": attempts or f"ok:{node_count}:0:0:0",
               "observer_nodes": str(node_count), "observer_xml": base64.b64encode(xml.encode()).decode()}
     return ("\n".join(f"INSTRUMENTATION_RESULT: {key}={value}" for key, value in fields.items())
@@ -47,7 +49,7 @@ def response(xml=None, *, nonce=NONCE, uptime=1234, node_count=None, attempts=No
 
 
 def failure_response(reason="child_missing", *, nonce=NONCE, uptime=1234, attempts=None):
-    fields = {"observer_protocol": "2", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+    fields = {"observer_protocol": "3", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
               "observer_attempts": attempts or f"{reason}:18:5:2:3", "observer_error": reason}
     return ("\n".join(f"INSTRUMENTATION_RESULT: {key}={value}" for key, value in fields.items())
             + "\nINSTRUMENTATION_CODE: 0\n").encode()
@@ -114,6 +116,9 @@ class SnapshotParserTests(unittest.TestCase):
         parsed = parse_snapshot(stages + response(), NONCE)
         self.assertEqual(parsed.xml, parse_snapshot(response(), NONCE).xml)
         self.assertEqual(parsed.uptime_ms, 1234)
+        self.assertEqual(parsed.capture_started_elapsed_ms, 1334)
+        self.assertEqual(parsed.capture_completed_elapsed_ms, 1359)
+
         diagnostics = stage_diagnostics(stages + response(), NONCE)
         self.assertEqual([event["stage"] for event in diagnostics["stages"]],
                          ["on_start", "automation_start", "automation_ready", "traverse_start"])
@@ -127,6 +132,15 @@ class SnapshotParserTests(unittest.TestCase):
             parse_snapshot(stages + failure_response("root_missing", attempts="root_missing:0:-1:-1:-1"), NONCE)
         with self.assertRaises(ObserverIntegrityFailure):
             parse_snapshot(stages + response(), NONCE, previous_uptime_ms=1234)
+
+    def test_elapsed_capture_window_requires_both_ordered_device_timestamps(self):
+        good = response()
+        for data in (good.replace(b"observer_capture_started_elapsed_ms=1334", b"observer_capture_started_elapsed_ms=0"),
+                     good.replace(b"observer_capture_completed_elapsed_ms=1359", b"observer_capture_completed_elapsed_ms=1333"),
+                     good.replace(b"observer_capture_completed_elapsed_ms=1359", b"observer_capture_completed_elapsed_ms=1.5"),
+                     good.replace(b"INSTRUMENTATION_RESULT: observer_capture_started_elapsed_ms=1334\n", b"")):
+            with self.subTest(data=data[:80]), self.assertRaises(ObserverIntegrityFailure):
+                parse_snapshot(data, NONCE)
 
     def test_unknown_stale_out_of_order_and_oversized_stage_records_fail_without_echoing_payload(self):
         private = "private-view-text"
@@ -200,8 +214,8 @@ class SnapshotParserTests(unittest.TestCase):
     def test_duplicate_and_missing_protocol_fields_are_rejected(self):
         good = response()
         for data in [good + f"INSTRUMENTATION_RESULT: observer_nonce={NONCE}\n".encode(),
-                     good.replace(b"INSTRUMENTATION_RESULT: observer_protocol=2\n", b""),
-                     good.replace(b"observer_protocol=2", b"observer_protocol=1"),
+                     good.replace(b"INSTRUMENTATION_RESULT: observer_protocol=3\n", b""),
+                     good.replace(b"observer_protocol=3", b"observer_protocol=2"),
                      good.replace(b"observer_nodes=1", b"observer_nodes=2")]:
             with self.assertRaises(ObserverIntegrityFailure):
                 parse_snapshot(data, NONCE)

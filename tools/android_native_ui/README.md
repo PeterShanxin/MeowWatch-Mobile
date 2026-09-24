@@ -54,9 +54,14 @@ The installed component check matches Android PackageManager's shortened
 `package/.SnapshotInstrumentation` output and requires the exact self-target.
 Missing, duplicate, additional or differently targeted instrumentation fails.
 
-Each `am instrument -w -r` request carries a new random 128-bit nonce. Protocol 2
+Each `am instrument -w -r` request carries a new random 128-bit nonce. Protocol 3
 returns one XML snapshot as Base64 in its instrumentation result, together with
 the nonce, device uptime, node count and bounded capture-attempt diagnostics.
+Successful results also retain capture start/completion in Android elapsed
+realtime. Completion is recorded after serialization of the entire hierarchy;
+it can bound a device event's observed response without counting later host
+transport or metadata queries. These timestamps include sleep and are kept
+separate from the existing uptime-based stage budgets and freshness checks.
 Failed responses must also carry the matching nonce and a fresh device timestamp;
 old protocol responses fail validation, so rebuild the helper when updating the
 host. There is no shared

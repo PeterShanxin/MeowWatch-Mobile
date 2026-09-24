@@ -14,26 +14,30 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators; slow-start regression open | 9a3fc05 Together 36037966143 passes all 26 host and 25 guest stages, including repeated two-way controls. Native settled positions match at 9,230, 53,361 and 56,062 ms. Separate 6e46041 network attempts fail initial playback convergence; that failure remains open below. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6e46041 normal release lifecycle 36037410201 and foreground audio focus 36037410061 pass. Network 36037410071 fails both attempts before radio interruption; initial decoder delay and convergence remain under investigation. Earlier f16b148 debug and ff8a559 profile recovery passes remain historical evidence, not a substitute for the current failure. Physical and transient-focus acceptance remain open |
-| 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. 56fcd32 SAF relaunch 36039255967 retains the real content grant and restores 8 seconds. 9a3fc05 Together resumes without another host charge; a standard-layout run exposed stale ready controls during same-source history restoration. The 5347142 fix passes unit/widget checks; fresh native verification is pending |
+| 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. 56fcd32 SAF relaunch 36039255967 retains the real content grant and restores 8 seconds. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | 6e46041 Android Nearby 36037410146 passes real pinned TLS pairing/control/revocation and protected persistence. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 6e46041 production Test Store 36037410075 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore. Same-customer relaunch/expiry 36037410042 passes. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | 6e46041 runtime matrix and purchase pass one free plus two distinct Plus sessions. 9a3fc05 Together verifies shared links, media recovery and history do not recharge; a new room consumes the new host allowance while joining stays free. The current failed network run has no accepted interruption stage |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | 6e46041 passes five viewport journeys and normal-release phone/tablet fullscreen. 9a3fc05 native Together verifies complete player/reaction bounds with tablet keyboard inset; original frame review shows the full heart and video. Source frame hashes are verified in hosted reviews. Final film motion and physical checks remain open; the SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
-| 13 | No placeholders, dead ends or silent failures | Partial | 6e46041 first-use/layout and purchase flows pass. 9a3fc05 Together verifies readable media errors, Choose another video recovery and shared-link confirmation. 5347142 makes same-source restoration visible and disables stale controls; its native confirmation and final-film inspection remain open |
-| 14 | Clean-install full demo rehearsal | Partial | 9a3fc05 recording-display Together passes all 26 host and 25 guest stages. The standard-layout history race is fixed at 5347142 and undergoing native verification. The current network failure and new film edit remain open; the previous 104-second candidate is retained but unaccepted |
+| 13 | No placeholders, dead ends or silent failures | Partial | 6e46041 first-use/layout and purchase flows pass. 9a3fc05 Together verifies readable media errors, Choose another video recovery and shared-link confirmation. 5347142 makes same-source restoration visible and disables stale controls; native journey 36041063625 passes. Final-film inspection remains open |
+| 14 | Clean-install full demo rehearsal | Partial | 9a3fc05 recording-display Together passes all 26 host and 25 guest stages; standard-layout Together 36041063625 at 5347142 also passes. The current network regression fix and new 116-second edit remain under verification; the previous 104-second candidate is retained but unaccepted |
 | 15 | Shipaton submission confidence | Partial | Brand kit and original-size submission screenshot are prepared. Final under-two-minute film, full rehearsal, physical gates and remaining eligibility/legal checks remain open |
 
 ## Current verification
 
-Hosted Check `36041060075` at `5347142` passes **779 app, 87 Nearby and 14
+Hosted Check `36043940260` at `1052a01` passes **780 app, 87 Nearby and 14
 platform tests**, formatting, analysis, media contracts and the secret audit.
 Same-source history restoration previously exposed a stale ready snapshot:
 standard-layout Together `36037410096` tapped a disabled Play before the new
 source finished loading. No native Play was sent. The app now shows an explicit
 restoring state and disables old controls until restoration completes; the
 driver waits for enabled controls and still taps only once. Fresh standard-layout
-Together `36041063625` is running with compact recording, not altered UI size.
+Together `36041063625` passes all 26 host and 25 guest stages with compact
+recording, not altered UI size. Settled native positions match at 8,335, 53,361
+and 55,987 ms. Original-frame review `36043849885` strictly decodes the sources;
+all 144 exported PNG hashes match. Selected images show the real history
+reconnection and restored player at 1:05. Recording gaps remain in its manifest.
 
 The `6e46041` native cohort passes normal API 29/35 debug and API 35 release
 install, native playback, Nearby, five viewport journeys, the runtime matrix,
@@ -52,9 +56,23 @@ has 19,845 / 22,342 ms positions after 30.128 seconds. Both clients remain
 connected without peer errors. Syncplay 1.7.5 normally selects the slowest
 watcher's position and `setBy` on ordinary heartbeats; the delayed guest causes
 the host to rewind, then one-sided rate correction does not converge in time.
-The guest sends no seek or user-change flag in that failed interval. A same-SHA
-profile comparison `36041671936` is running, and a protocol regression is being
-added. No threshold relaxation or repeated Play tap is accepted as a fix.
+The guest sends no seek or user-change flag in that failed interval. Same-SHA
+profile comparison `36041671936` passes initial convergence in 7.565 seconds,
+then radio loss, no-autoplay recovery and explicit replay in 3.974 seconds at
+49,173 / 49,196 native ms. It uses one API 35 AVD with two real STARTTLS clients
+and two decoders; only the host is rendered. Peer and teardown errors are empty.
+This passing profile run does not cancel the debug failures.
+
+The new two-socket protocol regression models the service's automatic slowest-
+watcher anchor and reproduces missing local catch-up after a buffered rewind.
+Hosted Check `36042999733` at `4fc0caf` fails exactly that named assertion;
+the other 779 app tests pass. The narrow `b689602` production fix watches the
+native rewind's recovery using the existing 12-second/two-correction bounds,
+without sending another room command. Independent source review finds no
+blocking issue. Hosted Check `36043940260` at `1052a01` passes all 780 app tests,
+including that previously failing regression. Fresh native debug/profile gates
+are the next acceptance step for this production change.
+No threshold relaxation or repeated Play tap is accepted as a fix.
 
 The tablet stage fix at `6e46041` fits the available viewport and keyboard
 inset. Reactions retain their spoken label and fit at large text sizes.

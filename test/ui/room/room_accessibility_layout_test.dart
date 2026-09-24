@@ -302,6 +302,71 @@ void main() {
     await tester.runAsync(fixture.close);
   });
 
+  testWidgets(
+    'tablet keyboard keeps the inline chat, focus and draft visible',
+    (tester) async {
+      await _setView(tester, const Size(1280, 800));
+      final fixture = UiTestApp.create();
+      fixture.controller
+        ..room = const RoomTicket(
+          id: 'keyboard-session',
+          isHost: false,
+          config: RoomConfig(
+            server: 'syncplay.example',
+            port: 8995,
+            room: 'Movie night',
+            username: 'Bean',
+          ),
+        )
+        ..connection = const SyncConnectionState(
+          status: SyncConnectionStatus.connected,
+        );
+      await tester.pumpWidget(
+        MaterialApp(
+          theme: meowWatchTheme(),
+          home: RoomScreen(
+            app: fixture.controller,
+            onLoad: () {},
+            onInvite: () {},
+            onDevices: () {},
+            onLeave: () {},
+            onStartRoom: () {},
+            onTogglePlay: () {},
+            onSeek: (_) {},
+          ),
+        ),
+      );
+      final chatState = tester.state(find.byType(ChatPanel));
+      final composer = find.descendant(
+        of: find.byType(ChatPanel),
+        matching: find.byType(TextField),
+      );
+      await tester.enterText(composer, 'Save this moment');
+      tester.view.viewInsets = const FakeViewPadding(bottom: 370);
+      await tester.pumpAndSettle();
+      expect(find.byType(ChatPanel), findsOneWidget);
+      expect(tester.state(find.byType(ChatPanel)), same(chatState));
+      expect(find.text('Save this moment'), findsOneWidget);
+      expect(composer.hitTestable(), findsOneWidget);
+      expect(tester.getRect(composer).bottom, lessThanOrEqualTo(430));
+      expect(
+        tester
+            .widget<EditableText>(find.byType(EditableText))
+            .focusNode
+            .hasFocus,
+        isTrue,
+      );
+      expect(find.byTooltip('Send message').hitTestable(), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      tester.view.viewInsets = FakeViewPadding.zero;
+      await tester.pumpAndSettle();
+      expect(tester.state(find.byType(ChatPanel)), same(chatState));
+      expect(find.text('Save this moment'), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.runAsync(fixture.close);
+    },
+  );
+
   testWidgets('chat sheet fits a short landscape viewport above the keyboard', (
     tester,
   ) async {

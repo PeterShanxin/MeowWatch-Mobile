@@ -324,6 +324,7 @@ class RoomScreenState extends State<RoomScreen> {
   @override
   Widget build(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
+    final keyboardInset = MediaQuery.viewInsetsOf(context).bottom;
     final stage = _VideoStage(
       key: _stageKey,
       app: app,
@@ -336,10 +337,12 @@ class RoomScreenState extends State<RoomScreen> {
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
-            final tablet =
-                constraints.maxWidth >= 700 && constraints.maxHeight >= 500;
+            // Scaffold resizes above the keyboard. Keep the tablet chat mounted
+            // so the focused composer and its draft survive that resize.
+            final layoutHeight = constraints.maxHeight + keyboardInset;
+            final tablet = constraints.maxWidth >= 700 && layoutHeight >= 500;
             final twoColumn =
-                constraints.maxWidth >= 900 && constraints.maxHeight >= 500;
+                constraints.maxWidth >= 900 && layoutHeight >= 500;
             final landscape =
                 constraints.maxWidth > constraints.maxHeight && !twoColumn;
             final header = Padding(

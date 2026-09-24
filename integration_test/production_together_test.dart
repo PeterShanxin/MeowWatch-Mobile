@@ -1522,6 +1522,22 @@ Future<void> _sendChatThroughUi(
   final field = find.byType(TextField).hitTestable();
   await _waitFor(tester, field, 'production chat field');
   await enterTogetherTestText(tester, field.last, message);
+  await _waitForCondition(
+    tester,
+    () => tester.view.viewInsets.bottom > 0,
+    app,
+    'actual Android keyboard for the chat composer',
+  );
+  await _waitFor(tester, field, 'chat composer above the open keyboard');
+  final keyboardTop =
+      (tester.view.physicalSize.height - tester.view.viewInsets.bottom) /
+      tester.view.devicePixelRatio;
+  expect(tester.getRect(field.last).bottom, lessThanOrEqualTo(keyboardTop));
+  final editable = tester.widget<EditableText>(
+    find.descendant(of: field.last, matching: find.byType(EditableText)),
+  );
+  expect(editable.focusNode.hasFocus, isTrue);
+  expect(editable.controller.text, message);
   await _tap(
     tester,
     find.byTooltip('Send message').hitTestable(),

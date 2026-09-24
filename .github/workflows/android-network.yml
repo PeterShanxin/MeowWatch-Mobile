@@ -42,10 +42,12 @@ jobs:
           cache: true
           pub-cache: true
       - run: flutter pub get --enforce-lockfile
-      - name: Verify transport errors and STARTTLS refusals
+      - name: Verify transport errors, TLS cancellation and startup synchronization
         run: >-
           flutter test test/core/sync/syncplay_client_socket_error_test.dart
           test/core/sync/syncplay_client_starttls_test.dart
+          test/core/sync/syncplay_client_tls_cancellation_test.dart
+          test/core/session/playback_sync_bridge_test.dart
       - name: Verify radio ownership and evidence contracts
         run: |
           python3 -m unittest discover -s tools/android_network_runtime -p 'test_*.py'

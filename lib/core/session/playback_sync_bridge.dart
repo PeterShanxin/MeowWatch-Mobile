@@ -43,6 +43,7 @@ class PlaybackSyncBridge {
   Timer? _bufferRecovery;
   bool _externalPlayPending = false;
   int? _pauseCorrectionSource;
+  _PlayStartCatchUp? _playStartCatchUp;
 
   /// Keep the accepted room intent through transient native buffering events.
   bool get playRequested => _hasSource && _publishedPaused == false;
@@ -120,6 +121,7 @@ class PlaybackSyncBridge {
           doSeek: true,
           setBy: peer.setBy,
         ),
+        fromSourceOpen: true,
       );
       await _tail;
     } else {
@@ -199,6 +201,14 @@ class PlaybackSyncBridge {
                   const Duration(milliseconds: 500);
       if (!matches) return;
     }
+    if (_playStartCatchUp != null &&
+        (state.connection != PlaybackConnection.ready ||
+            (state.duration > Duration.zero &&
+                state.position >= state.duration) ||
+            !state.playing)) {
+      _clearPlayStartCatchUp();
+    }
+    if (_maybeCatchUpPlayStart(state)) return;
     if (state.playing && _publishedPaused == true) {
       // First reject stale native echoes of an expected peer command above.
       // TV remotes and system controls then pass the same quota boundary as
@@ -274,19 +284,29 @@ class PlaybackSyncBridge {
     sync.updateLocalState(position: state.position, paused: state.paused);
   }
 
-  void _onPeer(PeerPlayState peer) {
+  void _onPeer(PeerPlayState peer, {bool fromSourceOpen = false}) {
     if (_disposed) return;
+    final firstPlay =
+        _hasSource &&
+        (_publishedPaused == true || fromSourceOpen) &&
+        (!target.snapshot.playing || fromSourceOpen) &&
+        !peer.paused &&
+        (!peer.doSeek || fromSourceOpen);
     _latestPeer = peer;
     _acknowledge(peer);
     if (!_hasSource) return;
     final intent = _nextIntent();
     final source = _sourceGeneration;
+    final watch = firstPlay ? _watchPlayStart(peer, intent, source) : null;
     _background(
       _enqueue(() async {
         if (!_current(intent, source)) return;
         _applying++;
         try {
           if (!peer.paused && !await _authorize()) {
+            if (watch != null && identical(_playStartCatchUp, watch)) {
+              _clearPlayStartCatchUp();
+            }
             if (_current(intent, source)) await _denyPlayback();
             return;
           }
@@ -299,6 +319,9 @@ class PlaybackSyncBridge {
           if (_current(intent, source)) _acknowledge(peer);
         } catch (_) {
           if (_current(intent, source)) {
+            if (watch != null && identical(_playStartCatchUp, watch)) {
+              _clearPlayStartCatchUp();
+            }
             try {
               await target.pause().timeout(commandTimeout);
             } catch (_) {
@@ -318,7 +341,86 @@ class PlaybackSyncBridge {
   bool _current(int intent, int source) =>
       _hasSource && intent == _intent && source == _sourceGeneration;
 
+  _PlayStartCatchUp _watchPlayStart(
+    PeerPlayState peer,
+    int intent,
+    int source,
+  ) {
+    final watch = _PlayStartCatchUp(peer, intent, source);
+    _playStartCatchUp = watch;
+    return watch;
+  }
+
+  bool _maybeCatchUpPlayStart(PlaybackSnapshot state) {
+    final watch = _playStartCatchUp;
+    if (watch == null || !_current(watch.intent, watch.source)) return false;
+    if (!state.playing || state.buffering || _publishedPaused != false) {
+      return false;
+    }
+    // A play() Future can finish before the decoder displays its first frame.
+    // Require an advancing native position before comparing it to room time.
+    if (state.position <=
+        watch.peer.position + const Duration(milliseconds: 80)) {
+      return false;
+    }
+    _clearPlayStartCatchUp();
+    final projected = _projectPlayStart(watch, state.duration);
+    if (projected == null ||
+        projected - state.position < const Duration(milliseconds: 750)) {
+      return false;
+    }
+    _background(
+      _enqueue(() async {
+        if (!_current(watch.intent, watch.source) ||
+            _publishedPaused != false) {
+          return;
+        }
+        final current = target.snapshot;
+        final position = _projectPlayStart(watch, current.duration);
+        if (position == null ||
+            !current.playing ||
+            current.buffering ||
+            position - current.position < const Duration(milliseconds: 750)) {
+          return;
+        }
+        _applying++;
+        try {
+          await target.seek(position).timeout(commandTimeout);
+          if (_current(watch.intent, watch.source) &&
+              _publishedPaused == false) {
+            _acknowledge(
+              PeerPlayState(
+                position: position,
+                paused: false,
+                setBy: watch.peer.setBy,
+              ),
+            );
+          }
+        } finally {
+          _applying--;
+        }
+      }),
+    );
+    return true;
+  }
+
+  Duration? _projectPlayStart(_PlayStartCatchUp watch, Duration duration) {
+    final projected = watch.peer.position + watch.clock.elapsed;
+    if (duration <= Duration.zero) return projected;
+    // Avoid a corrective seek to EOF, which can restart or loop on some
+    // players instead of completing the already-running playback.
+    if (projected >= duration - const Duration(milliseconds: 250)) {
+      return null;
+    }
+    return projected;
+  }
+
+  void _clearPlayStartCatchUp() {
+    _playStartCatchUp = null;
+  }
+
   int _nextIntent() {
+    _clearPlayStartCatchUp();
     _resetBuffering();
     _superseded.complete();
     _superseded = Completer<void>();
@@ -445,4 +547,13 @@ class PlaybackSyncBridge {
     await _connectionSub?.cancel();
     // Target and SyncCore are owned by the session controller.
   }
+}
+
+class _PlayStartCatchUp {
+  _PlayStartCatchUp(this.peer, this.intent, this.source);
+
+  final PeerPlayState peer;
+  final int intent;
+  final int source;
+  final Stopwatch clock = Stopwatch()..start();
 }

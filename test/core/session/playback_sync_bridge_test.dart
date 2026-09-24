@@ -50,6 +50,19 @@ void main() {
     await target.close();
   });
 
+  Future<void> useDelayedPlayTarget() async {
+    await bridge.dispose();
+    await target.close();
+    target = DelayedPlayTarget();
+    bridge = PlaybackSyncBridge(
+      target: target,
+      sync: sync,
+      authorizePlayback: () => authorize(),
+      onError: errors.add,
+    )..start();
+    await bridge.load(movie);
+  }
+
   test(
     'unconfirmed native open never publishes; local adoption asserts current time',
     () async {
@@ -114,6 +127,210 @@ void main() {
     await until(() => target.snapshot.position.inSeconds == 12);
     expect(target.commands, isNot(contains('play')));
     expect(sync.changes, isEmpty);
+  });
+
+  test(
+    'first peer Play catches up once after delayed native movement',
+    () async {
+      await useDelayedPlayTarget();
+      sync.peer(remotePlay);
+      await until(() => target.commands.contains('play'));
+      expect(target.snapshot.playing, isFalse);
+      expect(target.commands.where((c) => c.startsWith('seek:')), [
+        'seek:45000',
+      ]);
+      emitNativePosition(target, const Duration(seconds: 45), playing: true);
+      expect(target.commands.where((c) => c.startsWith('seek:')), [
+        'seek:45000',
+      ]);
+
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 45100),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+      );
+      final correctiveSeek = int.parse(target.commands.last.split(':').last);
+      expect(correctiveSeek, greaterThanOrEqualTo(46000));
+      expect(correctiveSeek, lessThan(48000));
+      await until(
+        () => sync.published.last.position.inMilliseconds >= correctiveSeek,
+      );
+      expect(sync.changes, isEmpty);
+
+      emitNativePosition(
+        target,
+        Duration(milliseconds: correctiveSeek + 100),
+        playing: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(target.commands.where((c) => c.startsWith('seek:')).length, 2);
+      expect(errors, isEmpty);
+    },
+  );
+
+  test(
+    'source opening into a playing room catches up after native startup',
+    () async {
+      await bridge.dispose();
+      await target.close();
+      target = DelayedPlayTarget();
+      bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () => authorize(),
+        onError: errors.add,
+      )..start();
+      final loadGate = Completer<void>();
+      target.loadGate = loadGate;
+      final loading = bridge.load(movie);
+      sync.peer(remotePlay);
+      sync.lastObservedRoomState = const PeerPlayState(
+        position: Duration(seconds: 49),
+        paused: false,
+        setBy: 'peer',
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 100));
+      loadGate.complete();
+      await loading;
+      expect(target.commands.where((c) => c.startsWith('seek:')), [
+        'seek:49000',
+      ]);
+      expect(target.snapshot.playing, isFalse);
+
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 49100),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+      );
+      final correctiveSeek = int.parse(target.commands.last.split(':').last);
+      expect(correctiveSeek, greaterThanOrEqualTo(50000));
+      expect(correctiveSeek, lessThan(52000));
+      expect(sync.changes, isEmpty);
+    },
+  );
+
+  test(
+    'playing local source adopted into room gets one startup correction',
+    () async {
+      await bridge.dispose();
+      await target.close();
+      target = HandoffDelayedTarget();
+      await target.load(movie);
+      await target.play();
+      expect(target.snapshot.playing, isTrue);
+      sync.lastObservedRoomState = const PeerPlayState(
+        position: Duration(seconds: 49),
+        paused: false,
+        setBy: 'peer',
+      );
+      bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () => authorize(),
+        onError: errors.add,
+      )..start();
+      await bridge.adoptOpenSource(movie.uri.toString());
+      expect(target.commands.where((c) => c.startsWith('seek:')), [
+        'seek:49000',
+      ]);
+      expect(target.snapshot.playing, isFalse);
+
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 49100),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+      );
+      expect(sync.changes, isEmpty);
+    },
+  );
+
+  test('new peer pause cancels first Play catch-up', () async {
+    await useDelayedPlayTarget();
+    sync.peer(remotePlay);
+    await until(() => target.commands.contains('play'));
+    sync.peer(
+      const PeerPlayState(
+        position: Duration(seconds: 12),
+        paused: true,
+        setBy: 'peer',
+      ),
+    );
+    await until(() => target.snapshot.position == const Duration(seconds: 12));
+
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    emitNativePosition(
+      target,
+      const Duration(milliseconds: 45100),
+      playing: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(target.commands.where((c) => c.startsWith('seek:')), [
+      'seek:45000',
+      'seek:12000',
+    ]);
+    expect(sync.published.last.paused, isTrue);
+    expect(sync.changes, isEmpty);
+  });
+
+  test('explicit peer seek does not receive a second startup seek', () async {
+    await useDelayedPlayTarget();
+    sync.peer(
+      const PeerPlayState(
+        position: Duration(seconds: 45),
+        paused: false,
+        doSeek: true,
+        setBy: 'peer',
+      ),
+    );
+    await until(() => target.commands.contains('play'));
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    emitNativePosition(
+      target,
+      const Duration(milliseconds: 45100),
+      playing: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(target.commands.where((c) => c.startsWith('seek:')), ['seek:45000']);
+    expect(sync.changes, isEmpty);
+  });
+
+  test('new local pause wins while corrective seek is pending', () async {
+    await useDelayedPlayTarget();
+    sync.peer(remotePlay);
+    await until(() => target.commands.contains('play'));
+    final gate = Completer<void>();
+    target.seekGate = gate;
+
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    emitNativePosition(
+      target,
+      const Duration(milliseconds: 45100),
+      playing: true,
+    );
+    await until(
+      () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+    );
+    final firstAfterPause = sync.published.length;
+    final pause = bridge.pause();
+    gate.complete();
+    await pause;
+
+    expect(sync.published.skip(firstAfterPause).every((s) => s.paused), isTrue);
+    expect(sync.published.last.paused, isTrue);
+    expect(sync.changes, [false]);
+    expect(errors, isEmpty);
   });
 
   test('source change invalidates in-flight peer commands', () async {
@@ -595,6 +812,45 @@ void emitNative(
       connection: state.connection,
     ),
   );
+}
+
+void emitNativePosition(
+  SyncTestTarget target,
+  Duration position, {
+  required bool playing,
+}) {
+  final state = target.snapshot;
+  target.emit(
+    PlaybackSnapshot(
+      media: state.media,
+      position: position,
+      duration: state.duration,
+      playing: playing,
+      connection: state.connection,
+    ),
+  );
+}
+
+class DelayedPlayTarget extends SyncTestTarget {
+  @override
+  Future<void> play() async {
+    // The platform play request completes before the decoder advances.
+    commands.add('play');
+  }
+}
+
+class HandoffDelayedTarget extends SyncTestTarget {
+  bool firstPlay = true;
+
+  @override
+  Future<void> play() async {
+    if (firstPlay) {
+      firstPlay = false;
+      await super.play();
+    } else {
+      commands.add('play');
+    }
+  }
 }
 
 class BufferingTestTarget extends SyncTestTarget {

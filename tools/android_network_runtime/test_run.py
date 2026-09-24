@@ -1,10 +1,13 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 import subprocess
 import tempfile
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 from tools.android_network_runtime.run import (
@@ -409,6 +412,79 @@ class EvidenceTests(unittest.TestCase):
             with self.assertRaises(RuntimeFailure):
                 runner.stop_test_app()
             self.assertNotIn(("shell", "am", "force-stop", PACKAGE), runner.adb.calls)
+
+    def test_ack_rejects_unknown_phase_and_replacement_process_before_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.android_pid = 456
+            runner.adb.pid = b"789"
+            with self.assertRaisesRegex(RuntimeFailure, "invalid network acknowledgement"):
+                runner.ack("recording-ready'; exit 0")
+            self.assertEqual(runner.adb.calls, [])
+            with self.assertRaisesRegex(RuntimeFailure, "process changed"):
+                runner.ack("bootstrap-observed")
+            self.assertFalse(any(call[:2] == ("shell", "run-as") for call in runner.adb.calls))
+            self.assertEqual(runner.acknowledgements, [])
+
+    def test_ack_readback_failure_is_terminal_and_both_paths_are_owned_for_cleanup(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.android_pid = 456
+            runner.adb.pid = b"456"
+            # FakeAdb returns an empty readback, matching the observed failure.
+            with self.assertRaisesRegex(RuntimeFailure, "readback does not match"):
+                runner.ack("bootstrap-observed")
+            self.assertEqual(len(runner.acknowledgements), 2)
+            self.assertTrue(runner.acknowledgements[0].endswith(".pending"))
+            self.assertEqual(runner.acknowledgements[1], f"files/network-{RUN_ID}-bootstrap-observed")
+            self.assertEqual(runner.events, [])
+            with self.assertRaisesRegex(RuntimeFailure, "duplicate"):
+                runner.ack("bootstrap-observed")
+
+    @unittest.skipIf(os.name == "nt", "POSIX shell publication contract runs on Linux or WSL")
+    def test_partial_shell_write_is_invisible_until_atomic_publication(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            runner = self.make_runner(root)
+            runner.output.mkdir()
+            (root / "files").mkdir()
+            runner.android_pid = 456
+            runner.adb.pid = b"456"
+            original_run = runner.adb.run
+            final = root / f"files/network-{RUN_ID}-bootstrap-observed"
+            # Pause the real shell writer after its first bytes. The consumer's
+            # exists/read protocol must not see that in-progress payload.
+            writer = """printf() {
+  command printf '%s' 'network_123_1:'
+  touch writer-paused
+  while test ! -f writer-release; do sleep 0.01; done
+  command printf '%s' 'bootstrap-observed'
+}
+"""
+
+            def shell_adb(*args, **kwargs):
+                if args[:5] == ("shell", "run-as", PACKAGE, "sh", "-c"):
+                    return subprocess.run(["sh", "-c", writer + args[5][1:-1]],
+                                          cwd=root, capture_output=True, check=True, timeout=5)
+                if args[:4] == ("shell", "run-as", PACKAGE, "cat"):
+                    return subprocess.CompletedProcess(args, 0, (root / args[4]).read_bytes(), b"")
+                return original_run(*args, **kwargs)
+
+            with patch.object(runner.adb, "run", side_effect=shell_adb), ThreadPoolExecutor() as pool:
+                future = pool.submit(runner.ack, "bootstrap-observed")
+                try:
+                    deadline = time.monotonic() + 3
+                    while not (root / "writer-paused").exists() and time.monotonic() < deadline:
+                        time.sleep(0.01)
+                    self.assertTrue((root / "writer-paused").exists())
+                    self.assertFalse(final.exists(), "consumer can see the partial acknowledgement")
+                    self.assertEqual((root / runner.acknowledgements[0]).read_bytes(), b"network_123_1:")
+                finally:
+                    (root / "writer-release").touch()
+                future.result(timeout=5)
+            self.assertEqual(final.read_bytes(), f"{RUN_ID}:bootstrap-observed".encode())
+            self.assertFalse((root / runner.acknowledgements[0]).exists())
+            self.assertTrue(runner.events[-1]["readbackVerified"])
 
     def test_early_failed_teardown_preserves_first_failure_without_crediting_phases(self):
         with tempfile.TemporaryDirectory() as directory:

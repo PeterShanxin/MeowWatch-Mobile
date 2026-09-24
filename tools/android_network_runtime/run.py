@@ -11,6 +11,7 @@ import os
 from pathlib import Path
 import queue
 import re
+import secrets
 import signal
 import subprocess
 import threading
@@ -25,6 +26,8 @@ from tools.android_native_ui.observer import NativeUiObserver
 RUNTIME = "One dedicated API 35 AVD; one MainApp process; two real TLS clients/native decoders"
 PHASES = ("app-ready", "players-ready", "initial-ready", "offline-confirmed",
           "reconnected-confirmed", "recovery-confirmed", "teardown-complete")
+ACK_PHASES = {"bootstrap-observed", "recording-ready", "network-disabled",
+              "network-restored", "controls-ready", "evidence-complete"}
 REQUIRED = {
     "initial_real_tls_native_playback_and_consumed_host",
     "physical_avd_network_unreachable_and_visible_auto_pause",
@@ -324,17 +327,30 @@ class Runner:
                     "radios": self.radios.read(), "directory": str(directory)})
 
     def ack(self, phase: str) -> None:
+        if phase not in ACK_PHASES:
+            raise RuntimeFailure("invalid network acknowledgement phase")
         require_owned_avd(self.adb, self.avd_name)
         current = self.adb.run("shell", "pidof", PACKAGE).stdout.strip()
         if current != str(self.android_pid).encode("ascii"):
             raise RuntimeFailure("MainApp process changed while the network test was active")
         path = f"files/network-{self.run_id}-{phase}"
-        self.acknowledgements.append(path)
+        if path in self.acknowledgements:
+            raise RuntimeFailure("duplicate network acknowledgement")
+        pending = f"{path}.{secrets.token_hex(8)}.pending"
+        self.acknowledgements.extend((pending, path))
         # Both interpolated fields are fixed phases or validated run IDs. The
         # acknowledgement is local app-owned test data, reachable without IP.
-        command = f"printf '%s' '{self.run_id}:{phase}' > '{path}'"
+        # Publish only after the write closes: Dart reads as soon as the final
+        # path exists. Direct redirection exposes an empty/partial file first.
+        payload = f"{self.run_id}:{phase}"
+        command = (f"test ! -e '{path}' && printf '%s' '{payload}' > '{pending}'"
+                   f" && mv '{pending}' '{path}'")
         self.adb.run("shell", "run-as", PACKAGE, "sh", "-c", f'"{command}"')
-        self.event({"operation": "acknowledgement", "phase": phase})
+        readback = self.adb.run("shell", "run-as", PACKAGE, "cat", path).stdout
+        if readback != payload.encode("ascii"):
+            raise RuntimeFailure("network acknowledgement readback does not match")
+        self.event({"operation": "acknowledgement", "phase": phase,
+                    "publication": "atomic-rename", "readbackVerified": True})
 
     def stop_test_app(self) -> None:
         require_owned_avd(self.adb, self.avd_name)

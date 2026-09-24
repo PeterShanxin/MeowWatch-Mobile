@@ -25,7 +25,12 @@ players; Pause and Seek must reach the peer and settle within 350 ms. No simulat
 disconnect, connectivity plugin, manual reconnect, or acceptance retry is used.
 
 Run-specific logcat checkpoints coordinate external actions. Local sandbox
-acknowledgement files allow the test to wait without IP connectivity. Checkpoints
+acknowledgement files allow the test to wait without IP connectivity. The runner
+writes each payload to a unique sibling temporary file, closes it, then atomically
+renames it to the final path and verifies exact readback. The test's unchanged
+exists/read protocol cannot observe a partially written acknowledgement. Unknown
+phases, duplicate publication and incorrect readback fail the gate; both paths
+are registered for cleanup before writing. Checkpoints
 alone never establish network failure: the gate also validates the actual socket
 probe sequence and saves `dumpsys connectivity`, wifi/telephony state, radio
 settings, addresses/routes, UI XML, screenshots and full logcat/driver output.

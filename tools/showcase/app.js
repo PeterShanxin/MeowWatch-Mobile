@@ -42,6 +42,7 @@ let finishing = false;
 let gracefulFinished = false;
 let selectedEvidence = null;
 let evidenceLoadGeneration = 0;
+let evidenceIndexSignature = null;
 
 function endpoint(path) { return `${path}?${tokenQuery}`; }
 function mutationHeaders(extra = {}) {
@@ -488,19 +489,22 @@ async function loadEvidence() {
   try {
     const response = await fetch(endpoint("/api/evidence"), { cache: "no-store" });
     const result = await response.json();
-    if (!result.items.length) {
+    const items = result.items.map(evidenceMetadata);
+    const signature = JSON.stringify(items);
+    if (signature === evidenceIndexSignature) return;
+    if (!items.length) {
       evidence.className = "evidence-empty";
       evidence.textContent = "No CI screenshots or video downloaded yet.";
+      evidenceIndexSignature = signature;
       return;
     }
     evidence.className = "";
-    evidence.replaceChildren(...result.items.map(evidenceMetadata).map((item) => {
+    evidence.replaceChildren(...items.map((item) => {
       const wrapper = document.createElement("div");
       wrapper.className = "evidence-item";
-      const media = document.createElement(item.kind === "video" ? "video" : "img");
-      media.src = item.url;
-      if (item.kind === "video") { media.controls = true; media.preload = "metadata"; }
-      else media.alt = `Native CI screenshot: ${item.name}`;
+      const kind = document.createElement("span");
+      kind.className = "evidence-kind";
+      kind.textContent = item.kind === "video" ? "Native recording" : "Native screenshot";
       const label = document.createElement("p");
       label.textContent = `${item.name} · ${(item.size / 1024).toFixed(1)} KiB · ${item.modifiedAt}`;
       const showButton = document.createElement("button");
@@ -508,10 +512,12 @@ async function loadEvidence() {
       showButton.textContent = "Show on canvas";
       showButton.setAttribute("aria-label", `Show ${item.name} on canvas`);
       showButton.addEventListener("click", () => showEvidenceOnCanvas(item));
-      wrapper.append(media, label, showButton);
+      wrapper.append(kind, label, showButton);
       return wrapper;
     }));
+    evidenceIndexSignature = signature;
   } catch (error) {
+    evidenceIndexSignature = null;
     evidence.textContent = `Evidence index unavailable: ${error.message}`;
   }
 }

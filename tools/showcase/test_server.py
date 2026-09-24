@@ -24,6 +24,14 @@ class ShowcaseStateTests(unittest.TestCase):
     def tearDown(self) -> None:
         self.temporary.cleanup()
 
+    def test_evidence_only_mode_never_starts_adb(self) -> None:
+        self.state.device_polling = False
+        with mock.patch.object(server.subprocess, "run") as process:
+            devices, note = self.state.list_devices()
+        self.assertEqual(devices, [])
+        self.assertIn("paused to reduce local load", note)
+        process.assert_not_called()
+
     def test_identical_chunk_replay_is_idempotent(self) -> None:
         started = self.state.start_session({"mimeType": "video/webm"}, "unit-test")
         session = self.state.authenticate_session(started["sessionId"], f"Bearer {started['sessionSecret']}")
@@ -137,12 +145,13 @@ const context = new Proxy({
   drawImage: (...args) => drawn.push(args[0]),
 }, {get: (target, key) => key in target ? target[key] : () => {}});
 const elements = new Map();
+const createdTags = [];
 const document = {
   getElementById: (id) => {
     if (!elements.has(id)) elements.set(id, new Element(id));
     return elements.get(id);
   },
-  createElement: (tag) => new Element(tag),
+  createElement: (tag) => { createdTags.push(tag); return new Element(tag); },
   createTextNode: (text) => ({textContent: text}),
 };
 const canvas = document.getElementById("stage");
@@ -164,9 +173,14 @@ vm.runInContext(source.split('document.getElementById("refreshEvidence").addEven
   await vm.runInContext('loadEvidence()', sandbox);
   assert.equal(vm.runInContext('selectedEvidence', sandbox), null, 'gallery never auto-selects a passing or failed run');
   const gallery = elements.get('evidence').children;
+  assert.equal(createdTags.filter((tag) => tag === 'img' || tag === 'video').length, 0,
+    'the index must not allocate image or video decoders before selection');
+  await vm.runInContext('loadEvidence()', sandbox);
+  assert.equal(elements.get('evidence').children, gallery, 'an unchanged index keeps its existing cards');
   assert.equal(gallery[0].children[1].textContent.includes(items[0].name), true);
   assert.equal(gallery[0].children[2].textContent, 'Show on canvas');
-  const imageUrl = new URL(gallery[0].children[0].src);
+  sandbox.imageItem = items[0];
+  const imageUrl = new URL(vm.runInContext('evidenceMetadata(imageItem).url', sandbox));
   assert.equal(imageUrl.origin, 'http://127.0.0.1:8765');
   assert.equal(decodeURIComponent(imageUrl.pathname), '/evidence/' + items[0].name);
   for (const name of ['../private.png', '/absolute.png', 'a/../private.png', 'a\\private.png', 'https://elsewhere/image.png']) {

@@ -74,7 +74,7 @@ def write_json(path: Path, value: object) -> None:
 
 
 class ShowcaseState:
-    def __init__(self, root: Path, adb: Path, token: str) -> None:
+    def __init__(self, root: Path, adb: Path, token: str, *, device_polling: bool = True) -> None:
         self.root = root.resolve()
         self.web_root = (self.root / "tools" / "showcase").resolve()
         self.local_root = (self.root / ".local" / "showcase").resolve()
@@ -83,6 +83,7 @@ class ShowcaseState:
         self.preview_root = (self.root / ".local" / "visual-review").resolve()
         self.status_path = self.local_root / "status.json"
         self.adb = adb
+        self.device_polling = device_polling
         self.token = token
         self.origin = ""
         self.lock = threading.RLock()
@@ -160,6 +161,8 @@ class ShowcaseState:
             write_json(manifest_path, manifest)
 
     def list_devices(self) -> tuple[list[dict[str, str]], str | None]:
+        if not self.device_polling:
+            return [], "Live device polling paused to reduce local load; captured evidence remains available."
         if not self.adb.is_file():
             return [], f"ADB not found at {self.adb}"
         try:
@@ -641,10 +644,12 @@ def main() -> int:
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[2])
     parser.add_argument("--adb", type=Path, help="explicit adb executable; otherwise discover the Android SDK or PATH")
+    parser.add_argument("--evidence-only", action="store_true", help="disable all live ADB polling to reduce local load")
     parser.add_argument("--token", default=secrets.token_urlsafe(32))
     args = parser.parse_args()
 
-    state = ShowcaseState(args.root, args.adb or discover_adb(), args.token)
+    state = ShowcaseState(args.root, args.adb or discover_adb(), args.token,
+                          device_polling=not args.evidence_only)
     seed_status(state.status_path)
     server = ShowcaseServer((args.host, args.port), state)
     actual_port = server.server_address[1]
@@ -659,6 +664,7 @@ def main() -> int:
             "bind": f"127.0.0.1:{actual_port}",
             "url": f"{state.origin}/?token={urllib.parse.quote(args.token)}",
             "adbPath": str(state.adb),
+            "devicePolling": state.device_polling,
             "recordingsPath": str(state.recordings_root),
         },
     )

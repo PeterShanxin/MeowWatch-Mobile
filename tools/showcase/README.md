@@ -18,6 +18,10 @@ python tools/showcase/server.py --port 8765 --token <random-secret>
 
 Pass `--adb <path>` to select an exact executable. Otherwise the server checks `ANDROID_SDK_ROOT`, `ANDROID_HOME`, `%LOCALAPPDATA%\Android\Sdk`, and finally `adb` on `PATH`.
 
+Use `--evidence-only` when the development machine is under load. This disables live ADB polling and screenshot subprocesses and labels the paused live source explicitly. The existing two-fps silent canvas recording and captured evidence remain available. Keep one viewer open; select a still image when no video review is needed.
+
+The evidence library lists metadata without allocating image/video elements. Selecting **Show on canvas** loads one source; leaving that source releases its decoder or bitmap. Unchanged library refreshes retain their existing cards.
+
 The server prints the exact tokenized URL. It binds only to `127.0.0.1`, rejects unexpected `Host` and `Origin` values, requires the launch token for every request, and signs each recording session with a separate bearer secret. Files remain local; the tool provides no tunnel or LAN listener.
 
 The main development process may update `.local/showcase/status.json` atomically. Put actual downloaded CI `.png`, `.jpg`, `.webp`, `.mp4`, or `.webm` artifacts in `.local/showcase/evidence/`; they appear separately from the live adb source.

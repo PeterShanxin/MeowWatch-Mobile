@@ -71,7 +71,12 @@ jobs:
             python3 tools/native_recording_review/extract.py --artifact build/source-artifacts/android-native-lifecycle-1/android-lifecycle-artifacts --output build/recording-review/lifecycle
           else
             for variant in phone tablet; do
-              artifact="build/source-artifacts/android-fullscreen-${variant}-1/android-fullscreen-artifacts"
+              # A matrix rerun replaces only failed jobs. Keep each form
+              # factor's latest attempt, including failure rather than falling
+              # back to an older passing capture.
+              mapfile -t attempts < <(find build/source-artifacts -maxdepth 1 -type d -name "android-fullscreen-${variant}-[0-9]*" | sort -V)
+              [[ "${#attempts[@]}" -gt 0 ]]
+              artifact="${attempts[-1]}/android-fullscreen-artifacts"
               python3 tools/native_recording_review/extract.py --artifact "$artifact" --output "build/recording-review/$variant"
             done
           fi

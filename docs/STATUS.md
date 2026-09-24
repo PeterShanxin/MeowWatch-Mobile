@@ -26,6 +26,38 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Current verification
 
+The fresh `f16b148` PR cohort passes normal API 29/35 debug and API 35 release
+install, native playback, local-file relaunch, Nearby, purchase, RevenueCat
+relaunch/expiry, the runtime matrix, five layout journeys, lifecycle, foreground
+audio focus and debug network recovery. Fullscreen tablet passes; phone attempt
+one fails while downloading the Android system image (`ZipFile unknown archive`),
+before launching any emulator or application. Only that failed job is retried;
+the phone's second attempt passes the unchanged native gate.
+Standard-display Together `36029407646` reproduces the same second-entry test
+focus failure as the recording-display run below. Its pending correction is not
+hidden by the other passing jobs.
+
+Fresh receipts at that build show lifecycle `36029407933` restoring 56 seconds
+in a new process (3025 → 5921), with no autoplay and explicit native advancement.
+Focus `36029408003` completes the paused hierarchy within 1,279 ms of the native
+request; PID 2954 remains foreground and playback stays at 52 seconds through
+release until explicit Play. Debug network `36029407709` reconnects without
+autoplay and explicit replay converges in 3.872 seconds at 45,932 / 45,889 native
+ms; media, both controllers and the free-host ledger are preserved. Both focus
+helpers are removed and network peer/teardown errors are empty. These remain
+API 35 x86_64 emulator results, separate from physical acceptance.
+
+Purchase `36029407726` passes all 12 native Test Store stages, same-customer
+Restore, the premium reaction and two distinct Plus rooms. Hosted extraction
+`36030948296` strictly decodes its two originals; both source hashes and all 36
+PNG hashes match. Selected original frames show the actual SDK dialog, active
+Plus, Restore feedback and both appearances. The 1.231-second recording gap is
+retained. These sampled frames do not establish complete final-film motion
+acceptance. Hosted Check `36031826072` at `25fa5dc` passes 775 app, 87 Nearby and
+14 platform tests, analysis, formatting, media contracts and the secret audit.
+The new repeated-entry regression keeps the test IME unregistered from its first
+input, matching the native binding's missing cache-reset callback.
+
 The `3a0307f` PR cohort passes Check, normal install, native playback,
 local-file relaunch, Nearby, RevenueCat process relaunch, purchase, runtime
 matrix and debug radio loss/recovery. Check scans its actual PR merge checkout

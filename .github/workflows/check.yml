@@ -2,6 +2,11 @@ name: Check
 
 on:
   workflow_dispatch:
+    inputs:
+      repository_audit_only:
+        description: 'Run only the hosted secret scan; skip repeated build/test jobs'
+        type: boolean
+        default: false
   pull_request:
   push:
     branches: [main]
@@ -15,6 +20,7 @@ concurrency:
 
 jobs:
   check:
+    if: ${{ !inputs.repository_audit_only }}
     name: Analyze and test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -34,6 +40,7 @@ jobs:
       - run: flutter test --no-pub --reporter expanded
 
   nearby:
+    if: ${{ !inputs.repository_audit_only }}
     name: Nearby package contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -79,6 +86,7 @@ jobs:
           bash tools/android_multi_device/test_record_two_devices.sh
 
   demo:
+    if: ${{ !inputs.repository_audit_only }}
     name: Submission media contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -92,3 +100,6 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg
       - name: Verify pinned footage and render a labeled synthetic smoke clip
         run: python3 -m unittest tools.submission_demo.test_compose -v
+
+  secrets:
+    uses: ./.github/workflows/repository-audit.yml

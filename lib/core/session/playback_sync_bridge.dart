@@ -92,6 +92,16 @@ class PlaybackSyncBridge {
             _confirmed!,
             _sourceGeneration,
           );
+        } else {
+          final recovery = _networkRecovery;
+          if (recovery != null &&
+              recovery.sourceGeneration == _sourceGeneration &&
+              snapshot.media?.uri.toString() == recovery.source) {
+            // A second real outage gets its own attempt. Let an in-flight
+            // decoder load finish before deciding whether it also failed.
+            recovery.attempted = false;
+            recovery.reconnected = null;
+          }
         }
         _networkRecovery?.observedPause = false;
         _networkRecovery?.pendingPlay = null;
@@ -290,6 +300,7 @@ class PlaybackSyncBridge {
         !_connected ||
         recovery == null ||
         recovery.attempted ||
+        recovery.recovering ||
         recovery.sourceGeneration != _sourceGeneration ||
         (recovery.reconnected?.elapsed ?? Duration.zero) >
             const Duration(seconds: 30) ||
@@ -338,6 +349,7 @@ class PlaybackSyncBridge {
           }
         } finally {
           recovery.recovering = false;
+          if (current()) _recoverNetworkSource();
         }
       }),
     );

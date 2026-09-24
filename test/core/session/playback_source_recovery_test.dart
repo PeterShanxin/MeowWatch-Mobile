@@ -172,6 +172,33 @@ void main() {
     },
   );
 
+  test(
+    'a second outage that breaks rebuilding gets one new paused attempt',
+    () async {
+      await open();
+      await lose();
+      target.fail();
+      final gate = Completer<void>();
+      target.loadGate = gate;
+      target.failNextLoad = true;
+      await reconnect();
+      sync.lastObservedRoomState = _pause;
+      sync.peer(_play);
+      await lose();
+      await reconnect();
+      expect(target.loads.length, 2);
+      gate.complete();
+      await _until(() => target.loads.length == 3 && target.snapshot.ready);
+      expect(target.snapshot.position, _pause.position);
+      expect(target.snapshot.playing, isFalse);
+      expect(authorizations, 0);
+      expect(target.commands, isNot(contains('play')));
+      target.fail();
+      await reconnect();
+      expect(target.loads.length, 3);
+    },
+  );
+
   test('fresh recovery Play still obeys host authorization', () async {
     await open();
     await lose();
@@ -302,6 +329,7 @@ class _RecoverableTarget extends SyncTestTarget {
   final loads = <({MediaItem media, Duration position})>[];
   bool failNextLoad = false;
   bool allowRecovery = true;
+  int _loadGeneration = 0;
 
   @override
   bool get canReloadAfterConnectionLoss => allowRecovery;
@@ -321,9 +349,22 @@ class _RecoverableTarget extends SyncTestTarget {
     MediaItem media, {
     Duration position = Duration.zero,
   }) async {
+    final generation = ++_loadGeneration;
     loads.add((media: media, position: position));
     if (failNextLoad) {
       failNextLoad = false;
+      final gate = loadGate;
+      loadGate = null;
+      emit(
+        PlaybackSnapshot(
+          media: media,
+          position: position,
+          duration: snapshot.duration,
+          connection: PlaybackConnection.loading,
+        ),
+      );
+      await gate?.future;
+      if (generation != _loadGeneration) return;
       fail();
       throw StateError('Native source could not reopen.');
     }

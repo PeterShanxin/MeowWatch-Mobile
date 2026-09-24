@@ -210,6 +210,27 @@ bash tools/android_multi_device/build_together_apks.sh \
 bash tools/android_multi_device/ci_together.sh
 ```
 
+The production phone/tablet workflow defaults to `debug`, including pull
+requests. A manual dispatch may select `runtime_mode: profile` for an AOT
+diagnostic recording with the same production UI target, host/guest roles,
+explicit test expectations, native capture, and ANR guards. The build writes
+`mode` to `apks/build-provenance.tsv`; the runner checks that mode and both APK
+hashes before launching devices. Profile builds explicitly set an empty
+`REVENUECAT_API_KEY`: they cannot use the debug-only Test Store key, and this
+free-host journey does not exercise purchase or entitlement configuration.
+For an equivalent local diagnostic, pass `--mode profile` to both
+`build_together_apks.sh` and `ci_together.sh`; omit it for the original debug
+path.
+
+Profile turns off Dart and Flutter framework `assert` checks, even though this
+journey's explicit `expect` calls and thrown test failures still execute. It
+does not replace debug correctness or the separate real RevenueCat purchase
+gate, and it does not guarantee smoother playback. Review the complete
+original phone and tablet native recordings and their segments, recording
+timing/gap manifest, driver observations, and device logs before attributing a
+change in visible motion to the app, recorder, or hosted emulator. A passing
+driver or side-by-side composition alone is insufficient motion evidence.
+
 `ci_together.sh` starts the loopback-only fixture server, launches the two AVDs,
 records the complete smoke, composes valid native recordings, and then stops
 the task-owned AVDs and server even when a stage fails. It preserves the first

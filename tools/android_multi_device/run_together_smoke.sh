@@ -16,6 +16,7 @@ Options:
   --video-url <url>     URL compiled into the prebuilt APKs
                         (default: http://10.0.2.2:18765/sync-fixture.mp4)
   --timeout <duration>  GNU timeout duration for each drive (default: 330s)
+  --mode <debug|profile> Flutter drive mode (default: debug)
 
 The APKs must already contain matching TOGETHER_ROOM, SYNCPLAY_SERVER and
 SYNCPLAY_PORT dart defines, with TOGETHER_ROLE set to host and guest.
@@ -32,6 +33,7 @@ server='syncplay.pl'
 port=8995
 video_url="${TOGETHER_VIDEO_URL:-http://10.0.2.2:18765/sync-fixture.mp4}"
 drive_timeout='330s'
+mode='debug'
 output_dir=''
 driver_output_root='build/android-multi-device-artifacts'
 
@@ -47,12 +49,20 @@ while (( $# > 0 )); do
     --port) port="${2:-}"; shift 2 ;;
     --video-url) video_url="${2:-}"; shift 2 ;;
     --timeout) drive_timeout="${2:-}"; shift 2 ;;
+    --mode)
+      if (( $# < 2 )); then echo '--mode needs debug or profile.' >&2; exit 2; fi
+      mode="$2"; shift 2 ;;
     --output) output_dir="${2:-}"; shift 2 ;;
     --driver-output) driver_output_root="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [[ "$mode" != 'debug' && "$mode" != 'profile' ]]; then
+  echo '--mode must be debug or profile.' >&2
+  exit 2
+fi
 
 for required in "$session_file" "$host_apk" "$guest_apk" "$driver" "$target"; do
   if [[ ! -f "$required" ]]; then
@@ -129,6 +139,7 @@ done
   printf 'guest_driver_output\t%s\n' "$guest_driver_output"
   printf 'driver\t%s\n' "$driver"
   printf 'target\t%s\n' "$target"
+  printf 'mode\t%s\n' "$mode"
   printf 'started_utc\t%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 } > "$output_dir/command-environment.tsv"
 sha256sum "$host_apk" > "$host_output/application.apk.sha256"
@@ -290,6 +301,10 @@ run_role() {
   local vmservice_port="$4"
   local destination="$5"
   local -a native_guard=()
+  local -a drive_mode=()
+  if [[ "$mode" == 'profile' ]]; then
+    drive_mode=(--profile)
+  fi
   if [[ "$target" == 'integration_test/production_together_test.dart' ]]; then
     native_guard=(python3 -m tools.production_together.anr_guard
       --adb "$ADB" --serial "$serial" --role "$role"
@@ -303,6 +318,7 @@ run_role() {
   SYNCPLAY_PORT="$port" \
   TOGETHER_VIDEO_URL="$video_url" \
   "${native_guard[@]}" timeout --signal=INT --kill-after=30s "$drive_timeout" flutter drive \
+      "${drive_mode[@]}" \
       --no-pub \
       --driver="$driver" \
       --target="$target" \

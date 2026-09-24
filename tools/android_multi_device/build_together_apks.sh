@@ -16,6 +16,7 @@ Options:
   --video-url <url>      Long-form media URL compiled into both APKs
                          (default: http://10.0.2.2:18765/sync-fixture.mp4)
   --coordination-url <url> Test-only invite rendezvous for the production UI journey
+  --mode <debug|profile> Build mode (default: debug)
 
 Builds the host APK completely before building the guest APK. Run this before
 launching two AVDs so Gradle does not compete with them for hosted-runner CPU.
@@ -29,6 +30,7 @@ server='syncplay.pl'
 port=8995
 video_url="${TOGETHER_VIDEO_URL:-http://10.0.2.2:18765/sync-fixture.mp4}"
 coordination_url=''
+mode='debug'
 
 while (( $# > 0 )); do
   case "$1" in
@@ -39,10 +41,18 @@ while (( $# > 0 )); do
     --port) port="${2:-}"; shift 2 ;;
     --video-url) video_url="${2:-}"; shift 2 ;;
     --coordination-url) coordination_url="${2:-}"; shift 2 ;;
+    --mode)
+      if (( $# < 2 )); then echo '--mode needs debug or profile.' >&2; exit 2; fi
+      mode="$2"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
 done
+
+if [[ "$mode" != 'debug' && "$mode" != 'profile' ]]; then
+  echo '--mode must be debug or profile.' >&2
+  exit 2
+fi
 
 if [[ ! "$room" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo '--room must contain only letters, numbers, dots, underscores, or hyphens.' >&2
@@ -81,16 +91,21 @@ fi
 
 build_role() {
   local role="$1"
+  local -a billing_define=()
+  if [[ "$mode" == 'profile' ]]; then
+    billing_define=(--dart-define=REVENUECAT_API_KEY=)
+  fi
   flutter build apk \
-    --debug \
+    "--$mode" \
     --target="$target" \
     --dart-define="TOGETHER_ROLE=$role" \
     --dart-define="TOGETHER_ROOM=$room" \
     --dart-define="SYNCPLAY_SERVER=$server" \
     --dart-define="SYNCPLAY_PORT=$port" \
     --dart-define="TOGETHER_VIDEO_URL=$video_url" \
-    --dart-define="TOGETHER_COORDINATION_URL=$coordination_url"
-  cp build/app/outputs/flutter-apk/app-debug.apk "$output_dir/$role.apk"
+    --dart-define="TOGETHER_COORDINATION_URL=$coordination_url" \
+    "${billing_define[@]}"
+  cp "build/app/outputs/flutter-apk/app-$mode.apk" "$output_dir/$role.apk"
   sha256sum "$output_dir/$role.apk" > "$output_dir/$role.apk.sha256"
 }
 
@@ -99,6 +114,7 @@ build_role guest
 
 {
   printf 'target\t%s\n' "$target"
+  printf 'mode\t%s\n' "$mode"
   printf 'room\t%s\n' "$room"
   printf 'server\t%s\n' "$server"
   printf 'port\t%s\n' "$port"

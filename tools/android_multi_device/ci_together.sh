@@ -3,7 +3,7 @@ set -euo pipefail
 
 if [[ "${1:-}" == '-h' || "${1:-}" == '--help' ]]; then
   cat <<'EOF'
-Usage: ci_together.sh [--production-ui]
+Usage: ci_together.sh [--production-ui] [--mode debug|profile]
 
 Runs the prepared host/guest APKs on two task-owned AVDs, records both native
 displays for the full smoke, creates a side-by-side review video when possible,
@@ -12,10 +12,18 @@ EOF
   exit 0
 fi
 production_ui=0
-if [[ $# -eq 1 && "$1" == '--production-ui' ]]; then
-  production_ui=1
-elif [[ $# -ne 0 ]]; then
-  echo 'Expected no arguments or --production-ui.' >&2
+mode='debug'
+while (( $# > 0 )); do
+  case "$1" in
+    --production-ui) production_ui=1; shift ;;
+    --mode)
+      if (( $# < 2 )); then echo '--mode needs debug or profile.' >&2; exit 2; fi
+      mode="$2"; shift 2 ;;
+    *) echo "Unknown argument: $1" >&2; exit 2 ;;
+  esac
+done
+if [[ "$mode" != 'debug' && "$mode" != 'profile' ]]; then
+  echo '--mode must be debug or profile.' >&2
   exit 2
 fi
 
@@ -54,17 +62,31 @@ field() {
   awk -F '\t' -v name="$name" '$1 == name { print $2; exit }' "$provenance_file"
 }
 
-for required in "$fixture_file" "$provenance_file" "$host_apk" "$guest_apk"; do
+for required in "$fixture_file" "$provenance_file" "$host_apk" "$guest_apk" \
+    "$host_apk.sha256" "$guest_apk.sha256"; do
   if [[ ! -s "$required" ]]; then
     echo "Prepared runtime input is missing or empty: $required" >&2
     exit 2
   fi
 done
+if ! sha256sum --check --status "$host_apk.sha256" "$guest_apk.sha256"; then
+  echo 'Prepared APK hash does not match the build provenance.' >&2
+  exit 3
+fi
 
 room="$(field room)"
 server="$(field server)"
 port="$(field port)"
 video_url="$(field video_url)"
+if [[ "$(field mode)" != "$mode" ]]; then
+  echo 'APK build mode does not match the requested drive mode.' >&2
+  exit 3
+fi
+if [[ "$(field host_apk)" != "$host_apk" || \
+      "$(field guest_apk)" != "$guest_apk" ]]; then
+  echo 'APK build provenance does not match the selected host and guest files.' >&2
+  exit 3
+fi
 if [[ "$(field target)" != "$target" ]]; then
   echo 'APK provenance does not match the requested acceptance target.' >&2
   exit 3
@@ -122,6 +144,7 @@ on_exit() {
   mkdir -p "$runtime_root"
   {
     printf 'last_stage\t%s\n' "$current_stage"
+    printf 'mode\t%s\n' "$mode"
     printf 'primary_exit\t%s\n' "$primary_status"
     printf 'launch_exit\t%s\n' "$launch_status"
     printf 'smoke_exit\t%s\n' "$smoke_status"
@@ -204,6 +227,7 @@ bash tools/android_multi_device/record_two_devices.sh \
   --tablet-max-edge "${MEOWWATCH_TABLET_RECORD_MAX_EDGE:-1280}" \
   --bit-rate 3000000 \
   -- bash tools/android_multi_device/run_together_smoke.sh \
+    --mode "$mode" \
     --session "$session_file" \
     --host-apk "$host_apk" \
     --guest-apk "$guest_apk" \

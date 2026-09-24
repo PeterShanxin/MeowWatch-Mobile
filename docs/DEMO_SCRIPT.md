@@ -91,10 +91,17 @@ recording the new Together source; editing does not conceal the original fault.
 The new original-frame reviews strictly decode the source videos. Local hash
 checks match all 114 Together, 34 lifecycle, 42 fullscreen and 47 purchase PNGs.
 Selected original frames support the planned actions, including the full tablet
-heart. The replacement 116-second composition still requires hosted rendering,
-output-frame review and full-motion acceptance before publication. The current
-slow-start network regression remains open in STATUS; a passing source journey
-does not cancel a separate failed acceptance run.
+heart. Hosted run `36044649586` renders the 116-second replacement at `fdebec3`
+and strictly decodes all 3,480 frames. Its SHA-256 is
+`f150fb588fd98468543ba2295e38ee996e69c5f6dda9d43a016530fadbb530cc`.
+All seven native source pins and the edit manifest match; all 29 exported
+four-second samples have been visually inspected. Captions and device bounds
+fit, but the original loading/buffering and held frames remain visible, paired
+decoded images are not consistently identical, and the final second-room shot
+includes a source reopening. It remains a review candidate needing editorial
+refinement and full-motion acceptance. The current network regression remains
+open in STATUS; a passing source journey does not cancel a separate failed
+acceptance run.
 
 - The Local excerpt begins after the brief Home/Continue Watching card and
   shows the restored pause at 0:45, then explicit Play. Process restart and the

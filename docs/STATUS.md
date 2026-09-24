@@ -26,6 +26,52 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Current verification
 
+The fresh `fdebec3` cohort passes Check `36044618584`, normal installation,
+native playback, Nearby, five viewport journeys, the runtime matrix, normal
+release lifecycle, foreground audio focus, phone/tablet fullscreen, Test Store
+purchase, same-customer RevenueCat relaunch/expiry and SAF local-file relaunch.
+Network debug `36044617832` fails while the independent UI observer returns
+`root_missing` on all 16 capture attempts at `initial-ready`. The application
+retains focus and its PID; no playback result is available. Its unchanged
+second attempt is pending. Profile `36044653778` passes initial playback, radio
+loss, automatic pause and no-autoplay reconnect, then fails explicit replay:
+all 198 position reads succeed, but the closest pair is 1,105 ms apart and the
+last is 54,953 / 53,416 ms. Peer and teardown errors are empty. These failures
+are retained separately, not classified as the same defect.
+
+The slower guest becomes Syncplay's ordinary room setter after buffering;
+its first corrective seek buffers again, then its own room anchor cannot
+meaningfully advance it toward the host. Host rate correction instead needs
+to close the gap. It spends only about 8.5 seconds at 0.95 between native
+buffering intervals. The new `0454176` correction preserves the existing
+0.90 band until the lead falls below 900 ms, keeping the original 25-second
+window, fresh-heartbeat checks and immediate 1x restoration on buffering.
+A source reviewer identified an exit-condition early return; it is fixed and
+covered for recovery below 900 ms followed by drift back to 1,100 ms. An
+earlier diagnostic at `64c2f5e` fails with 1,150 ms after five modeled seconds;
+the final regression covers the retained strong band through moderate drift.
+Hosted Check `36054666023` passes all **782 app, 87 Nearby and 14 platform
+tests**, formatting, analysis, media contracts and the secret scan. Fresh
+profile network `36055097185` is running for the production correction; its
+native result remains required. No native threshold is relaxed.
+
+Together `36044618079` reports both app tests passed, but the tablet ADB
+recording connection terminates and its recorder exits 255 during final result
+recovery. Concurrent low-memory activity does not establish which process
+caused the disconnect. The incomplete journey is not accepted as a pass.
+Run `36053642428` repeats the standard phone/tablet layouts with smaller native
+recording output, preserving original failure checks and recording gaps.
+
+The 116-second film renders in `36044649586` and strictly decodes all 3,480
+frames. SHA-256:
+`f150fb588fd98468543ba2295e38ee996e69c5f6dda9d43a016530fadbb530cc`.
+All seven native source pins match and all 29 exported samples are inspected.
+Framing and captions fit; visible buffering, held frames and a source reopening
+in the closing room excerpt still need editorial review. This is not final
+motion acceptance or proof of identical decoded frames between devices.
+Local review uses static PNGs only; no build, emulator or video decoder runs
+on the user's computer.
+
 Hosted Check `36043940260` at `1052a01` passes **780 app, 87 Nearby and 14
 platform tests**, formatting, analysis, media contracts and the secret audit.
 Same-source history restoration previously exposed a stale ready snapshot:

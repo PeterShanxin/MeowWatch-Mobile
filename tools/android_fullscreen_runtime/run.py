@@ -425,9 +425,9 @@ class Runner(LifecycleRunner):
                 raise RuntimeFailure("explicit fullscreen Play has not advanced the native timeline by two seconds")
             return state
         # The first query after force-stopping the observer includes cold setup
-        # (20s), bounded traversal (4s), result transfer (2s), and ownership reads.
+        # (20s), bounded traversal (8s), result transfer (2s), and ownership reads.
         # Native advancement remains mandatory; observer latency is not evidence.
-        shown_xml, shown_playing = self.wait("09-controls-shown-and-native-advanced", advanced, timeout=30)
+        shown_xml, shown_playing = self.wait("09-controls-shown-and-native-advanced", advanced, timeout=35)
         # Pause only from the fresh hierarchy that proves actual advancement.
         # Avoid a screenshot between observing and tapping this transient UI.
         self.tap(button(shown_xml, "Pause", "Pause together"))

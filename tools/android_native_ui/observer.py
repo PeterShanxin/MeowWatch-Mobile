@@ -30,9 +30,9 @@ MAX_ATTRIBUTE = 4096
 MAX_CAPTURE_ATTEMPTS = 4
 MAX_STAGE_EVENTS = 40
 STARTUP_TIMEOUT_SECONDS = 20
-CAPTURE_TIMEOUT_SECONDS = 4
+CAPTURE_TIMEOUT_SECONDS = 8
 RESULT_TIMEOUT_SECONDS = 2
-TOTAL_TIMEOUT_SECONDS = 26
+TOTAL_TIMEOUT_SECONDS = STARTUP_TIMEOUT_SECONDS + CAPTURE_TIMEOUT_SECONDS + RESULT_TIMEOUT_SECONDS
 STAGES = frozenset({
     "on_create", "on_start", "automation_start", "automation_ready", "service_ready",
     "root_start", "root_ready", "refresh_start", "refresh_ready", "traverse_start",
@@ -115,7 +115,7 @@ class InstrumentationBudget:
                     self.ready = True
                     self.capture_uptime = event["uptimeMs"]
                     self.phase = "capture"
-                    # Native code enforces four seconds of hierarchy work. Two
+                    # Native code enforces eight seconds of hierarchy work. Two
                     # further seconds bound delivery of its final result.
                     self.deadline = min(self.total_deadline,
                                         now + CAPTURE_TIMEOUT_SECONDS + RESULT_TIMEOUT_SECONDS)
@@ -123,7 +123,7 @@ class InstrumentationBudget:
                 raise ObserverIntegrityFailure("native observer repeated startup readiness")
             elif name == "traverse_ready":
                 if event["uptimeMs"] - self.capture_uptime >= CAPTURE_TIMEOUT_SECONDS * 1000:
-                    raise ObserverIntegrityFailure("native hierarchy exceeded its four-second capture budget")
+                    raise ObserverIntegrityFailure("native hierarchy exceeded its eight-second capture budget")
                 self.traversed = True
             elif name == "finish":
                 self.finished = True

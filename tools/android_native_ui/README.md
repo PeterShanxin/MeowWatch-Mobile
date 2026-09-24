@@ -78,7 +78,7 @@ unknown exception is an immediate integrity failure; its message is never emitte
 Android can temporarily return a missing root or child while a new accessibility
 connection or updated tree is being published. For these transient reasons,
 the helper permits at most four attempts in the **same** `UiAutomation` connection,
-100 ms apart, under a four-second capture budget checked during traversal. This
+100 ms apart, under an eight-second capture budget checked during traversal. This
 budget starts after UiAutomation and accessibility service configuration are
 ready; cold instrumentation startup does not spend the hierarchy budget. Each
 attempt obtains and refreshes a new active root, resets its node count and XML
@@ -112,13 +112,13 @@ Only transient failures may precede another attempt. A successful final tree
 must independently satisfy the existing node-count and XML checks.
 
 The host streams bounded output from its own adb child. It allows at most twenty
-seconds from instrumentation dispatch to a validated `service_ready`, then four
+seconds from instrumentation dispatch to a validated `service_ready`, then eight
 seconds of native hierarchy work and at most two seconds of result delivery.
-The entire observation, including PID/window checks, has a twenty-six-second
+The entire observation, including PID/window checks, has a thirty-second
 absolute limit, capped by any earlier caller deadline. The service-ready marker
 must follow the exact startup sequence with the same fresh nonce and helper PID.
 Repeated or foreign readiness cannot reset a deadline. A native traversal at or
-beyond four seconds is rejected even if response-delivery time remains. `finish`
+beyond eight seconds is rejected even if response-delivery time remains. `finish`
 can only shorten the remaining result deadline; it cannot grant more time.
 
 An expired startup/capture/caller budget is terminal: the host reaps only its own
@@ -164,11 +164,21 @@ Progress alone never satisfies capture. The final Protocol 2 response must still
 pass all nonce, freshness, complete hierarchy, attribute and structural checks;
 malformed progress also rejects a completed response. The 360,000-byte response
 limit still accommodates the maximum 256 KiB XML plus all 40 stage records.
-The four-second hierarchy budget, four attempts, 100 ms retry interval and all
-caller acceptance deadlines remain unchanged. Startup has its separate bounded
+The eight-second hierarchy budget, four attempts and 100 ms retry interval are
+bounded by any earlier caller deadline. Startup has its separate bounded
 allowance; no previous/partial tree may replace a failed capture. The twenty-second
 startup setting addresses observed API 35 cold connection delays, not a guarantee
 under arbitrary system load. The full helper still needs fresh native acceptance.
+
+The capture budget was raised from four to eight seconds after network run
+`35960629684`: the second root took 678 ms to fetch, followed by refresh and
+3.388 seconds of traversal before stopping at node 28, 4.397 seconds after service
+readiness. The app stayed alive and playing, but no complete tree was accepted.
+This is a test-tool latency allowance, not an app performance fix. It permits a
+longer sampling span and slower failure detection; it does not make the XML an
+atomic snapshot, relax playback/synchronization assertions, reuse partial trees
+or extend a caller's absolute deadline. The default Android prefetch strategy is
+unchanged because the available evidence does not establish a cache/IPC cause.
 
 The local tests establish parsing, freshness, process and ownership rules.
 Compilation establishes Android API compatibility. A successful native lifecycle

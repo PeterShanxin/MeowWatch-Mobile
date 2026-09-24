@@ -377,14 +377,14 @@ class OwnershipTests(unittest.TestCase):
             runner.observe = Mock(return_value=fullscreen_player(10, (100, 700, 180, 780)))
             runner.tap = Mock()
             clock = [0]
-            with patch("tools.android_lifecycle_runtime.run.time.sleep", side_effect=lambda _: clock.__setitem__(0, 31)), \
+            with patch("tools.android_lifecycle_runtime.run.time.sleep", side_effect=lambda _: clock.__setitem__(0, 36)), \
                     patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
                     self.assertRaisesRegex(RuntimeFailure, "has not advanced"):
                 runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
             runner.tap.assert_not_called()
 
     def test_cold_observer_has_one_bounded_budget_and_late_advance_is_rejected(self):
-        for returned_at in (12, 31):
+        for returned_at in (12, 36):
             with self.subTest(returned_at=returned_at), tempfile.TemporaryDirectory() as directory:
                 runner = self.runner(Path(directory))
                 runner.output.mkdir()
@@ -392,13 +392,13 @@ class OwnershipTests(unittest.TestCase):
                 runner.tap = Mock()
                 clock = [0]
                 def observe(*, deadline):
-                    self.assertEqual(deadline, 30)
+                    self.assertEqual(deadline, 35)
                     clock[0] = returned_at
                     return fullscreen_player(12, (120, 700, 200, 780))
                 runner.observe = Mock(side_effect=observe)
                 with patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
                         patch("tools.android_lifecycle_runtime.run.time.sleep"):
-                    if returned_at < 30:
+                    if returned_at < 35:
                         self.assertEqual(runner.pause_after_fullscreen_advance(full, Playback(10, 90, False)), 2)
                         runner.tap.assert_called_once()
                     else:

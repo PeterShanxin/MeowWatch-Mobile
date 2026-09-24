@@ -323,7 +323,7 @@ class NativeObserverTests(unittest.TestCase):
         # subprocess and watchdogs have separate tests below.
         observer._instrument = lambda nonce, *, deadline: adb.run(
             "shell", "am", "instrument", "-w", "-r", "-e", "nonce", nonce,
-            "-e", "expectedPackage", PACKAGE, COMPONENT, timeout=26)
+            "-e", "expectedPackage", PACKAGE, COMPONENT, timeout=30)
         return observer
 
     def test_install_is_verified_emulator_only_and_targets_its_own_package(self):
@@ -457,7 +457,7 @@ class NativeObserverTests(unittest.TestCase):
             self.assertEqual([item["status"] for item in observer.observations], ["failure", "success"])
             capture_timeouts = [kwargs["timeout"] for args, kwargs in adb.commands
                                 if args[:3] == ("shell", "am", "instrument")]
-            self.assertEqual(capture_timeouts, [26, 26])
+            self.assertEqual(capture_timeouts, [30, 30])
 
     def test_timeout_preserves_connected_stage_and_discards_partial_ui_output(self):
         def partial(nonce):
@@ -483,7 +483,7 @@ class NativeObserverTests(unittest.TestCase):
             self.assertEqual(observer.observations[-1]["status"], "success")
             self.assertFalse(any(args == ("shell", "am", "force-stop", PACKAGE) for args, _ in adb.commands))
             self.assertEqual([kwargs["timeout"] for args, kwargs in adb.commands
-                              if args[:3] == ("shell", "am", "instrument")], [26, 26])
+                              if args[:3] == ("shell", "am", "instrument")], [30, 30])
 
     def test_completed_capture_retains_stages_on_success_and_native_failure(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -624,7 +624,7 @@ class InstrumentationBudgetTests(unittest.TestCase):
         budget = InstrumentationBudget(NONCE, 0, 100)
         budget.progress(startup_progress(), 12)
         self.assertEqual(budget.phase, "capture")
-        self.assertEqual(budget.deadline, 18)  # Four for tree, two for delivery.
+        self.assertEqual(budget.deadline, 22)  # Eight for tree, two for delivery.
         data = startup_progress() + progress("finish", sequence=6, uptime=10000, attempt=1, nodes=1)
         budget.progress(data, 15)
         self.assertEqual(budget.deadline, 17)
@@ -637,9 +637,9 @@ class InstrumentationBudgetTests(unittest.TestCase):
         self.assertEqual(caught.exception.phase, "startup")
         budget = InstrumentationBudget(NONCE, 0, 100)
         budget.progress(startup_progress(), 19.9)
-        self.assertLessEqual(budget.deadline, 26)
+        self.assertLessEqual(budget.deadline, 30)
         with self.assertRaises(ObserverTimeout):
-            budget.progress(startup_progress(), 26)
+            budget.progress(startup_progress(), 30)
 
     def test_caller_deadline_dominates_readiness_and_result(self):
         budget = InstrumentationBudget(NONCE, 0, 8)
@@ -666,27 +666,27 @@ class InstrumentationBudgetTests(unittest.TestCase):
         budget.progress(data.rsplit(b"INSTRUMENTATION_STATUS_CODE", 1)[0], 12)
         self.assertEqual(budget.deadline, 20)
         budget.progress(data, 13)
-        self.assertEqual(budget.deadline, 19)
+        self.assertEqual(budget.deadline, 23)
         budget.progress(data, 18)
-        self.assertEqual(budget.deadline, 19)
+        self.assertEqual(budget.deadline, 23)
 
     def test_capture_deadline_is_terminal_and_does_not_grant_another_connection(self):
         with self.assertRaises(ObserverIntegrityFailure) as caught:
             parse_snapshot(failure_response("capture_deadline"), NONCE)
         self.assertIsInstance(caught.exception, ObserverCaptureFailure)
 
-    def test_native_traversal_over_four_seconds_cannot_use_response_delivery_allowance(self):
-        for uptime, accepted in ((10999, True), (11000, False), (12000, False)):
+    def test_native_traversal_over_eight_seconds_cannot_use_response_delivery_allowance(self):
+        for uptime, accepted in ((14999, True), (15000, False), (16000, False)):
             budget = InstrumentationBudget(NONCE, 0, 100)
             budget.progress(startup_progress(), 12)
             data = startup_progress() + progress("traverse_ready", sequence=6, uptime=uptime,
                                                 attempt=1, nodes=1)
             if accepted:
-                budget.progress(data, 16.5)
+                budget.progress(data, 20.5)
                 self.assertTrue(budget.traversed)
             else:
-                with self.assertRaisesRegex(ObserverIntegrityFailure, "four-second"):
-                    budget.progress(data, 16.5)
+                with self.assertRaisesRegex(ObserverIntegrityFailure, "eight-second"):
+                    budget.progress(data, 20.5)
 
 
 class InstrumentationPipeTests(unittest.TestCase):

@@ -59,8 +59,8 @@ After the quiet screenshots, one native center tap precedes a fresh tree
 observation; `controlsVisibleAfterNativeTap` records the observed state without
 claiming that a later accessibility query could not also reveal controls. No
 tree is queried between the quiet capture and that tap. This first capture after
-the helper is stopped has a single 30-second caller deadline, allowing its bounded
-20-second cold setup, four-second traversal, two-second transfer and ownership
+the helper is stopped has a single 35-second caller deadline, allowing its bounded
+20-second cold setup, eight-second traversal, two-second transfer and ownership
 reads. The original 10-second caller deadline in tablet run `35958877057` expired
 as the helper returned its completed tree. Late results still fail, and no
 additional tap or sleep is used. A bounded observation must show the real media timeline

@@ -11,7 +11,7 @@ on:
       kind:
         description: 'Artifact format to inspect without starting Android'
         type: choice
-        options: [fullscreen, together]
+        options: [fullscreen, together, purchase]
         default: fullscreen
   push:
     paths:
@@ -52,6 +52,7 @@ jobs:
           case "$REVIEW_KIND" in
             fullscreen) pattern='android-fullscreen-*' ;;
             together) pattern='production-phone-tablet-*' ;;
+            purchase) pattern='production-purchase-*' ;;
             *) exit 1 ;;
           esac
           gh run download "$SOURCE_RUN" --pattern "$pattern" --dir build/source-artifacts
@@ -63,6 +64,8 @@ jobs:
           sudo apt-get install --yes --no-install-recommends ffmpeg
           if [[ "$REVIEW_KIND" == together ]]; then
             python3 tools/native_recording_review/together.py --artifact build/source-artifacts --output build/recording-review/together
+          elif [[ "$REVIEW_KIND" == purchase ]]; then
+            python3 -m tools.native_recording_review.purchase --artifact build/source-artifacts --output build/recording-review/purchase
           else
             for variant in phone tablet; do
               artifact="build/source-artifacts/android-fullscreen-${variant}-1/android-fullscreen-artifacts"

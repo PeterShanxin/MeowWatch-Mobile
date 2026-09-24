@@ -371,7 +371,8 @@ class PlaybackSyncBridge {
     final projected = _projectPlayStart(watch, state.duration);
     if (projected == null ||
         projected - state.position < const Duration(milliseconds: 750)) {
-      _clearPlayStartCatchUp();
+      // Initial movement can look synchronized before the decoder buffers
+      // again. Keep the bounded watch for a later fresh room heartbeat.
       return false;
     }
     watch.pending = true;
@@ -393,7 +394,7 @@ class PlaybackSyncBridge {
         if (position == null ||
             !current.playing ||
             position - current.position < const Duration(milliseconds: 750)) {
-          _clearPlayStartCatchUp();
+          watch.pending = false;
           return;
         }
         _applying++;

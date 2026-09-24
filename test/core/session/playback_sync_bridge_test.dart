@@ -200,6 +200,49 @@ void main() {
   );
 
   test(
+    'initially aligned startup still catches up after later buffering',
+    () async {
+      await useDelayedPlayTarget();
+      sync.peer(remotePlay);
+      await until(() => target.commands.contains('play'));
+      sync.lastObservedRoomState = const PeerPlayState(
+        position: Duration(milliseconds: 45150),
+        paused: false,
+        setBy: 'peer',
+      );
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 45100),
+        playing: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(target.commands.where((c) => c.startsWith('seek:')).length, 1);
+
+      emitNative(target, playing: false, buffering: true);
+      sync.lastObservedRoomState = const PeerPlayState(
+        position: Duration(milliseconds: 46700),
+        paused: false,
+        setBy: 'peer',
+      );
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 45200),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+      );
+      expect(
+        target.snapshot.position.inMilliseconds,
+        greaterThanOrEqualTo(46700),
+      );
+      expect(target.snapshot.position.inMilliseconds, lessThan(47000));
+      expect(sync.changes, isEmpty);
+      expect(errors, isEmpty);
+    },
+  );
+
+  test(
     'startup seek buffering permits only one follow-up correction',
     () async {
       await useDelayedPlayTarget();

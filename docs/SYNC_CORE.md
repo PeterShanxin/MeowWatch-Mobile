@@ -65,6 +65,8 @@ command; the original Play plus elapsed wall time can overshoot a peer that also
 buffered. A startup correction requires at least 750 ms of lag and never seeks
 to EOF. Since the corrective seek can itself buffer, the watch remains until
 native playback advances again, with at most two corrections in twelve seconds.
+An initially aligned sample or temporarily stale heartbeat also keeps this
+bounded watch, so subsequent startup buffering can still be corrected.
 Pause, explicit seek, connection loss, source replacement and disposal cancel
 this watch. Corrections update the ordinary heartbeat without publishing a new
 user seek. The existing one-directional four-second steady-state rewind policy

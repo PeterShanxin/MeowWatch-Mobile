@@ -150,3 +150,45 @@ The submission screenshot remains a separate, original **1179 × 2556** PNG
 without a frame. Never extract/upscale this 1080p film to create that required
 screenshot. Final native footage and its authored EDL are intentionally
 not bundled in this tool directory.
+
+## Render on hosted CI without loading the development computer
+
+The existing **Check** workflow accepts an optional `submission_edit` input.
+Point it at a checked-in native EDL to run only the hosted film renderer and
+secret audit. Ordinary checks remain the default when this input is empty.
+The result is a review artifact, not an automatically published or accepted film.
+
+Use portable EDL paths such as
+`sources/123456789/production-phone-tablet-1/evidence/phone-000.mp4`.
+Each source's `run` must be the exact numeric run ID, and its full `commit`,
+hash and dimensions remain mandatory. Beside `review.edl.json`, place
+`review.edl.sources.json` with the exact download pins:
+
+```json
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "run": "123456789",
+      "artifact": "production-phone-tablet-1",
+      "commit": "REPLACE_WITH_ACTUAL_FULL_COMMIT"
+    }
+  ]
+}
+```
+
+This is a schema example, not an accepted source. The downloader permits only
+this repository, successful runs whose remote commit matches the EDL, exact
+artifact names, contained paths and artifacts actually used by the edit.
+`compose.py` then checks original file hashes, dimensions, shared timing and
+source coverage before rendering at 1×. The hosted job strictly decodes the
+whole export and uploads its EDL, source-run receipts and manifest alongside
+the film. It starts no emulator and does not publish the result. Original
+artifacts retain their separate retention deadlines; archive accepted sources
+before they expire. Visual and product acceptance still require review.
+
+The pinned [32-second recording review](../../docs/demo/recording-review.edl.json)
+uses original phone/tablet footage from run `36007244001`. It rehearses the
+hosted workflow with visible review labels; it is not the final submission film.
+The job exports one full-size frame every four seconds for light local review.
+Those samples do not establish every-frame or continuous motion acceptance.

@@ -8,16 +8,16 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
-| 1 | Clean checkout builds and installs | Partial | Fresh 54b4203 API 35 debug, API 29 debug and API 35 release normal installs pass independent audit, including seven intake reviews and two confirmed playback cases per variant. The late SDK Setup ANR recovery branch is not exercised in this run. Physical acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 8699d3e snapshot passes hosted Gitleaks 8.30.1 with zero findings in 528 tracked files and 127 fetched commits; no suspicious tracked paths. Later revisions need a final scan. Final artifacts and repository closeout remain open |
+| 1 | Clean checkout builds and installs | Partial | Fresh b523ed5 API 35/29 debug and API 35 release normal installs pass independent audit, including seven intake reviews and two confirmed playback cases per variant. Release succeeds on attempt two after an external Pixel Launcher ANR in attempt one; no app change or dialog repair. The SDK Setup ANR recovery branch is not exercised. Physical acceptance remains separate |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 5569701 snapshot passes hosted Gitleaks 8.30.1 with zero findings in 528 tracked files and 130 fetched commits; no suspicious tracked paths. Later revisions need a final scan. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Partial | af45d24 passes all five first-use/layout drivers and teardown, including native keyboard visibility after invalid join. The guide's primary instructions and actions remain accessible. 5137e58 production Together passes actual Start, invitation review and Join on independent emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6c44e415 runtime matrix passes on two API 35 emulators after fixing the stale pause snapshot. c53fc6a production Together profile passes both-way play/pause and host seek on independent phone/tablet AVDs; settled checkpoints have equal native positions. Equal position checkpoints do not establish identical decoded frames or physical-device behavior |
 | 5 | Real-session chat/reactions/presence | Partial | c53fc6a production Together profile passes chat, reactions, presence and confirmed peer-link playback on independent phone/tablet emulators. 2fc38317 purchase also proves the premium reaction received by a TLS peer. Final submission film remains open |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 8720304 normal release lifecycle passes independent review: real HOME, paused foreground, explicit Play and new-process history restoration. 115454e audio-focus interruption also passes. Actual radio-outage acceptance remains open; failed runs are preserved in acceptance history |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 8720304 normal release lifecycle passes independent review: real HOME, paused foreground, explicit Play and new-process history restoration. 115454e audio-focus interruption also passes. a6a2176 profile passes actual AVD radio loss, visible pause, same-room reconnect without autoplay and explicit resumed controls. New startup recovery changes still need native proof; failed runs are preserved |
 | 7 | Local Mode and Continue Watching | Partial | 8720304 normal lifecycle/history resume and af45d24 five-layout journeys pass independent review. Earlier native playback and SAF relaunch also pass. Each layout retains 20 app steps and 16 screenshots. Physical-device acceptance remains separate |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | 773d41e Android Nearby passes real pinned TLS pairing/control/revocation and protected persistence across three process runs. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 2fc38317 production purchase passes 12 stages, one free and two paid hosts, native cancel/failure/success and same-customer restore. The 6c44 runtime billing/hosting jobs also pass. Diagnostic run 35240675074 at 9e032ba passes same-customer process relaunch, accelerated renewals, final expiry and inactive Restore; the earlier 2fc contradictory result did not recur and its cause remains unproven. Physical and Play-production evidence remain separate |
-| 10 | Correct daily quota and session continuity | Partial | 6c44e415 runtime hosting passes 14 checks, one free plus two distinct Plus sessions, reconnect and same-process service/disk reopen without recharging. c53fc6a production Together profile passes endpoint/ledger preservation and repeated-room/free-joining checks. Actual radio-outage continuity remains open |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 8699d3e production Test Store journey passes 12 stages, one free and two paid hosts, native cancel/failure/success and same-active-customer restore; independent evidence review confirms the stated emulator/Test Store boundary. The 6c44 runtime billing/hosting jobs also pass. Diagnostic run 35240675074 at 9e032ba passes same-customer process relaunch, accelerated renewals, final expiry and inactive Restore; the earlier 2fc contradictory result did not recur and its cause remains unproven. Physical and Play-production evidence remain separate |
+| 10 | Correct daily quota and session continuity | Partial | 6c44e415 runtime hosting passes 14 checks, one free plus two distinct Plus sessions, reconnect and same-process service/disk reopen without recharging. c53fc6a production Together profile passes endpoint/ledger preservation and repeated-room/free-joining checks. a6a2176 profile also proves unchanged room/media/controllers/free-host ledger through actual radio loss and recovery |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Official unpatched Flutter 3.44 at af45d24 passes all five layouts and teardown. All 80 screenshots were inspected and five original videos fully decode; actual native frames confirm keyboard visibility. These are size/density overrides on one AVD. At 6aef042, both phone and tablet normal-release fullscreen/Back pass native and sampled original-frame review, including hidden controls, restored bars/orientation and matching paused history. Physical checks remain open. SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
 | 13 | No placeholders, dead ends or silent failures | Partial | 2fc38317 verifies guide, loading text, modal transitions, clean install and lifecycle. Later targeted matrix, expiry and production Together runs pass; the prior Restore anomaly remains unexplained. 5137e58 native footage proves readable 404 recovery and normal loading text. Final interruption gates and review remain open |
@@ -31,14 +31,14 @@ formatting of 179 Dart files, static analysis and a normal debug APK build on
 unmodified Flutter 3.44.0 / Dart 3.12.0. The portable Nearby package separately
 passes **87 tests with zero skips**. Real local TLS tests use loopback and the
 explicit Windows WSL virtual adapter; these are not physical LAN checks.
-Fresh hosted Check `36011242232` at `b523ed5` passes 748 app tests, 87
+Fresh hosted Check `36015216030` at `5569701` passes **752 app tests**, 87
 portable Nearby tests and 14 platform tests with zero Dart skips, all analysis
-and formatting of 192 app/harness Dart files. Media contracts pass 15 tests.
-The automation suite skips two FFmpeg-dependent composition cases in the
-package job; they are now also assigned to the media job that installs FFmpeg.
-Hosted Gitleaks 8.30.1 `36012646995` at `8699d3e` finds no secrets in
-528 tracked files or 127 fetched commits, with no suspicious tracked paths.
-Raw findings are never uploaded; the retained receipt contains counts only.
+and formatting of 192 app/harness Dart files. The media job passes both its
+15 submission compositor tests and 15 paired-compositor tests with FFmpeg
+installed, including the two cases skipped in the separate package job.
+Hosted Gitleaks 8.30.1 in the same Check finds no secrets in 528 tracked files
+or 130 fetched commits, with no suspicious tracked paths. Raw findings are
+never uploaded; the retained receipt contains counts only.
 
 The current repairs and their acceptance boundaries are:
 
@@ -58,7 +58,23 @@ The current repairs and their acceptance boundaries are:
   the patch, and all 28 bridge tests pass afterwards. Both independent review
   findings are resolved. The previous native run `35968126247` demonstrated
   actual advancement but a 1.025–1.897 second initial gap, before any radio loss;
-  a new native run must establish the fix.
+  a new native run must establish the fix. Later `a13db64` replaces the original
+  wall-clock projection with fresh room heartbeats and permits at most two
+  corrections in twelve seconds, rechecking real native advancement after seek
+  buffering. Independent review found that an initially aligned sample could
+  prematurely remove the watch before a later buffer. `5569701` retains that
+  bounded watch, resets queued pending state when no correction is needed,
+  and adds the regression. Four new cases pass in the 752-test suite, including
+  stale wall-clock projection, bounded follow-up and peer-pause cancellation.
+  Native network `36014561148` at a13db64 still fails initial convergence:
+  direct command records prove both corrective seeks execute, each immediately
+  followed by buffering. At 29.639 seconds, native positions differ by 2.377
+  seconds. Ordinary room updates name the slower guest; the leading host is
+  below the unchanged four-second rewind threshold. Both players advance and
+  teardown succeeds; radio loss is never reached. A bounded review recommends
+  guarded one-sided rate correction rather than more frequent seek/rebuffer
+  cycles. That implementation is in progress. Production phone/tablet
+  `36015870817` covers 5569701 and is still running.
 - **Fullscreen intent (`6829cc7`).** Buffering-end may report not-playing
   before the native playing event. Preserving the accepted play intent fixes
   unwanted idle-timer resets, while explicit pause, completion and errors still
@@ -212,7 +228,19 @@ Remote follow-ups after reducing local load:
   that correction but lacks direct command evidence. `a6a2176` adds the existing
   bounded native-command trace to both real players (at most160 records each),
   including requested seek position, without URLs/room/user values. Follow-up
-  `36012430319` is running. No acceptance threshold or production behavior changed.
+  `36012430319` passes and its exported evidence is audited. Seven phases
+  complete on one API 35 AVD with two real TLS clients/native decoders; only the
+  host is rendered. Both radios actually turn off, the literal-address probe
+  reports ENETUNREACH, and original radios are restored in finally. Reconnect
+  remains paused, explicit Play/Pause/Seek recover, and controllers, room/media
+  and quota ledger remain unchanged. All 178 native reads succeed (356 paired
+  records; none dropped/rejected; maximum 648 ms). Initial convergence takes
+  20.918 seconds at a 939 ms gap; resumed Play takes 5.644 seconds at a 986 ms
+  gap. These satisfy the unchanged <1-second gate but do not establish tight
+  sync throughout startup. Four original recordings pass hosted full decode,
+  independent hash checks and required observation coverage. Original offline
+  and reconnected PNGs visibly match the paused states. This precedes the
+  a13db64/5569701 production fixes and cannot verify them.
 - `35988489663` at `34b8ea6`: Together history recovery with a 160-record diagnostic
   cap for real native commands, room commands and the Play UI state. Observations
   contain no media URL, room code or participant name; the original 20-second
@@ -223,13 +251,32 @@ Remote follow-ups after reducing local load:
   still unproven. Recorded segment gaps of 3.64 phone seconds and 1.49 tablet
   seconds remain disclosed. This is diagnostic footage, not a final cut.
 
-Current clean-install cohort `36011248229` at `b523ed5` passes the API35
-and API29 debug jobs; their artifacts await complete audit. The normal release
-job reaches the rendered onboarding, then is covered by a **Pixel Launcher**
-ANR, as the original failure PNG shows. The exact MeowWatch focus gate correctly
-fails; this is not evidence of a MeowWatch ANR. Only that failed job is being
-retried, with unchanged code and requirements. Fresh production Test Store
-journey `36013144021` is also running on hosted CI.
+Current clean-install cohort `36011248229` at `b523ed5` passes API 35/29 debug
+on attempt one and normal release on attempt two. All APK hashes independently
+match install/intake receipts. Each normal lib/main.dart build passes seven
+cold/warm intake review/cancel cases and two explicit playback cases advancing
+3–5 seconds. Content URI permissions remain transient and read-only; fixtures
+and observer are cleaned up. Original first-launch clips pass hosted full
+decode; release onboarding is visually readable and unobscured. API 29's
+ActivityManager wait timeout is retained alongside actual app focus/onboarding
+and later playback. Release attempt one is retained: a **Pixel Launcher** ANR
+covers already-rendered onboarding. The exact app-focus gate correctly fails;
+retry passes with no app change, weakened assertion or dialog repair. This is
+not evidence of a MeowWatch ANR. All builds use debug signing; release billing
+is deliberately disabled. These are emulator results, not Play production.
+
+Fresh Test Store journey `36013144021` at `8699d3e` passes 12 stages and bounded
+independent evidence review. Native Test Store dialogs record cancel/failure/
+success (errors 1/42 then Plus); three distinct rooms show one free host and two
+Plus hosts without further free consumption, native playback and a real TLS
+peer. Restore, paid themes and premium reaction are verified. The peer runs
+headless in the same process; Restore uses the same already-active customer.
+One customer hash plus driver assertions does not independently establish
+identity continuity across reinstall or devices. The immediate success PNG
+still shows loading; later unlocked-room/entitlement evidence establishes the
+result. Three native recording segments cover 98.07% of the journey with a
+1.751-second maximum gap. This is not uninterrupted visual or physical-device
+acceptance, nor a Google Play transaction.
 
 ## Desktop and submission artifacts
 

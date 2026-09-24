@@ -7,6 +7,10 @@ on:
         description: 'Run only the hosted secret scan; skip repeated build/test jobs'
         type: boolean
         default: false
+      submission_edit:
+        description: 'Optional checked-in EDL path: render only the review film and secret audit on hosted CI'
+        type: string
+        default: ''
   pull_request:
   push:
     branches: [main]
@@ -20,7 +24,7 @@ concurrency:
 
 jobs:
   check:
-    if: ${{ !inputs.repository_audit_only }}
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
     name: Analyze and test
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -40,7 +44,7 @@ jobs:
       - run: flutter test --no-pub --reporter expanded
 
   nearby:
-    if: ${{ !inputs.repository_audit_only }}
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
     name: Nearby package contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 15
@@ -86,7 +90,7 @@ jobs:
           bash tools/android_multi_device/test_record_two_devices.sh
 
   demo:
-    if: ${{ !inputs.repository_audit_only }}
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
     name: Submission media contracts
     runs-on: ubuntu-24.04
     timeout-minutes: 10
@@ -101,7 +105,17 @@ jobs:
       - name: Verify pinned footage and render a labeled synthetic smoke clip
         run: |
           python3 -m unittest tools.submission_demo.test_compose -v
+          python3 -m unittest tools.submission_demo.test_fetch_sources -v
           python3 -m unittest tools.android_multi_device.test_compose_side_by_side -v
 
   secrets:
     uses: ./.github/workflows/repository-audit.yml
+
+  film:
+    if: ${{ inputs.submission_edit != '' && !inputs.repository_audit_only }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/submission-film.yml
+    with:
+      edit: ${{ inputs.submission_edit }}

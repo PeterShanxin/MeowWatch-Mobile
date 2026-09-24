@@ -1,0 +1,50 @@
+name: Render a reviewed submission edit on hosted CI
+
+on:
+  workflow_call:
+    inputs:
+      edit:
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Check source provenance contracts
+        run: python3 -m unittest tools.submission_demo.test_fetch_sources -v
+      - name: Fetch exact successful native source artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          EDIT_PATH: ${{ inputs.edit }}
+        run: python3 tools/submission_demo/fetch_sources.py "$EDIT_PATH" build/submission-film
+      - name: Install hosted video tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Render the complete pinned edit and verify its decode
+        run: |
+          python3 tools/submission_demo/compose.py render build/submission-film/edit.json build/submission-film/MeowWatch-Mobile-Review.mp4
+          ffmpeg -nostdin -v error -xerror -err_detect explode -threads 2 -i build/submission-film/MeowWatch-Mobile-Review.mp4 -f null - 2> build/submission-film/decode.log
+          mkdir -p build/submission-film/review-frames
+          ffmpeg -nostdin -v error -threads 2 -i build/submission-film/MeowWatch-Mobile-Review.mp4 -vf fps=1/4 -threads 1 build/submission-film/review-frames/frame-%02d.png
+      - name: Preserve review film and provenance
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: submission-film-review-${{ github.run_attempt }}
+          path: |
+            build/submission-film/MeowWatch-Mobile-Review.mp4*
+            build/submission-film/edit*.json
+            build/submission-film/source-runs.json
+            build/submission-film/decode.log
+            build/submission-film/review-frames/
+          retention-days: 14

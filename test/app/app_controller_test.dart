@@ -119,6 +119,27 @@ final media = MediaItem(
   uri: Uri.parse('https://example.com/movie.mp4'),
   title: 'Movie',
 );
+
+class DeferredResumeTarget extends SyncTestTarget {
+  Completer<void>? beforeLoad;
+  bool waitingBeforeLoad = false;
+
+  @override
+  Future<void> load(
+    MediaItem media, {
+    Duration position = Duration.zero,
+  }) async {
+    final gate = beforeLoad;
+    beforeLoad = null;
+    if (gate != null) {
+      waitingBeforeLoad = true;
+      await gate.future;
+      waitingBeforeLoad = false;
+    }
+    await super.load(media, position: position);
+  }
+}
+
 const ticket = RoomTicket(
   id: 'persistent-host',
   isHost: true,
@@ -135,14 +156,14 @@ void main() {
   late AppController app;
   late ControlledRepository repository;
   late ControlledQuota quota;
-  late SyncTestTarget target;
+  late DeferredResumeTarget target;
   late ControlledClient client;
   ControlledClient Function()? clientFactory;
   var clientsCreated = 0;
   setUp(() {
     repository = ControlledRepository();
     quota = ControlledQuota();
-    target = SyncTestTarget();
+    target = DeferredResumeTarget();
     client = ControlledClient();
     clientFactory = null;
     clientsCreated = 0;
@@ -298,6 +319,50 @@ void main() {
   );
 
   test(
+    'same-source history restore blocks old controls until load completes',
+    () async {
+      await app.load(media);
+      final gate = target.beforeLoad = Completer<void>();
+      final restoreStates = <bool>[];
+      app.addListener(() => restoreStates.add(app.isRestoringHistory));
+      target.commands.clear();
+
+      final restoring = app.resume(pastNight());
+      await until(() => target.waitingBeforeLoad);
+      expect(app.isRestoringHistory, isTrue);
+      expect(app.busy, isFalse);
+      expect(target.snapshot.ready, isTrue);
+      expect(target.snapshot.media?.uri, media.uri);
+      await app.togglePlay();
+      await app.seek(const Duration(seconds: 45));
+      expect(target.commands, isNot(contains('play')));
+      expect(target.commands, isNot(contains('seek:45000')));
+
+      gate.complete();
+      await restoring;
+      expect(app.isRestoringHistory, isFalse);
+      expect(restoreStates, containsAllInOrder([true, false]));
+      expect(target.snapshot.ready, isTrue);
+      await app.togglePlay();
+      expect(
+        target.commands.where((command) => command == 'play'),
+        hasLength(1),
+      );
+      expect(target.snapshot.playing, isTrue);
+    },
+  );
+
+  test('failed history restore clears its visible loading state', () async {
+    repository.failWrite = true;
+    final restoreStates = <bool>[];
+    app.addListener(() => restoreStates.add(app.isRestoringHistory));
+    await app.resume(pastNight());
+    expect(app.isRestoringHistory, isFalse);
+    expect(restoreStates, containsAllInOrder([true, false]));
+    expect(target.commands, isNot(contains('play')));
+  });
+
+  test(
     'history pins room A after a later new room falls back to server B',
     () async {
       final attempts = <ControlledClient>[];
@@ -331,6 +396,7 @@ void main() {
 
   test('watch again creates a fresh host room with the saved video', () async {
     expect(await app.watchAgain(pastNight()), isTrue);
+    expect(app.isRestoringHistory, isFalse);
     expect(app.room!.isHost, isTrue);
     expect(app.room!.id, isNot(ticket.id));
     expect(app.room!.config.room, isNot(ticket.config.room));
@@ -360,11 +426,16 @@ void main() {
 
   test('cancelled repeat connection never loads the saved video', () async {
     quota.gate = Completer<bool>();
+    final restoreStates = <bool>[];
+    app.addListener(() => restoreStates.add(app.isRestoringHistory));
     final pending = app.watchAgain(pastNight());
+    expect(app.isRestoringHistory, isTrue);
     expect(await app.watchAgain(pastNight()), isFalse);
     await app.leavePlayer();
     quota.gate!.complete(true);
     expect(await pending, isFalse);
+    expect(app.isRestoringHistory, isFalse);
+    expect(restoreStates, containsAllInOrder([true, false]));
     expect(target.snapshot.media, isNull);
     expect(app.room, isNull);
     expect(clientsCreated, 0);

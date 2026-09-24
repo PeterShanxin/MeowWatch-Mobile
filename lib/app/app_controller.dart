@@ -154,6 +154,7 @@ class AppController extends ChangeNotifier {
       (!isNearby || _nearby!.connected) &&
       connection.status == SyncConnectionStatus.connected;
   bool get isLocal => room == null;
+  bool get isRestoringHistory => _resumeLoading;
   List<ChatMessage> get messages =>
       isNearby ? _nearbyMessages : _chat?.messages ?? const [];
   bool get firstLaunch => repository.displayName == null;
@@ -1186,6 +1187,7 @@ class AppController extends ChangeNotifier {
   }
 
   Future<void> togglePlay() async {
+    if (_resumeLoading) return;
     if (isNearby) {
       final playing = target.snapshot.playing;
       await _nearbyCommand(
@@ -1227,6 +1229,7 @@ class AppController extends ChangeNotifier {
   bool get playRequested => _bridge?.playRequested ?? target.playRequested;
 
   Future<void> seek(Duration position) async {
+    if (_resumeLoading) return;
     if (isNearby) {
       await _nearbyCommand((desktop) => desktop.seek(position));
       return;
@@ -1248,6 +1251,7 @@ class AppController extends ChangeNotifier {
       return;
     }
     _resumeLoading = true;
+    _changed();
     try {
       if (entry.room != null) {
         if (!await connect(entry.room!, adoptExistingSource: false)) return;
@@ -1257,6 +1261,7 @@ class AppController extends ChangeNotifier {
       await load(entry.media, position: entry.position);
     } finally {
       _resumeLoading = false;
+      _changed();
     }
   }
 
@@ -1268,12 +1273,14 @@ class AppController extends ChangeNotifier {
       return false;
     }
     _resumeLoading = true;
+    _changed();
     try {
       if (!await createRoom(adoptExistingSource: false)) return false;
       await load(entry.media, position: entry.position);
       return true;
     } finally {
       _resumeLoading = false;
+      _changed();
     }
   }
 

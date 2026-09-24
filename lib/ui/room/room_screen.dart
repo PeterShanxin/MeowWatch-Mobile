@@ -76,7 +76,8 @@ class RoomScreenState extends State<RoomScreen> {
 
   bool get _canEnterFullscreen {
     final target = app.target;
-    return target is LocalMobileTarget &&
+    return !app.isRestoringHistory &&
+        target is LocalMobileTarget &&
         target.controller != null &&
         target.snapshot.ready;
   }
@@ -87,6 +88,7 @@ class RoomScreenState extends State<RoomScreen> {
           FocusManager.instance.highlightMode ==
               FocusHighlightMode.traditional) ||
       _controlsPressed ||
+      app.isRestoringHistory ||
       !app.playRequested ||
       !app.target.snapshot.ready ||
       (!app.isLocal && !app.isConnected);
@@ -766,21 +768,30 @@ class _VideoStage extends StatelessWidget {
         child: Stack(
           alignment: Alignment.center,
           children: [
-            if (controller != null && state.ready)
+            if (app.isRestoringHistory ||
+                state.connection == PlaybackConnection.loading)
+              SingleChildScrollView(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 16),
+                    Text(
+                      app.isRestoringHistory
+                          ? 'Restoring your video…'
+                          : 'Opening your video…',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+              )
+            else if (controller != null && state.ready)
               Center(
                 child: AspectRatio(
                   aspectRatio: controller.value.aspectRatio,
                   child: VideoPlayer(controller),
                 ),
-              )
-            else if (state.connection == PlaybackConnection.loading)
-              const Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  CircularProgressIndicator(),
-                  SizedBox(height: 16),
-                  Text('Opening your video…'),
-                ],
               )
             else if (app.isNearby || app.isCasting)
               SingleChildScrollView(
@@ -876,7 +887,10 @@ class _VideoStage extends StatelessWidget {
                   ),
                 ),
               ),
-            if (state.buffering && state.ready && app.playRequested)
+            if (!app.isRestoringHistory &&
+                state.buffering &&
+                state.ready &&
+                app.playRequested)
               const CircularProgressIndicator(),
             if (app.reaction != null)
               Positioned(
@@ -935,7 +949,10 @@ class _PlaybackControlsState extends State<_PlaybackControls> {
   Widget build(BuildContext context) {
     final state = widget.app.target.snapshot;
     final playRequested = widget.app.playRequested;
-    final ready = state.ready && (widget.app.isLocal || widget.app.isConnected);
+    final ready =
+        !widget.app.isRestoringHistory &&
+        state.ready &&
+        (widget.app.isLocal || widget.app.isConnected);
     final maximum = state.duration.inMilliseconds.toDouble().clamp(
       1.0,
       double.infinity,

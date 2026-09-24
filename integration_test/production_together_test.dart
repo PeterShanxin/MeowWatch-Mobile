@@ -1183,6 +1183,7 @@ Future<void> _waitForNativeVideo(
   await _waitForCondition(
     tester,
     () =>
+        !app.isRestoringHistory &&
         app.target.snapshot.media?.uri == uri &&
         app.target.snapshot.ready &&
         app.target.snapshot.duration > const Duration(seconds: 10),
@@ -1357,11 +1358,13 @@ Future<void> _waitForRoomAndVideo(
 
 Future<void> _tapPlayControl(WidgetTester tester, {required bool play}) async {
   final action = play ? 'Play' : 'Pause';
-  final finder = await _waitForAny(tester, [
-    find.byTooltip(action),
-    find.byTooltip('$action together'),
-  ], '$action control');
-  await _tap(tester, finder, '$action through production controls');
+  final finder = find.byWidgetPredicate(
+    (widget) =>
+        widget is IconButton &&
+        (widget.tooltip == action || widget.tooltip == '$action together') &&
+        widget.onPressed != null,
+  );
+  await _tap(tester, finder, 'enabled $action through production controls');
 }
 
 Future<int> _waitForSettledPause(

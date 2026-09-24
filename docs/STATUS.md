@@ -80,6 +80,19 @@ The current repairs and their acceptance boundaries are:
   playing at 1:13/3:00 in fullscreen, but its second original recording contains
   corrupt H.264 macroblocks and is correctly rejected. Device/pulled hashes
   match; the cause of the original encoding corruption remains unproven.
+  The tablet-only second attempt stops earlier at `03-normal-playing`: the
+  observer traverses 29 nodes but its final instrumentation result times out.
+  The `finish` progress marker precedes Android's UiAutomation disconnect and
+  instrumentation teardown. The later watcher error follows timeout cleanup;
+  it is not established as the initiating fault. A reduced-framebuffer follow-up
+  `36007046292` at `6aef042` uses 1280x800 pixels at 160 dpi, preserving the
+  original 1280x800 dp tablet layout. The owned pre-launch config, original
+  native assertions and all observer/playback deadlines are retained; three
+  focused preparation contracts and bounded independent source review pass.
+  The original clip fully decodes and device/pulled hashes match. Native final
+  result delivery remains unverified; rendering/audio activity and the later
+  screenshot do not replace the missing playing-position assertion. This is
+  distinct from the first attempt's corrupt recording.
 - **Recorder coverage (`2184c8e`).** A timed-out live-file read now retries the
   same byte cursor inside the existing eight-second post-roll deadline. Partial
   timed-out output is discarded and late results fail. All 201 related Python
@@ -96,6 +109,26 @@ The current repairs and their acceptance boundaries are:
   budget and pauses after measured playback before offline processing. An
   unconfirmed recorder stop prevents either file from being analyzed. Failed
   native observations are retained; all 179 focused Python contracts pass.
+  Repaired probe `36001965003` passes on two API 35 x86_64 AVDs with the same
+  profile APK. Its 30-second two-AVD phase contains 258 phone and 238 tablet
+  original pictures; the isolated-tablet phase contains 451, using the same
+  tablet process. Maximum picture gaps are 0.476, 0.392 and 0.326 seconds.
+  All three originals fully decode and match their device hashes. The hosted
+  four-vCPU runner is approximately 97.38% busy with both AVDs and 86.07% with
+  the tablet alone. This supports CPU contention as a capture constraint,
+  without proving a single cause or professional motion. It does not measure
+  the user's computer. The follow-up at `874c9c0` changes only native display
+  pixels/density to the recording size, preserving exact logical phone/tablet
+  geometry; source timing, original-video checks and playback requirements stay
+  unchanged. That run also passes: 341 phone and 266 tablet pictures during
+  the paired phase, and 584 isolated-tablet pictures. Their maximum PTS gaps
+  are 0.304, 0.301 and 0.172 seconds. Hashes, frame counts and frame spacing
+  were independently checked from downloaded originals/metadata without local
+  video decoding. Hosted busy time is 95.54% paired and 79.60% isolated. Each
+  run uses one APK across its own A/B phases; the separately rebuilt APK hashes
+  differ between runs. These are useful measured improvements, not a controlled
+  proof of one sole cause, Together acceptance or professional-motion approval.
+  Full-resolution acceptance remains separate.
 
 ## Current native runs
 
@@ -115,10 +148,22 @@ open. Earlier acceptance and every retained failed experiment are documented in
 
 Remote follow-ups after reducing local load:
 - `35988087451` at `56ba16b`: phone native fullscreen/Back and sampled original
-  transition-frame review pass. Tablet original-recording decode fails as
-  above; only that failed job is rerunning with the same strict criteria.
+  transition-frame review pass. Tablet attempt one fails original recording
+  decode; attempt two fails observer result delivery as described above.
 - `35988087246` at `56ba16b`: motion preparation fails on the slider-thumb
-  assumption. The repaired `36001965003` probe at `e5e219b` is running remotely.
+  assumption. The repaired `36001965003` probe at `e5e219b` passes and is audited.
+  The recording-size comparison `36005070945` at `874c9c0` passes and is audited.
+  Production Together `36007244001` at `c53fc6a` now applies that profile with
+  compact original recording and official unpatched Flutter, retaining the
+  existing production UI and synchronization assertions. It is running remotely.
+- `36004195131` at `8aced90`: profile compilation and actual profile Dart startup
+  pass, but bootstrap incorrectly requires successful store configuration.
+  The normal profile build deliberately has no store key. No room, decoder,
+  outage or recovery stage runs. `fa08f50` tests the actual unavailable-store,
+  non-Plus free-host path for profile while retaining real Test Store success
+  for debug; it records and validates both modes explicitly. Production billing
+  policy is unchanged. The 37 Python contracts pass with one POSIX-only local
+  skip; full checks run on hosted Linux. Follow-up `36006343253` is in progress.
 - `35988489663` at `34b8ea6`: Together history recovery with a 160-record diagnostic
   cap for real native commands, room commands and the Play UI state. Observations
   contain no media URL, room code or participant name; the original 20-second

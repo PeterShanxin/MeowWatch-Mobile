@@ -1,0 +1,51 @@
+name: Review existing native recording frames
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Existing fullscreen artifact run ID'
+        default: '35988087451'
+        required: true
+        type: string
+  push:
+    paths:
+      - '.github/workflows/native-recording-review.yml'
+      - 'tools/native_recording_review/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Download existing originals without starting Android
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run || '35988087451' }}
+        run: |
+          [[ "$SOURCE_RUN" =~ ^[0-9]+$ ]]
+          mkdir -p build/recording-review
+          gh run view "$SOURCE_RUN" --json databaseId,headSha,url,conclusion > build/recording-review/source-run.json
+          gh run download "$SOURCE_RUN" --pattern 'android-fullscreen-*' --dir build/source-artifacts
+      - name: Extract a bounded set of original frames on the hosted runner
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          for variant in phone tablet; do
+            artifact="build/source-artifacts/android-fullscreen-${variant}-1/android-fullscreen-artifacts"
+            python3 tools/native_recording_review/extract.py --artifact "$artifact" --output "build/recording-review/$variant"
+          done
+      - name: Retain source provenance and exact review frames
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: native-recording-review-${{ github.run_attempt }}
+          path: build/recording-review/
+          retention-days: 14

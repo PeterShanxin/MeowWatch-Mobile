@@ -52,6 +52,7 @@ class TracedMobileTarget extends LocalMobileTarget {
     String name,
     Future<void> Function() action, {
     Duration? requestedPosition,
+    double? requestedRate,
   }) async {
     final id = ++_commandSequence;
     void record(String phase, [Object? error]) => trace.record('$name-$phase', {
@@ -63,6 +64,7 @@ class TracedMobileTarget extends LocalMobileTarget {
       'positionMs': snapshot.position.inMilliseconds,
       if (requestedPosition != null)
         'requestedPositionMs': requestedPosition.inMilliseconds,
+      if (requestedRate != null) 'requestedRate': requestedRate,
       if (error != null) 'errorType': error.runtimeType.toString(),
     });
     record('start');
@@ -84,6 +86,13 @@ class TracedMobileTarget extends LocalMobileTarget {
 
   @override
   Future<void> pause() => _command('native-pause', super.pause);
+
+  @override
+  Future<void> setPlaybackRate(double rate) => _command(
+    'native-rate',
+    () => super.setPlaybackRate(rate),
+    requestedRate: rate,
+  );
 
   @override
   Future<void> seek(Duration position) => _command(

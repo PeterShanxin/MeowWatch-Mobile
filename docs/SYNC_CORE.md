@@ -32,6 +32,7 @@ Subscribe before connecting: all streams are broadcast. `SyncCore` exposes:
 |---|---|
 | `connectionState`, `lastConnectionState` | Connection transitions and snapshot |
 | `peerState`, `lastObservedRoomState`, `lastObservedRoomStateAge` | Playback commands, newest observed room state and its monotonic receive age |
+| `lastAdvancingRoomState`, `lastAdvancingRoomStateAge` | Fresh, advancing non-self heartbeat eligible for optional local rate correction |
 | `presence`, `initialRoster`, `peerFile` | Membership, initial room members, announced media |
 | `chat`, `activity` | Room messages and playback activity |
 | `updateLocalState`, `notifyLocalChange` | Heartbeat cache and explicit user change |
@@ -71,6 +72,19 @@ Pause, explicit seek, connection loss, source replacement and disposal cancel
 this watch. Corrections update the ordinary heartbeat without publishing a new
 user seek. The existing one-directional four-second steady-state rewind policy
 is unchanged.
+
+After that startup watch, a local decoder supporting `PlaybackRateTarget` can
+gently slow when it leads the room by 900 ms to less than four seconds. This
+requires consecutive advancing heartbeats from the same named peer; self,
+pending own-change handshakes, pause, seek, stall and stale heartbeats are
+excluded. Rates are 0.90 for a lead of at least 1.5 seconds and 0.95 closer to
+convergence. Correction ends below 450 ms, after 25 seconds, or when eligible
+heartbeats stop for two seconds, and convergence/time limits impose an
+eight-second cooldown. Buffering, connection loss, source changes, new user
+intent and disposal restore 1x. Rate commands do not publish a user seek.
+Native rate calls are serialized and bounded; unsupported external targets
+keep their existing clock behavior. Unit coverage establishes the boundary;
+native recordings must separately establish actual convergence.
 
 All synchronized user controls go through `play()`, `pause()` and `seek()`.
 Player events update the cached heartbeat; they never infer or echo user

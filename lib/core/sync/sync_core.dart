@@ -33,6 +33,8 @@ abstract class SyncCore {
   SyncConnectionState? _lastConnectionState;
   PeerPlayState? _lastObservedRoomState;
   Stopwatch? _roomStateClock;
+  PeerPlayState? _lastAdvancingRoomState;
+  Stopwatch? _advancingRoomClock;
 
   Stream<SyncConnectionState> get connectionState => _connection.stream;
 
@@ -58,6 +60,15 @@ abstract class SyncCore {
 
   /// Monotonic age of the actual received heartbeat, including unapplied ones.
   Duration? get lastObservedRoomStateAge => _roomStateClock?.elapsed;
+
+  /// A heartbeat that passed the concrete client's self/handshake/stall and
+  /// forward-progress checks. Only the optional local rate correction uses it.
+  PeerPlayState? get lastAdvancingRoomState => _lastAdvancingRoomState;
+  Duration? get lastAdvancingRoomStateAge => _advancingRoomClock?.elapsed;
+  set lastAdvancingRoomState(PeerPlayState? state) {
+    _lastAdvancingRoomState = state;
+    _advancingRoomClock = state == null ? null : (Stopwatch()..start());
+  }
 
   /// Files announced by peers (on join, on the roster, and on mid-session file
   /// changes). Drives the file-mismatch warning.

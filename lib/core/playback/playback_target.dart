@@ -49,3 +49,8 @@ abstract class PlaybackTarget extends ChangeNotifier {
   Future<void> seek(Duration position);
   Future<void> close();
 }
+
+/// Optional local decoder capability. External targets keep their own clocks.
+abstract interface class PlaybackRateTarget {
+  Future<void> setPlaybackRate(double rate);
+}

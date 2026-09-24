@@ -176,6 +176,26 @@ void main() {
     );
   });
 
+  test('hung native slowdown cannot block the 1x reset', () async {
+    final target = LocalMobileTarget(
+      rateCommandTimeout: const Duration(milliseconds: 20),
+    );
+    targets.add(target);
+    await target.load(_media('rate-timeout'));
+    final gate = Completer<void>();
+    platform.nextRateGate = gate;
+
+    await expectLater(
+      target.setPlaybackRate(0.90),
+      throwsA(isA<TimeoutException>()),
+    );
+    await target.setPlaybackRate(1);
+    expect(platform.rates, [0.90, 1]);
+    gate.complete();
+    await _flushEvents();
+    expect(platform.rates.last, 1);
+  });
+
   test(
     'buffering preserves the accepted play intent until an explicit pause',
     () async {
@@ -345,6 +365,8 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   Duration? positionOnPause;
   Completer<Duration>? nextPosition;
   Completer<void>? positionRequested;
+  Completer<void>? nextRateGate;
+  final rates = <double>[];
 
   @override
   Future<void> init() async {}
@@ -418,7 +440,12 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   Future<void> setVolume(int playerId, double volume) async {}
 
   @override
-  Future<void> setPlaybackSpeed(int playerId, double speed) async {}
+  Future<void> setPlaybackSpeed(int playerId, double speed) async {
+    rates.add(speed);
+    final gate = nextRateGate;
+    nextRateGate = null;
+    await gate?.future;
+  }
 
   @override
   Future<void> setMixWithOthers(bool mixWithOthers) async {

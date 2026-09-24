@@ -6,12 +6,14 @@ import 'package:video_player/video_player.dart';
 import '../media/media_item.dart';
 import 'playback_target.dart';
 
-class LocalMobileTarget extends PlaybackTarget {
-  LocalMobileTarget({bool mixWithOthers = false})
-    : _options = VideoPlayerOptions(
-        mixWithOthers: mixWithOthers,
-        allowBackgroundPlayback: true,
-      );
+class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
+  LocalMobileTarget({
+    bool mixWithOthers = false,
+    this.rateCommandTimeout = const Duration(seconds: 5),
+  }) : _options = VideoPlayerOptions(
+         mixWithOthers: mixWithOthers,
+         allowBackgroundPlayback: true,
+       );
 
   VideoPlayerController? _controller;
   PlaybackSnapshot _snapshot = const PlaybackSnapshot();
@@ -21,6 +23,8 @@ class LocalMobileTarget extends PlaybackTarget {
   Duration? _pausedPosition;
   bool _closed = false;
   bool _playRequested = false;
+  Future<void> _rateTail = Future<void>.value();
+  final Duration rateCommandTimeout;
 
   // MainApp owns lifecycle pause. The plugin's lifecycle observer otherwise
   // restores its remembered play state on resume and can undo that pause.
@@ -196,6 +200,21 @@ class LocalMobileTarget extends PlaybackTarget {
           ? _snapshot.duration
           : position,
     );
+  }
+
+  @override
+  Future<void> setPlaybackRate(double rate) {
+    final controller = _controller;
+    if (_closed || controller == null || !_snapshot.ready) {
+      return Future<void>.value();
+    }
+    // Serialize native rate calls so a late slowdown cannot follow a reset.
+    final operation = _rateTail.then((_) async {
+      if (_closed || !identical(controller, _controller)) return;
+      await controller.setPlaybackSpeed(rate).timeout(rateCommandTimeout);
+    });
+    _rateTail = operation.catchError((Object _) {});
+    return operation;
   }
 
   @override

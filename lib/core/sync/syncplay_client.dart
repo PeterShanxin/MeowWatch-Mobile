@@ -224,6 +224,8 @@ class SyncplayClient extends SyncCore {
   // frozen engine). Feeds [decideFollow] so we don't rewind to chase a stuck
   // peer — the rewind-sawtooth amplifier (the 2026-06-20 field regression).
   final PeerStallTracker _peerStall = PeerStallTracker();
+  Duration? _previousRatePeerPosition;
+  String? _previousRateSetter;
 
   // Snapshot of the local state from just before the latest update — lets us
   // classify our OWN play/pause/seek for self-notifications (issue #27).
@@ -252,6 +254,9 @@ class SyncplayClient extends SyncCore {
     required String room,
     String? password,
   }) async {
+    lastAdvancingRoomState = null;
+    _previousRatePeerPosition = null;
+    _previousRateSetter = null;
     _server = server;
     _port = port;
     _requestedUsername = username;
@@ -436,6 +441,9 @@ class SyncplayClient extends SyncCore {
   /// leave and for a fatal server protocol error (rejected room/password). Bumps
   /// the generation so a trailing onDone from the closing socket is ignored.
   void _stopReconnecting() {
+    lastAdvancingRoomState = null;
+    _previousRatePeerPosition = null;
+    _previousRateSetter = null;
     _manualDisconnect = true;
     _generation++;
     _watchdog.stop();
@@ -454,6 +462,9 @@ class SyncplayClient extends SyncCore {
 
   void _scheduleReconnect({String? message}) {
     if (_manualDisconnect) return;
+    lastAdvancingRoomState = null;
+    _previousRatePeerPosition = null;
+    _previousRateSetter = null;
     _watchdog.stop();
     // Invalidate any in-flight handshake from the attempt we're abandoning.
     _generation++;
@@ -869,6 +880,11 @@ class SyncplayClient extends SyncCore {
     // stale global state the server is still echoing).
     final ignoringOwnChange =
         _pendingStateChange || (_clientIgnore != 0 && _serverIgnore == 0);
+    if (ignoringOwnChange || msg.peer == null) {
+      lastAdvancingRoomState = null;
+      _previousRatePeerPosition = null;
+      _previousRateSetter = null;
+    }
     if (msg.peer != null) {
       // Advance position by the one-way delay if the room is playing.
       final global = msg.peer!.paused
@@ -892,6 +908,35 @@ class SyncplayClient extends SyncCore {
           paused: msg.peer!.paused,
           doSeek: msg.peer!.doSeek,
         );
+        final previous = _previousRateSetter == global.setBy
+            ? _previousRatePeerPosition
+            : null;
+        final advance = previous == null
+            ? Duration.zero
+            : msg.peer!.position - previous;
+        _previousRatePeerPosition = msg.peer!.position;
+        _previousRateSetter = global.setBy;
+        lastAdvancingRoomState =
+            !_peerStall.stalled &&
+                !global.paused &&
+                !global.doSeek &&
+                global.setBy != null &&
+                global.setBy != _username &&
+                advance >= const Duration(milliseconds: 100) &&
+                advance <= const Duration(seconds: 3)
+            ? global
+            : null;
+        if (global.paused ||
+            global.doSeek ||
+            _peerStall.stalled ||
+            (previous != null &&
+                (advance < Duration.zero ||
+                    advance > const Duration(seconds: 3))) ||
+            global.setBy == null ||
+            global.setBy == _username) {
+          _previousRatePeerPosition = null;
+          _previousRateSetter = null;
+        }
         var action = decideFollow(
           global: global,
           localPaused: _localPaused,

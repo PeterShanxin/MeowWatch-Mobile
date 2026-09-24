@@ -947,6 +947,171 @@ void main() {
       expect(server.roomSetBy, 'bob');
     },
   );
+
+  group('native rate correction', () {
+    late RateTestTarget rateTarget;
+
+    Future<void> useRateTarget() async {
+      await bridge.dispose();
+      await target.close();
+      rateTarget = RateTestTarget();
+      target = rateTarget;
+      bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () async => true,
+        onError: errors.add,
+      )..start();
+      await bridge.load(movie);
+      sync.connection(SyncConnectionStatus.connected);
+      await bridge.play();
+      target.commands.clear();
+      sync.changes.clear();
+    }
+
+    void heartbeat(
+      Duration position, {
+      bool paused = false,
+      bool seek = false,
+    }) {
+      sync.lastAdvancingRoomState = PeerPlayState(
+        position: position,
+        paused: paused,
+        doSeek: seek,
+        setBy: 'peer',
+      );
+    }
+
+    test(
+      'ahead playback slows then converges without seek or room echo',
+      () async {
+        await useRateTarget();
+        heartbeat(const Duration(seconds: 8));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await until(() => rateTarget.rates.contains(0.90));
+        heartbeat(const Duration(milliseconds: 9600));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await until(() => rateTarget.rates.last == 1);
+        expect(target.commands, isEmpty);
+        expect(sync.changes, isEmpty);
+      },
+    );
+
+    test(
+      'stale, paused, seek and absent heartbeat cannot start slowdown',
+      () async {
+        await useRateTarget();
+        for (final state in [
+          const PeerPlayState(
+            position: Duration(seconds: 8),
+            paused: true,
+            setBy: 'peer',
+          ),
+          const PeerPlayState(
+            position: Duration(seconds: 8),
+            paused: false,
+            doSeek: true,
+            setBy: 'peer',
+          ),
+        ]) {
+          sync.lastAdvancingRoomState = state;
+          emitNativePosition(
+            target,
+            const Duration(seconds: 10),
+            playing: true,
+          );
+        }
+        sync.lastAdvancingRoomState = null;
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        heartbeat(const Duration(seconds: 8));
+        await Future<void>.delayed(const Duration(milliseconds: 2100));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        expect(rateTarget.rates, isEmpty);
+      },
+    );
+
+    test('new intent and source restore 1x after in-flight slowdown', () async {
+      await useRateTarget();
+      final gate = Completer<void>();
+      rateTarget.rateGate = gate;
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      final paused = bridge.pause();
+      gate.complete();
+      await paused;
+      await until(() => rateTarget.rates.last == 1);
+      expect(target.snapshot.playing, isFalse);
+      bridge.beginSourceLoad();
+      await target.load(second);
+      expect(rateTarget.rates.last, 1);
+      expect(sync.changes, [false]);
+    });
+
+    test('disposal restores rate when the reset is already queued', () async {
+      await useRateTarget();
+      final gate = Completer<void>();
+      rateTarget.rateGate = gate;
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      final paused = bridge.pause();
+      await bridge.dispose();
+      expect(rateTarget.rates.last, 1);
+      gate.complete();
+      await paused;
+      expect(rateTarget.rates.last, 1);
+    });
+
+    test('source replacement and disposal restore rate', () async {
+      await useRateTarget();
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      bridge.beginSourceLoad();
+      await until(() => rateTarget.rates.last == 1);
+      await target.load(second);
+      expect(rateTarget.rates.last, 1);
+
+      await bridge.markSourceOpen(second.uri.toString());
+      await bridge.play();
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.last == 0.90);
+      await bridge.dispose();
+      expect(rateTarget.rates.last, 1);
+    });
+
+    test('in-flight slowdown cannot survive source replacement', () async {
+      await useRateTarget();
+      final gate = Completer<void>();
+      rateTarget.rateGate = gate;
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      bridge.beginSourceLoad();
+      await target.load(second);
+      gate.complete();
+      await until(() => rateTarget.rates.last == 1);
+      await bridge.markSourceOpen(second.uri.toString());
+      expect(rateTarget.rates, [0.90, 1]);
+    });
+
+    test(
+      'unsupported target keeps ordinary playback with no corrective command',
+      () async {
+        await bridge.load(movie);
+        sync.connection(SyncConnectionStatus.connected);
+        await bridge.play();
+        target.commands.clear();
+        sync.changes.clear();
+        heartbeat(const Duration(seconds: 8));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        expect(target.commands, isEmpty);
+        expect(sync.changes, isEmpty);
+      },
+    );
+  });
 }
 
 void emitNative(
@@ -1035,6 +1200,19 @@ class PauseCompletionGatedTarget extends SyncTestTarget {
     await super.pause();
     final gate = pauseCompletionGate;
     pauseCompletionGate = null;
+    await gate?.future;
+  }
+}
+
+class RateTestTarget extends SyncTestTarget implements PlaybackRateTarget {
+  final rates = <double>[];
+  Completer<void>? rateGate;
+
+  @override
+  Future<void> setPlaybackRate(double rate) async {
+    rates.add(rate);
+    final gate = rateGate;
+    rateGate = null;
     await gate?.future;
   }
 }

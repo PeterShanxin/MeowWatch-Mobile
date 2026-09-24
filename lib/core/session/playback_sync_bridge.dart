@@ -44,6 +44,11 @@ class PlaybackSyncBridge {
   bool _externalPlayPending = false;
   int? _pauseCorrectionSource;
   _PlayStartCatchUp? _playStartCatchUp;
+  Timer? _rateExpiry;
+  Stopwatch? _rateWindow;
+  Stopwatch? _rateCooldown;
+  double _requestedRate = 1;
+  bool _rateTouched = false;
 
   /// Keep the accepted room intent through transient native buffering events.
   bool get playRequested => _hasSource && _publishedPaused == false;
@@ -58,6 +63,7 @@ class PlaybackSyncBridge {
       final connected = state.status == SyncConnectionStatus.connected;
       final lost = _connected && !connected;
       _connected = connected;
+      if (!connected) _stopRateCorrection();
       if (lost) _background(peerLeft());
       if (connected && _hasSource) {
         final snapshot = target.snapshot;
@@ -104,6 +110,9 @@ class PlaybackSyncBridge {
       return;
     }
     _confirmed = source;
+    // A heartbeat received during native loading may refer to the prior file.
+    // Wait for fresh advancing room samples before changing decoder speed.
+    sync.lastAdvancingRoomState = null;
     final snapshot = target.snapshot;
     sync.announceFile(
       name: snapshot.media!.title,
@@ -137,6 +146,8 @@ class PlaybackSyncBridge {
         target.snapshot.media?.uri.toString() != source) {
       return;
     }
+    _stopRateCorrection();
+    sync.lastAdvancingRoomState = null;
     _confirmed = source;
     if (sync.lastObservedRoomState?.setBy != null) {
       await markSourceOpen(source);
@@ -162,12 +173,16 @@ class PlaybackSyncBridge {
     // ExoPlayer's isPlaying is false while buffering even when playWhenReady
     // remains true. A heartbeat with that false flag would pause the room.
     if (state.buffering) {
+      _stopRateCorrection();
       _buffering = true;
       _bufferRecovery?.cancel();
       _bufferRecovery = null;
       return;
     }
     if (_applying != 0) return;
+    if (!state.playing || state.connection != PlaybackConnection.ready) {
+      _stopRateCorrection();
+    }
     if (_buffering) {
       if (!state.playing && _publishedPaused == false) {
         // READY/bufferingEnd precedes the matching isPlaying callback. Wait
@@ -223,7 +238,85 @@ class PlaybackSyncBridge {
       }
       return;
     }
+    _considerRateCorrection(state);
     _publish(state, changed: false);
+  }
+
+  void _considerRateCorrection(PlaybackSnapshot state) {
+    if (target is! PlaybackRateTarget ||
+        !_connected ||
+        !_hasSource ||
+        !state.playing ||
+        state.buffering ||
+        _publishedPaused != false ||
+        _playStartCatchUp != null) {
+      _stopRateCorrection();
+      return;
+    }
+    final room = sync.lastAdvancingRoomState;
+    final age = sync.lastAdvancingRoomStateAge;
+    if (room == null ||
+        age == null ||
+        age >= const Duration(seconds: 2) ||
+        room.paused ||
+        room.doSeek ||
+        room.setBy == null) {
+      _stopRateCorrection();
+      return;
+    }
+    final ahead = state.position - (room.position + age);
+    if (ahead < const Duration(milliseconds: 450) ||
+        ahead >= const Duration(seconds: 4)) {
+      _stopRateCorrection(cooldown: ahead < const Duration(milliseconds: 450));
+      return;
+    }
+    if (_requestedRate == 1) {
+      if (ahead < const Duration(milliseconds: 900) ||
+          (_rateCooldown?.elapsed ?? const Duration(days: 1)) <
+              const Duration(seconds: 8)) {
+        return;
+      }
+      _rateWindow = Stopwatch()..start();
+    } else if ((_rateWindow?.elapsed ?? Duration.zero) >=
+        const Duration(seconds: 25)) {
+      _stopRateCorrection(cooldown: true);
+      return;
+    }
+    _rateExpiry?.cancel();
+    _rateExpiry = Timer(const Duration(seconds: 2) - age, () {
+      _stopRateCorrection();
+    });
+    // One-sided only: never speed up the lagging player. Larger safe drift
+    // gets a short 0.90 window; near convergence uses the gentler 0.95 rate.
+    _requestRate(ahead >= const Duration(milliseconds: 1500) ? 0.90 : 0.95);
+  }
+
+  void _requestRate(double rate) {
+    if (_requestedRate == rate || target is! PlaybackRateTarget) return;
+    _requestedRate = rate;
+    if (rate != 1) _rateTouched = true;
+    final source = _sourceGeneration;
+    final intent = _intent;
+    final rateTarget = target as PlaybackRateTarget;
+    _background(
+      _enqueue(() async {
+        if (rate != 1 &&
+            (!_current(intent, source) || _requestedRate != rate)) {
+          return;
+        }
+        await rateTarget.setPlaybackRate(rate).timeout(commandTimeout);
+      }),
+    );
+  }
+
+  void _stopRateCorrection({bool cooldown = false}) {
+    _rateExpiry?.cancel();
+    _rateExpiry = null;
+    _rateWindow = null;
+    if (cooldown && _requestedRate != 1) {
+      _rateCooldown = Stopwatch()..start();
+    }
+    _requestRate(1);
   }
 
   void _reassertPause() {
@@ -456,6 +549,8 @@ class PlaybackSyncBridge {
   }
 
   int _nextIntent() {
+    _stopRateCorrection();
+    sync.lastAdvancingRoomState = null;
     _clearPlayStartCatchUp();
     _resetBuffering();
     _superseded.complete();
@@ -575,9 +670,26 @@ class PlaybackSyncBridge {
 
   Future<void> dispose() async {
     if (_disposed) return;
+    final restoreRate = _rateTouched && target is PlaybackRateTarget;
     _disposed = true;
     _nextIntent();
     _sourceGeneration++;
+    // Native commands already in the queue may still be pending. The local
+    // target serializes and bounds its own rate calls, so restore directly
+    // without making disposal wait for every old seek/authorization command.
+    if (restoreRate) {
+      try {
+        await (target as PlaybackRateTarget)
+            .setPlaybackRate(1)
+            .timeout(commandTimeout);
+      } catch (error) {
+        try {
+          onError?.call(error);
+        } catch (_) {
+          // Diagnostic only; dispose must still release its listeners.
+        }
+      }
+    }
     await _playerSub?.cancel();
     await _peerSub?.cancel();
     await _connectionSub?.cancel();

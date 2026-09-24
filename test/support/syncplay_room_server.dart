@@ -8,13 +8,13 @@ import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 /// two real [SyncplayClient]s (each driving a real `PlaybackSyncBridge`) can be
 /// wired together in one test process.
 ///
-/// It models the two rules that actually decide whether playback propagates:
+/// It models two rules that decide how explicit playback changes propagate:
 ///
-///  1. **The room's authoritative playstate only moves when a client signals a
-///     change** — an explicit `doSeek`, or a `paused` flag that differs from the
-///     room's. A plain heartbeat updates nothing. This is upstream Syncplay's
-///     behaviour, and it is why a client that never emits a state *change* can
-///     be driven by the room but can never drive it (#252).
+///  1. An explicit `doSeek` or pause change moves the room immediately. Normal
+///     heartbeats also update each watcher's position. With
+///     [slowestWatcherAnchor] enabled, Syncplay 1.7.5 periodically anchors the
+///     room to the slowest watcher and changes `setBy` without a user command.
+///     The option defaults off to preserve older focused protocol tests.
 ///  2. **The `ignoringOnTheFly` handshake.** A forced update carries
 ///     `{server: n}`; that watcher's states are ignored until it echoes `n`
 ///     back, so its pre-apply position can't bounce the room backwards. A
@@ -24,19 +24,34 @@ import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 /// TLS and the Hello/Set/List handshake are out of scope: clients are attached
 /// with [SyncplayClient.debugAttachLoggedInSocket] and fed by [dial].
 class SyncplayRoomServer {
-  SyncplayRoomServer._(this._socket);
+  SyncplayRoomServer._(
+    this._socket, {
+    required this.slowestWatcherAnchor,
+    required DateTime Function() clock,
+  }) : _clock = clock,
+       _setAt = clock();
 
   static Future<SyncplayRoomServer> start({
-    Duration heartbeat = const Duration(milliseconds: 20),
+    Duration? heartbeat = const Duration(milliseconds: 20),
+    bool slowestWatcherAnchor = false,
+    DateTime Function()? clock,
   }) async {
     final socket = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
-    final server = SyncplayRoomServer._(socket);
+    final server = SyncplayRoomServer._(
+      socket,
+      slowestWatcherAnchor: slowestWatcherAnchor,
+      clock: clock ?? DateTime.now,
+    );
     socket.listen(server._accept);
-    server._timer = Timer.periodic(heartbeat, (_) => server._tick());
+    if (heartbeat != null) {
+      server._timer = Timer.periodic(heartbeat, (_) => server.sendHeartbeat());
+    }
     return server;
   }
 
   final ServerSocket _socket;
+  final bool slowestWatcherAnchor;
+  final DateTime Function() _clock;
   Timer? _timer;
   final List<_Watcher> _watchers = <_Watcher>[];
   final List<Socket> _pending = <Socket>[];
@@ -45,16 +60,32 @@ class SyncplayRoomServer {
   Duration _position = Duration.zero;
   bool _paused = true;
   String? _setBy;
-  DateTime _setAt = DateTime.now();
+  DateTime _setAt;
 
   int get port => _socket.port;
 
   /// The room's live position (advancing while the room is playing).
   Duration get roomPosition =>
-      _paused ? _position : _position + DateTime.now().difference(_setAt);
+      _paused ? _position : _position + _clock().difference(_setAt);
 
   bool get roomPaused => _paused;
   String? get roomSetBy => _setBy;
+  bool hasAnnouncedFile(String name) =>
+      _watchers.any((watcher) => watcher.name == name && watcher.hasFile);
+
+  Duration? reportedPosition(String name) {
+    for (final watcher in _watchers) {
+      if (watcher.name == name) return watcher.position;
+    }
+    return null;
+  }
+
+  bool? reportedPaused(String name) {
+    for (final watcher in _watchers) {
+      if (watcher.name == name) return watcher.paused;
+    }
+    return null;
+  }
 
   /// Every state change the room accepted, so a test can assert who drove it.
   final List<({String by, Duration position, bool paused, bool doSeek})>
@@ -125,6 +156,12 @@ class SyncplayRoomServer {
       if (decoded is Map && decoded['State'] is Map) {
         _onState(watcher, (decoded['State'] as Map).cast<String, Object?>());
       }
+      if (decoded is Map &&
+          decoded['Set'] is Map &&
+          (decoded['Set'] as Map)['file'] is Map) {
+        final file = (decoded['Set'] as Map)['file'] as Map;
+        watcher.hasFile = file['name'] is String;
+      }
       if (decoded is Map && decoded['Chat'] is String) {
         final reply = utf8.encode(
           '${json.encode({
@@ -192,11 +229,14 @@ class SyncplayRoomServer {
         );
         final doSeek = playstate['doSeek'] == true;
         final pauseChanged = paused != _paused;
+        watcher.position = position;
+        watcher.paused = paused;
+        watcher.positionAt = _clock();
         if (doSeek || pauseChanged) {
           _position = position;
           _paused = paused;
           _setBy = watcher.name;
-          _setAt = DateTime.now();
+          _setAt = _clock();
           acceptedChanges.add((
             by: watcher.name,
             position: position,
@@ -222,10 +262,29 @@ class SyncplayRoomServer {
     // every reply creates an unbounded feedback loop unlike the real server.
   }
 
-  void _tick() {
+  /// Send one server heartbeat. Tests can pass `heartbeat: null` and call this
+  /// after advancing an injected clock, without waiting for wall time.
+  void sendHeartbeat() {
+    if (slowestWatcherAnchor) _anchorToSlowestWatcher();
     for (final watcher in List<_Watcher>.of(_watchers)) {
       _send(watcher);
     }
+  }
+
+  void _anchorToSlowestWatcher() {
+    final now = _clock();
+    if (now.difference(_setAt) <= const Duration(seconds: 1)) return;
+    final candidates = _watchers.where(
+      (watcher) => watcher.hasFile && watcher.position != null,
+    );
+    if (candidates.isEmpty) return;
+    final slowest = candidates.reduce(
+      (a, b) =>
+          a.positionNow(now, _paused) <= b.positionNow(now, _paused) ? a : b,
+    );
+    _position = slowest.positionNow(now, _paused);
+    _setBy = slowest.name;
+    _setAt = now;
   }
 
   void _send(_Watcher watcher) {
@@ -283,6 +342,15 @@ class _Watcher {
   final Socket socket;
   final String name;
   String buffer = '';
+  bool hasFile = false;
+  Duration? position;
+  bool? paused;
+  DateTime? positionAt;
+  Duration positionNow(DateTime now, bool paused) {
+    final reported = position!;
+    return paused ? reported : reported + now.difference(positionAt!);
+  }
+
   int serverIgnore = 0;
   int? pendingClientEcho;
 

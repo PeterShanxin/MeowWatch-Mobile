@@ -470,6 +470,13 @@ void main() {
       } else {
         await _waitForCheckpoint(tester, 'host', 'send-heart');
         await _sendReactionThroughUi(tester, '❤️');
+        await _waitForCondition(
+          tester,
+          () => app.reaction?.emoji == '❤️',
+          app,
+          'local heart reaction echoed by the server',
+        );
+        await tester.pump();
         _expectTabletVideoVisible(tester, includeReaction: true);
         await _waitForCheckpoint(tester, 'host', 'heart-seen');
       }

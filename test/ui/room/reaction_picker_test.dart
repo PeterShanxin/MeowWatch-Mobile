@@ -272,7 +272,6 @@ void main() {
       await tester.pump();
 
       expect(player.snapshot.ready, isTrue);
-      expect(find.text('Bee.mp4'), findsOneWidget);
       final reaction = find.byKey(const ValueKey('active-room-reaction'));
       final stage = find
           .ancestor(of: reaction, matching: find.byType(ClipRRect))

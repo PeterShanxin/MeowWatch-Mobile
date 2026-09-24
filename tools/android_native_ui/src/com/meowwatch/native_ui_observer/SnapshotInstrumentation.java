@@ -215,64 +215,69 @@ public final class SnapshotInstrumentation extends Instrumentation {
         final AtomicReference<String> result = new AtomicReference<>();
         final AtomicBoolean cancelled = new AtomicBoolean();
         final long probeDeadline = at + allowance;
-        Thread worker = new Thread(() -> {
-            List<AccessibilityWindowInfo> windows = null;
-            try {
-                if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
-                windows = automation.getWindows();
-                if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
-                if (windows == null || windows.size() > 64) {
-                    result.set(diagnostic("unavailable", at, attempt, -1, false, "-"));
-                    return;
-                }
-                int count = windows.size();
-                int limit = Math.min(count, MAX_DIAGNOSTIC_WINDOWS);
-                int[][] rows = new int[limit][6];
-                for (int i = 0; i < limit; i++) {
+        // Standalone compilation uses Android SDK stubs without the Java
+        // lambda bootstrap method; keep this helper compatible with them.
+        Thread worker = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                List<AccessibilityWindowInfo> windows = null;
+                try {
                     if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
-                    AccessibilityWindowInfo window = windows.get(i);
-                    rows[i][0] = window.getId();
-                    rows[i][1] = window.getType();
-                    rows[i][2] = window.isActive() ? 1 : 0;
-                    rows[i][3] = window.isFocused() ? 1 : 0;
-                    rows[i][4] = 3; // Root query pending.
-                }
-                result.set(diagnosticWindows(limit == 0 ? "ok" : "partial", at, attempt, count, rows));
-                for (int i = 0; i < limit; i++) {
+                    windows = automation.getWindows();
                     if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
-                    AccessibilityWindowInfo window = windows.get(i);
-                    AccessibilityNodeInfo root = null;
-                    int rootState = 0;
-                    int packageMatch = 0;
-                    try {
-                        root = window.getRoot();
-                        if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
-                        if (root != null) {
-                            rootState = 1;
-                            CharSequence name = root.getPackageName();
-                            packageMatch = name == null ? 0
-                                : expectedPackage.contentEquals(name) ? 1 : 2;
-                        }
-                    } catch (RuntimeException ignored) {
-                        rootState = 2;
-                    } finally {
-                        if (root != null) root.recycle();
+                    if (windows == null || windows.size() > 64) {
+                        result.set(diagnostic("unavailable", at, attempt, -1, false, "-"));
+                        return;
                     }
-                    if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
-                    rows[i][4] = rootState;
-                    rows[i][5] = packageMatch;
-                    result.set(diagnosticWindows(i + 1 == limit ? "ok" : "partial",
-                        at, attempt, count, rows));
-                }
-                if (limit == 0) result.set(diagnosticWindows("ok", at, attempt, count, rows));
-            } catch (RuntimeException ignored) {
-                if (result.get() == null) {
-                    result.set(diagnostic("unavailable", at, attempt, -1, false, "-"));
-                }
-            } finally {
-                if (windows != null) {
-                    for (int i = 0; i < Math.min(windows.size(), 64); i++) {
-                        windows.get(i).recycle();
+                    int count = windows.size();
+                    int limit = Math.min(count, MAX_DIAGNOSTIC_WINDOWS);
+                    int[][] rows = new int[limit][6];
+                    for (int i = 0; i < limit; i++) {
+                        if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                        AccessibilityWindowInfo window = windows.get(i);
+                        rows[i][0] = window.getId();
+                        rows[i][1] = window.getType();
+                        rows[i][2] = window.isActive() ? 1 : 0;
+                        rows[i][3] = window.isFocused() ? 1 : 0;
+                        rows[i][4] = 3; // Root query pending.
+                    }
+                    result.set(diagnosticWindows(limit == 0 ? "ok" : "partial", at, attempt, count, rows));
+                    for (int i = 0; i < limit; i++) {
+                        if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                        AccessibilityWindowInfo window = windows.get(i);
+                        AccessibilityNodeInfo root = null;
+                        int rootState = 0;
+                        int packageMatch = 0;
+                        try {
+                            root = window.getRoot();
+                            if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                            if (root != null) {
+                                rootState = 1;
+                                CharSequence name = root.getPackageName();
+                                packageMatch = name == null ? 0
+                                    : expectedPackage.contentEquals(name) ? 1 : 2;
+                            }
+                        } catch (RuntimeException ignored) {
+                            rootState = 2;
+                        } finally {
+                            if (root != null) root.recycle();
+                        }
+                        if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                        rows[i][4] = rootState;
+                        rows[i][5] = packageMatch;
+                        result.set(diagnosticWindows(i + 1 == limit ? "ok" : "partial",
+                            at, attempt, count, rows));
+                    }
+                    if (limit == 0) result.set(diagnosticWindows("ok", at, attempt, count, rows));
+                } catch (RuntimeException ignored) {
+                    if (result.get() == null) {
+                        result.set(diagnostic("unavailable", at, attempt, -1, false, "-"));
+                    }
+                } finally {
+                    if (windows != null) {
+                        for (int i = 0; i < Math.min(windows.size(), 64); i++) {
+                            windows.get(i).recycle();
+                        }
                     }
                 }
             }

@@ -48,6 +48,9 @@ class RoomScreen extends StatefulWidget {
 }
 
 class RoomScreenState extends State<RoomScreen> {
+  static const _fullscreenDiagnostics = bool.fromEnvironment(
+    'MEOWWATCH_FULLSCREEN_DIAGNOSTICS',
+  );
   final _stageKey = GlobalKey();
   Timer? _hideControlsTimer;
   bool _fullscreen = false;
@@ -58,6 +61,7 @@ class RoomScreenState extends State<RoomScreen> {
   bool _platformMayBeFullscreen = false;
   int _modeRevision = 0;
   VoidCallback? _dismissModeError;
+  String? _lastDiagnosticState;
 
   AppController get app => widget.app;
   VoidCallback get onLoad => widget.onLoad;
@@ -85,6 +89,23 @@ class RoomScreenState extends State<RoomScreen> {
       !app.playRequested ||
       !app.target.snapshot.ready ||
       (!app.isLocal && !app.isConnected);
+
+  void _logFullscreenState(String event, {bool force = false}) {
+    if (!_fullscreenDiagnostics) return;
+    final snapshot = app.target.snapshot;
+    final state =
+        'fullscreen=$_fullscreen visible=$_controlsVisible '
+        'accessible=$_accessibleNavigation '
+        'highlight=${FocusManager.instance.highlightMode.name} '
+        'focused=$_controlsFocused pressed=$_controlsPressed '
+        'playRequested=${app.playRequested} playing=${snapshot.playing} '
+        'buffering=${snapshot.buffering} ready=${snapshot.ready} '
+        'connected=${app.isLocal || app.isConnected} '
+        'keep=$_keepControlsVisible timer=${_hideControlsTimer != null}';
+    if (!force && state == _lastDiagnosticState) return;
+    _lastDiagnosticState = state;
+    debugPrint('MEOWWATCH_FULLSCREEN event=$event $state');
+  }
 
   @override
   void initState() {
@@ -119,6 +140,7 @@ class RoomScreenState extends State<RoomScreen> {
     super.didChangeDependencies();
     _accessibleNavigation = MediaQuery.accessibleNavigationOf(context);
     _updateControlsTimer();
+    _logFullscreenState('dependencies', force: true);
   }
 
   void _appChanged() {
@@ -132,9 +154,12 @@ class RoomScreenState extends State<RoomScreen> {
 
   void _updateControlsTimer({bool restart = false}) {
     if (!_fullscreen || _keepControlsVisible) {
+      final hadTimer = _hideControlsTimer != null;
       _hideControlsTimer?.cancel();
       _hideControlsTimer = null;
       _controlsVisible = true;
+      if (hadTimer) _logFullscreenState('timer_cancel', force: true);
+      _logFullscreenState('state');
       return;
     }
     if (restart) {
@@ -144,10 +169,17 @@ class RoomScreenState extends State<RoomScreen> {
     if (_controlsVisible && _hideControlsTimer == null) {
       _hideControlsTimer = Timer(const Duration(seconds: 3), () {
         _hideControlsTimer = null;
-        if (!mounted || !_fullscreen || _keepControlsVisible) return;
+        if (!mounted) return;
+        if (!_fullscreen || _keepControlsVisible) {
+          _logFullscreenState('timer_blocked', force: true);
+          return;
+        }
         setState(() => _controlsVisible = false);
+        _logFullscreenState('timer_fire', force: true);
       });
+      _logFullscreenState('timer_schedule', force: true);
     }
+    _logFullscreenState('state');
   }
 
   void _enterFullscreen() {
@@ -157,6 +189,7 @@ class RoomScreenState extends State<RoomScreen> {
       _controlsVisible = true;
       _updateControlsTimer(restart: true);
     });
+    _logFullscreenState('entry', force: true);
     _requestImmersiveMode(true);
   }
 
@@ -170,6 +203,7 @@ class RoomScreenState extends State<RoomScreen> {
       _controlsPressed = false;
       _updateControlsTimer();
     });
+    _logFullscreenState('exit', force: true);
     _requestImmersiveMode(false);
     return true;
   }

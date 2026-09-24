@@ -423,6 +423,40 @@ void main() {
   );
 
   fullscreenTest(
+    'paused entry, accessible observation, and Play resume timed hiding',
+    (tester) async {
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await open(tester, accessibleNavigation: null);
+      await enter(tester);
+      expect(target.snapshot.playing, isFalse);
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(accessibleNavigation: true);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Exit full screen'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Play together'));
+      await tester.pump();
+      expect(target.snapshot.playing, isTrue);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Pause together'), findsOneWidget);
+
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Exit full screen'), findsNothing);
+      expect(target.snapshot.playing, isTrue);
+
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(find.byTooltip('Exit full screen').hitTestable(), findsOneWidget);
+      await close(tester);
+    },
+  );
+
+  fullscreenTest(
     'returning from keyboard to touch resumes timed control hiding',
     (tester) async {
       await open(tester);

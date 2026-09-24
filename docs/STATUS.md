@@ -61,7 +61,29 @@ snackbar covers Play after reconnect. The original screenshot is retained;
 peer and teardown errors are empty. Ordinary app notices now explicitly expire
 after eight seconds (screen-reader navigation retains manual Dismiss), and sync
 errors use recovery guidance instead of raw exception text. Three added
-regressions and the unchanged native replay gate await hosted verification.
+regressions pass in hosted Check `36062757882` at `68d9b51`: all 785 app,
+87 Nearby and 14 platform tests, formatting, analysis, media contracts and
+the secret scan pass. Debug network `36062762988` no longer blocks the Play
+tap and requires no SDK Setup recovery. Initial playback converges in 4.356
+seconds; automatic pause and no-autoplay reconnect pass. The complete run
+fails when the guest decoder's HTTP connection to the fixture fails during
+the outage (21:48:00.235 UTC) and leaves the source failed after TLS reconnect.
+The host advances on explicit Play; the guest remains at 22,548 ms. All 456
+native position records are indexed without rejection/drop; peer and teardown
+errors are empty. This is a separate source-recovery defect, not an accepted
+network pass. The follow-up now permits one paused reopening of the same failed
+network source within 30 seconds of a real TLS reconnection. It preserves the
+last reliable media clock, leaves healthy/local-file/receiver sources alone,
+invalidates former source commands and never replays a pre-outage Play. Fresh
+paused heartbeats (including those needing no FOLLOW action) distinguish a new
+peer Play received during rebuilding; that Play still passes authorization.
+Failed reopening retains the normal visible choose-video fallback without an
+automatic retry loop. Fifteen bridge regressions and three native-platform
+regressions are written; hosted Flutter verification is pending. The native gate
+now requires ready sources and original failed/loading/ready controller evidence
+for any replacement; healthy controller identity, room and quota stay strict.
+The lightweight network/setup contract suite passes 63 tests with one platform
+skip; no local Flutter build, analysis, test suite or emulator ran.
 Repeated identical notices share the original expiry instead of extending it,
 so repeated errors cannot permanently hide controls; a later occurrence after
 dismissal starts a fresh notice. The Local audio-focus runner now retains its
@@ -70,6 +92,12 @@ acceptance with fresh nonce/UID/PID and current AudioService proof. All 29
 lightweight Python contracts pass. A 180-second version of the same source
 provides room for both cases without changing pause/recovery deadlines. Native
 execution is still required; this does not establish Together-room focus behavior.
+The initial transient run `36063115313` was intentionally cancelled after source
+review found the inherited 90-second expected-duration default. `f56c8e8` aligns
+that assertion with the 180-second fixture and passes the same 29 lightweight
+contracts; normal-release run `36063562267` passes on the dedicated API 35 AVD.
+Original UI, AudioService, timing and recording evidence is being reviewed;
+this remains separate from physical hardware and Together-room interruptions.
 Profile `36044653778`
 passes initial playback, radio
 loss, automatic pause and no-autoplay reconnect, then fails explicit replay:

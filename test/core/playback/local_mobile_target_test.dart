@@ -318,6 +318,103 @@ void main() {
     expect(target.snapshot.connection, PlaybackConnection.failed);
   });
 
+  test(
+    'native error and a later pause retain the last confirmed media clock',
+    () async {
+      final target = createTarget();
+      final media = _media('interrupted-stream');
+      const position = Duration(seconds: 38);
+      await target.load(media);
+      await target.seek(position);
+      final duration = target.snapshot.duration;
+      await target.play();
+
+      platform.emitError(
+        PlatformException(code: 'VideoError', message: 'source disconnected'),
+      );
+      await _flushEvents();
+      expect(target.controller!.value.position, Duration.zero);
+      expect(target.controller!.value.duration, Duration.zero);
+      expect(target.snapshot.media?.uri, media.uri);
+      expect(target.snapshot.position, position);
+      expect(target.snapshot.duration, duration);
+      expect(target.snapshot.connection, PlaybackConnection.failed);
+
+      final nativeZero = Completer<Duration>()..complete(Duration.zero);
+      platform.nextPosition = nativeZero;
+      await target.pause();
+      expect(target.snapshot.position, position);
+      expect(target.snapshot.duration, duration);
+      expect(target.snapshot.connection, PlaybackConnection.failed);
+    },
+  );
+
+  test(
+    'a failed same-source reopen retains requested position and known duration',
+    () async {
+      final target = createTarget();
+      final media = _media('failed-reopen');
+      const position = Duration(seconds: 44);
+      await target.load(media, position: position);
+      final duration = target.snapshot.duration;
+      platform.emitError(
+        PlatformException(code: 'VideoError', message: 'source disconnected'),
+      );
+      await _flushEvents();
+      platform.nextInitializationError = PlatformException(
+        code: 'VideoError',
+        message: 'network remains unavailable',
+      );
+
+      final loading = target.load(media, position: target.snapshot.position);
+      expect(target.snapshot.connection, PlaybackConnection.loading);
+      expect(target.snapshot.position, position);
+      expect(target.snapshot.duration, duration);
+      await expectLater(loading, throwsA(isA<PlatformException>()));
+      expect(target.snapshot.connection, PlaybackConnection.failed);
+      expect(target.snapshot.media?.uri, media.uri);
+      expect(target.snapshot.position, position);
+      expect(target.snapshot.duration, duration);
+      expect(target.playRequested, isFalse);
+    },
+  );
+
+  test(
+    'successful load replaces retained clock with the new native duration',
+    () async {
+      final target = createTarget();
+      final media = _media('successful-reopen');
+      await target.load(media, position: const Duration(seconds: 20));
+      await target.play();
+      expect(target.canReloadAfterConnectionLoss, isTrue);
+      platform.emitError(
+        PlatformException(code: 'VideoError', message: 'source disconnected'),
+      );
+      await _flushEvents();
+
+      const pastEnd = Duration(seconds: 400);
+      final playsBeforeReload = platform.playCalls;
+      final loading = target.load(media, position: pastEnd);
+      expect(target.snapshot.connection, PlaybackConnection.loading);
+      expect(target.snapshot.position, pastEnd);
+      expect(target.snapshot.duration, const Duration(minutes: 5));
+      await loading;
+      expect(target.snapshot.connection, PlaybackConnection.ready);
+      expect(target.snapshot.position, const Duration(minutes: 5));
+      expect(target.snapshot.duration, const Duration(minutes: 5));
+      expect(target.snapshot.playing, isFalse);
+      expect(target.playRequested, isFalse);
+      expect(platform.playCalls, playsBeforeReload);
+
+      final other = target.load(_media('different-source'));
+      expect(target.snapshot.duration, Duration.zero);
+      await other;
+      expect(target.snapshot.connection, PlaybackConnection.ready);
+      expect(target.snapshot.position, Duration.zero);
+      expect(target.snapshot.duration, const Duration(minutes: 5));
+    },
+  );
+
   test('resuming the widget lifecycle never undoes an app pause', () async {
     final target = createTarget();
     await target.load(_media('lifecycle'));
@@ -368,6 +465,7 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   Completer<Duration>? nextPosition;
   Completer<void>? positionRequested;
   Completer<void>? nextRateGate;
+  PlatformException? nextInitializationError;
   final rates = <double>[];
 
   @override
@@ -380,13 +478,19 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
     options.add(creation.videoPlayerOptions);
     mixModesAtCreation.add(_mixWithOthers);
     final events = StreamController<VideoEvent>();
-    events.add(
-      VideoEvent(
-        eventType: VideoEventType.initialized,
-        duration: const Duration(minutes: 5),
-        size: const Size(1280, 720),
-      ),
-    );
+    final initializationError = nextInitializationError;
+    nextInitializationError = null;
+    if (initializationError != null) {
+      events.addError(initializationError);
+    } else {
+      events.add(
+        VideoEvent(
+          eventType: VideoEventType.initialized,
+          duration: const Duration(minutes: 5),
+          size: const Size(1280, 720),
+        ),
+      );
+    }
     _events[playerId] = events;
     _positions[playerId] = Duration.zero;
     return playerId;

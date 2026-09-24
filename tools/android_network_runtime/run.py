@@ -35,7 +35,7 @@ ACK_PHASES = {"bootstrap-observed", "recording-ready", "network-disabled",
 REQUIRED = {
     "initial_real_tls_native_playback_and_consumed_host",
     "physical_avd_network_unreachable_and_visible_auto_pause",
-    "same_room_media_controllers_quota_and_no_autoplay",
+    "same_room_media_validated_decoders_quota_and_no_autoplay",
     "explicit_production_play_pause_seek_and_real_peer_sync",
 }
 RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")

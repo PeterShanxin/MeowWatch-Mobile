@@ -51,6 +51,7 @@ void main() {
       final verified = <String>[];
       final screenshots = <String>[];
       final subscriptions = <StreamSubscription<dynamic>>[];
+      final decoderObservers = <_DecoderContinuity>[];
       final clients = <SyncplayClient>[];
       final peerErrors = <String>[];
       final protocolTrace = <Map<String, Object?>>[];
@@ -256,6 +257,9 @@ void main() {
         final guestController = peerTarget.controller;
         expect(hostController, isNotNull);
         expect(guestController, isNotNull);
+        final hostContinuity = _DecoderContinuity('host', phone);
+        final guestContinuity = _DecoderContinuity('guest', peerTarget);
+        decoderObservers.addAll([hostContinuity, guestContinuity]);
         expect(
           phone.snapshot.duration,
           greaterThan(const Duration(seconds: 80)),
@@ -371,6 +375,12 @@ void main() {
               .isNotEmpty,
           'visible recovered connection',
         );
+        await _wait(
+          tester,
+          () => phone.snapshot.ready && peerTarget.snapshot.ready,
+          'both native sources ready after automatic reconnect',
+          seconds: 30,
+        );
         await _paused(
           tester,
           app,
@@ -386,13 +396,19 @@ void main() {
         expect(app.room?.isHost, isTrue);
         expect(phone.snapshot.media?.uri, media.uri);
         expect(peerTarget.snapshot.media?.uri, media.uri);
-        expect(identical(phone.controller, hostController), isTrue);
-        expect(identical(peerTarget.controller, guestController), isTrue);
+        observations.addAll([
+          hostContinuity.verify(),
+          guestContinuity.verify(),
+        ]);
+        final recoveredHostController = phone.controller;
+        final recoveredGuestController = peerTarget.controller;
         expect(await hosting.remainingFreeHostsToday(), 0);
         expect(await quotaFile.readAsString(), quota);
         expect(app.needsPlus, isFalse);
         await screenshot('reconnected-paused');
-        verified.add('same_room_media_controllers_quota_and_no_autoplay');
+        verified.add(
+          'same_room_media_validated_decoders_quota_and_no_autoplay',
+        );
         await checkpoint('reconnected-confirmed', 'controls-ready');
 
         stage = 'explicit-play-after-reconnect';
@@ -450,6 +466,11 @@ void main() {
         expect(await quotaFile.readAsString(), quota);
         expect(peerErrors, isEmpty);
         expect(tester.takeException(), isNull);
+        expect(identical(phone.controller, recoveredHostController), isTrue);
+        expect(
+          identical(peerTarget.controller, recoveredGuestController),
+          isTrue,
+        );
         observations.add({
           'phase': 'identity-and-quota',
           'roomId': room.id,
@@ -488,6 +509,10 @@ void main() {
         };
         rethrow;
       } finally {
+        for (final observer in decoderObservers) {
+          observer.close();
+          observations.add(observer.evidence());
+        }
         Future<void> cleanup(
           String name,
           Future<void> Function() action,
@@ -550,6 +575,81 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 9)),
   );
+}
+
+class _DecoderContinuity {
+  _DecoderContinuity(this.role, this.target)
+    : initialController = target.controller {
+    target.addListener(_observe);
+    _observe();
+  }
+
+  final String role;
+  final LocalMobileTarget target;
+  final VideoPlayerController? initialController;
+  final records = <Map<String, Object?>>[];
+
+  void _observe() {
+    final state = target.snapshot;
+    if (records.isNotEmpty &&
+        records.last['connection'] == state.connection.name) {
+      return;
+    }
+    records.add({
+      'atUtc': DateTime.now().toUtc().toIso8601String(),
+      'connection': state.connection.name,
+      'controllerId': target.controller?.playerId,
+      'media': state.media?.uri.toString(),
+      'positionMs': state.position.inMilliseconds,
+      'durationMs': state.duration.inMilliseconds,
+      'playing': state.playing,
+      'error': state.error,
+    });
+  }
+
+  Map<String, Object?> verify() {
+    expect(target.snapshot.ready, isTrue);
+    expect(target.snapshot.playing, isFalse);
+    final failed = records.any((r) => r['connection'] == 'failed');
+    if (!failed) {
+      expect(identical(target.controller, initialController), isTrue);
+      expect(records.map((r) => r['connection']), ['ready']);
+    } else {
+      // Only a witnessed native failure may replace a controller. Keep the
+      // original error, IDs and paused media clock; a healthy reload must fail.
+      expect(records.map((r) => r['connection']), [
+        'ready',
+        'failed',
+        'loading',
+        'ready',
+      ]);
+      expect(records[1]['error'], isNotNull);
+      expect(records[1]['controllerId'], initialController!.playerId);
+      expect(records[2]['controllerId'], isNull);
+      expect(records[3]['controllerId'], isNot(initialController!.playerId));
+      expect(records[3]['controllerId'], isNotNull);
+      expect(records.map((r) => r['media']).toSet().length, 1);
+      expect(records[2]['positionMs'], records[1]['positionMs']);
+      expect(
+        ((records[3]['positionMs']! as int) -
+                (records[1]['positionMs']! as int))
+            .abs(),
+        lessThanOrEqualTo(350),
+      );
+      expect(records.skip(1).every((r) => r['playing'] == false), isTrue);
+    }
+    return {...evidence(), 'validated': true, 'rebuiltFailedDecoder': failed};
+  }
+
+  Map<String, Object?> evidence() => {
+    'phase': 'decoder-continuity',
+    'role': role,
+    'initialControllerId': initialController?.playerId,
+    'currentControllerId': target.controller?.playerId,
+    'transitions': List<Map<String, Object?>>.of(records),
+  };
+
+  void close() => target.removeListener(_observe);
 }
 
 Map<String, Object?> _connection(String role, SyncConnectionState state) => {

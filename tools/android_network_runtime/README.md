@@ -24,8 +24,14 @@ changes host or physical-device networking, routing, or firewalls.
 The test requires a failed socket connection to the **same resolved endpoint**,
 both real clients disconnected, native auto-pause, and the visible MainApp loss
 label. Only this observation releases the runner to restore the original radio
-state. After automatic TLS rejoin, the room, media, both native controllers, and
-host quota ledger must remain the same. Nine live paused observations spanning
+state. After automatic TLS rejoin, the room, media and host quota ledger must
+remain the same. Healthy native controllers must retain their identity. A decoder
+that actually failed during the outage may reopen once, paused at its retained
+position: the gate requires the original failed controller ID and error, followed
+by exactly one loading/ready transition to a new ID with the same media and a
+position difference no greater than 350 ms. Both sources must become ready within
+30 seconds. Controller identities must then remain stable through Play/Pause/Seek.
+Nine live paused observations spanning
 at least 800 ms establish no autoplay. Explicit UI Play must advance both native
 players; Pause and Seek must reach the peer and settle within 350 ms. No simulated
 disconnect, connectivity plugin, manual reconnect, or acceptance retry is used.

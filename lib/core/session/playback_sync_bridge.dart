@@ -28,6 +28,7 @@ class PlaybackSyncBridge {
   final Duration rateCorrectionWindow;
   StreamSubscription<PlaybackSnapshot>? _playerSub;
   StreamSubscription<PeerPlayState>? _peerSub;
+  StreamSubscription<PeerPlayState>? _roomSub;
   StreamSubscription<SyncConnectionState>? _connectionSub;
   Future<void> _tail = Future<void>.value();
   String? _confirmed;
@@ -37,6 +38,7 @@ class PlaybackSyncBridge {
   int _applying = 0;
   bool _disposed = false;
   bool _connected = false;
+  _NetworkSourceRecovery? _networkRecovery;
   PeerPlayState? _latestPeer;
   PeerPlayState? _expected;
   DateTime _expectedAt = DateTime.fromMillisecondsSinceEpoch(0);
@@ -69,12 +71,36 @@ class PlaybackSyncBridge {
         sync.lastConnectionState?.status == SyncConnectionStatus.connected;
     _playerSub = target.states.listen(_onPlayer);
     _peerSub = sync.peerState.listen(_onPeer);
+    _roomSub = sync.observedRoomState.listen((state) {
+      final recovery = _networkRecovery;
+      if (!_connected || recovery == null || !state.paused) return;
+      recovery.observedPause = true;
+      recovery.pendingPlay = null;
+    });
     _connectionSub = sync.connectionState.listen((state) {
       final connected = state.status == SyncConnectionStatus.connected;
       final lost = _connected && !connected;
       _connected = connected;
       if (!connected) _stopRateCorrection();
-      if (lost) _background(peerLeft());
+      if (lost) {
+        final snapshot = target.snapshot;
+        if (target.canReloadAfterConnectionLoss &&
+            snapshot.media?.isNetwork == true &&
+            snapshot.media?.uri.toString() == _confirmed &&
+            (_networkRecovery == null || snapshot.ready)) {
+          _networkRecovery = _NetworkSourceRecovery(
+            _confirmed!,
+            _sourceGeneration,
+          );
+        }
+        _networkRecovery?.observedPause = false;
+        _networkRecovery?.pendingPlay = null;
+        _background(peerLeft());
+      }
+      if (connected) {
+        _networkRecovery?.reconnected ??= Stopwatch()..start();
+        _recoverNetworkSource();
+      }
       if (connected && _hasSource) {
         final snapshot = target.snapshot;
         sync.announceFile(
@@ -95,6 +121,7 @@ class PlaybackSyncBridge {
   /// Invalidate a previous load or remote command before starting a new source.
   /// Pass this generation to [markSourceOpen] after accepting the load.
   int beginSourceLoad() {
+    _networkRecovery = null;
     _confirmed = null;
     _expected = null;
     _publishedPaused = null;
@@ -179,6 +206,7 @@ class PlaybackSyncBridge {
   }
 
   void _onPlayer(PlaybackSnapshot state) {
+    _recoverNetworkSource();
     if (!_hasSource) return;
     // ExoPlayer's isPlaying is false while buffering even when playWhenReady
     // remains true. A heartbeat with that false flag would pause the room.
@@ -253,6 +281,66 @@ class PlaybackSyncBridge {
     }
     _considerRateCorrection(state);
     _publish(state, changed: false);
+  }
+
+  void _recoverNetworkSource() {
+    final recovery = _networkRecovery;
+    final snapshot = target.snapshot;
+    if (_disposed ||
+        !_connected ||
+        recovery == null ||
+        recovery.attempted ||
+        recovery.sourceGeneration != _sourceGeneration ||
+        (recovery.reconnected?.elapsed ?? Duration.zero) >
+            const Duration(seconds: 30) ||
+        snapshot.connection != PlaybackConnection.failed ||
+        snapshot.media?.uri.toString() != recovery.source) {
+      return;
+    }
+    final media = snapshot.media!;
+    final position = snapshot.position;
+    recovery.attempted = true;
+    recovery.recovering = true;
+    recovery.sourceGeneration = beginSourceLoad();
+    _networkRecovery = recovery;
+    _background(
+      _enqueue(() async {
+        bool current() =>
+            !_disposed &&
+            identical(_networkRecovery, recovery) &&
+            _sourceGeneration == recovery.sourceGeneration;
+        if (!current()) return;
+        try {
+          await target.load(media, position: position);
+          if (!current() ||
+              !target.snapshot.ready ||
+              target.snapshot.media?.uri.toString() != recovery.source) {
+            return;
+          }
+          // markSourceOpen deliberately follows the current room after a user
+          // chooses media. Outage recovery must never reuse its stale Play.
+          _confirmed = recovery.source;
+          _expected = null;
+          sync.lastAdvancingRoomState = null;
+          _publish(target.snapshot, changed: false, paused: true);
+          if (_connected) {
+            sync.announceFile(
+              name: media.title,
+              size: media.sizeBytes ?? 0,
+              duration: target.snapshot.duration,
+            );
+          }
+          final pending = recovery.pendingPlay;
+          recovery.pendingPlay = null;
+          recovery.recovering = false;
+          if (_connected && recovery.observedPause && pending != null) {
+            _onPeer(pending, fromSourceOpen: true);
+          }
+        } finally {
+          recovery.recovering = false;
+        }
+      }),
+    );
   }
 
   void _considerRateCorrection(PlaybackSnapshot state) {
@@ -486,6 +574,20 @@ class PlaybackSyncBridge {
 
   void _onPeer(PeerPlayState peer, {bool fromSourceOpen = false}) {
     if (_disposed) return;
+    final recovery = _networkRecovery;
+    if (recovery != null &&
+        (!_connected ||
+            recovery.recovering ||
+            (recovery.attempted && !recovery.observedPause && !peer.paused))) {
+      if (_connected && recovery.observedPause && !peer.paused) {
+        recovery.pendingPlay = peer;
+      }
+      _latestPeer = peer;
+      _expected = null;
+      _publishedPaused = true;
+      sync.updateLocalState(position: target.snapshot.position, paused: true);
+      return;
+    }
     final firstPlay =
         _hasSource &&
         (_publishedPaused == true || fromSourceOpen) &&
@@ -684,6 +786,9 @@ class PlaybackSyncBridge {
 
   Future<bool> _play({bool externallyStarted = false}) async {
     if (!_hasSource) return false;
+    // An explicit local Play is fresh intent, even if no paused room heartbeat
+    // has arrived since this phone recovered its source.
+    _networkRecovery = null;
     final intent = _nextIntent();
     final source = _sourceGeneration;
     var played = false;
@@ -785,6 +890,7 @@ class PlaybackSyncBridge {
     if (_disposed) return;
     final restoreRate = _rateTouched && target is PlaybackRateTarget;
     _disposed = true;
+    _networkRecovery = null;
     _rateResetRetry?.cancel();
     _rateResetRetry = null;
     _nextIntent();
@@ -811,9 +917,22 @@ class PlaybackSyncBridge {
     }
     await _playerSub?.cancel();
     await _peerSub?.cancel();
+    await _roomSub?.cancel();
     await _connectionSub?.cancel();
     // Target and SyncCore are owned by the session controller.
   }
+}
+
+class _NetworkSourceRecovery {
+  _NetworkSourceRecovery(this.source, this.sourceGeneration);
+
+  final String source;
+  int sourceGeneration;
+  Stopwatch? reconnected;
+  bool attempted = false;
+  bool recovering = false;
+  bool observedPause = false;
+  PeerPlayState? pendingPlay;
 }
 
 class _PlayStartCatchUp {

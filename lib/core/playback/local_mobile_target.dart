@@ -40,6 +40,8 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
   // Buffering can end before the native isPlaying update arrives.
   bool get playRequested => _snapshot.ready && _playRequested;
   @override
+  bool get canReloadAfterConnectionLoss => true;
+  @override
   Stream<PlaybackSnapshot> get states => _states.stream;
   VideoPlayerController? get controller => _controller;
 
@@ -55,6 +57,9 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
     MediaItem media, {
     Duration position = Duration.zero,
   }) async {
+    final knownDuration = _snapshot.media?.uri == media.uri
+        ? _snapshot.duration
+        : Duration.zero;
     final generation = ++_loadGeneration;
     _positionGeneration++;
     _pausedPosition = null;
@@ -62,7 +67,12 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
     final old = _controller;
     _controller = null;
     _publish(
-      PlaybackSnapshot(media: media, connection: PlaybackConnection.loading),
+      PlaybackSnapshot(
+        media: media,
+        position: position,
+        duration: knownDuration,
+        connection: PlaybackConnection.loading,
+      ),
     );
     if (old != null) await old.dispose();
     if (generation != _loadGeneration || _closed) return;
@@ -104,6 +114,8 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
       _publish(
         PlaybackSnapshot(
           media: media,
+          position: position,
+          duration: knownDuration,
           connection: PlaybackConnection.failed,
           error: media.isNetwork
               ? 'Could not open this video. Check your connection and use a direct video link, not a webpage.'
@@ -117,6 +129,12 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
   void _onPlayerChanged() {
     final value = _controller?.value;
     if (value == null) return;
+    // video_player replaces the entire native value with a 0/0 erroneous
+    // value. The previous snapshot is the last confirmed media clock.
+    final position = value.hasError
+        ? _pausedPosition ?? _snapshot.position
+        : _pausedPosition ?? value.position;
+    final duration = value.hasError ? _snapshot.duration : value.duration;
     if (value.hasError || value.isCompleted) {
       _playRequested = false;
     } else if (value.isPlaying) {
@@ -129,8 +147,8 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
         media: _snapshot.media,
         // A position poll started before pause can complete after the final
         // native pause read. Keep that confirmed position until a new command.
-        position: _pausedPosition ?? value.position,
-        duration: value.duration,
+        position: position,
+        duration: duration,
         playing: value.isPlaying,
         buffering: value.isBuffering,
         connection: value.hasError
@@ -177,7 +195,8 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
     if (_closed ||
         generation != _positionGeneration ||
         !identical(controller, _controller) ||
-        position == null) {
+        position == null ||
+        controller.value.hasError) {
       return;
     }
     _pausedPosition = position < Duration.zero

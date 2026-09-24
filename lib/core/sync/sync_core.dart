@@ -14,6 +14,8 @@ abstract class SyncCore {
   // before the Syncplay heartbeat reply continues so cache and video stay paired.
   final StreamController<PeerPlayState> _peer =
       StreamController<PeerPlayState>.broadcast(sync: true);
+  final StreamController<PeerPlayState> _observedRoom =
+      StreamController<PeerPlayState>.broadcast(sync: true);
   final StreamController<PresenceEvent> _presence =
       StreamController<PresenceEvent>.broadcast();
   final StreamController<ChatMessage> _chat =
@@ -44,6 +46,11 @@ abstract class SyncCore {
   SyncConnectionState? get lastConnectionState => _lastConnectionState;
 
   Stream<PeerPlayState> get peerState => _peer.stream;
+
+  /// Every named room heartbeat, including states that need no follow action.
+  /// Recovery uses a fresh paused observation to distinguish a later Play from
+  /// an unpaused state left over from before the connection was lost.
+  Stream<PeerPlayState> get observedRoomState => _observedRoom.stream;
   Stream<PresenceEvent> get presence => _presence.stream;
   Stream<ChatMessage> get chat => _chat.stream;
 
@@ -56,6 +63,7 @@ abstract class SyncCore {
   set lastObservedRoomState(PeerPlayState? state) {
     _lastObservedRoomState = state;
     _roomStateClock = state == null ? null : (Stopwatch()..start());
+    if (!_disposed && state != null) _observedRoom.add(state);
   }
 
   /// Monotonic age of the actual received heartbeat, including unapplied ones.
@@ -154,6 +162,7 @@ abstract class SyncCore {
     await disposeBackend();
     await _connection.close();
     await _peer.close();
+    await _observedRoom.close();
     await _presence.close();
     await _chat.close();
     await _peerFile.close();

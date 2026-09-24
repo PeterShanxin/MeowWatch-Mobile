@@ -42,6 +42,10 @@ abstract class PlaybackTarget extends ChangeNotifier {
   /// Cast can also be controlled by the receiver or another sender.
   bool get acceptsExternalPlaybackChanges => false;
 
+  /// Whether reopening a failed network source creates a paused local decoder.
+  /// Receiver targets must not be reloaded by a phone's connection recovery.
+  bool get canReloadAfterConnectionLoss => false;
+
   Stream<PlaybackSnapshot> get states;
   Future<void> load(MediaItem media, {Duration position = Duration.zero});
   Future<void> play();

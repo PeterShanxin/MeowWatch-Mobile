@@ -481,12 +481,18 @@ class PlaybackSyncBridge {
         (!target.snapshot.playing || fromSourceOpen) &&
         !peer.paused &&
         (!peer.doSeek || fromSourceOpen);
+    // A drift rewind can buffer like first Play. Watch its local recovery
+    // without turning a corrective decoder seek into another room command.
+    final driftRewind =
+        _hasSource && _publishedPaused == false && !peer.paused && !peer.doSeek;
     _latestPeer = peer;
     _acknowledge(peer);
     if (!_hasSource) return;
     final intent = _nextIntent();
     final source = _sourceGeneration;
-    final watch = firstPlay ? _watchPlayStart(peer, intent, source) : null;
+    final watch = firstPlay || driftRewind
+        ? _watchPlayStart(peer, intent, source)
+        : null;
     _background(
       _enqueue(() async {
         if (!_current(intent, source)) return;

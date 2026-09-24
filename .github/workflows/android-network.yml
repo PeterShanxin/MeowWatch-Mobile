@@ -59,6 +59,7 @@ jobs:
           test/core/sync/syncplay_client_starttls_test.dart
           test/core/sync/syncplay_client_tls_cancellation_test.dart
           test/core/session/playback_sync_bridge_test.dart
+          test/core/session/slowest_watcher_follow_test.dart
           test/integration_support/test_text_entry_test.dart
       - name: Verify radio ownership and evidence contracts
         run: |

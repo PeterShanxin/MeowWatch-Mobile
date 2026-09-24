@@ -951,7 +951,9 @@ void main() {
   group('native rate correction', () {
     late RateTestTarget rateTarget;
 
-    Future<void> useRateTarget() async {
+    Future<void> useRateTarget({
+      Duration commandTimeout = const Duration(seconds: 5),
+    }) async {
       await bridge.dispose();
       await target.close();
       rateTarget = RateTestTarget();
@@ -961,6 +963,7 @@ void main() {
         sync: sync,
         authorizePlayback: () async => true,
         onError: errors.add,
+        commandTimeout: commandTimeout,
       )..start();
       await bridge.load(movie);
       sync.connection(SyncConnectionStatus.connected);
@@ -1063,6 +1066,34 @@ void main() {
       expect(rateTarget.rates.last, 1);
     });
 
+    test('disposed bridge cannot reset a replacement bridge rate', () async {
+      await useRateTarget();
+      final oldBridge = bridge;
+      final gate = Completer<void>();
+      rateTarget.rateGate = gate;
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      oldBridge.beginSourceLoad(); // Queues 1x behind the in-flight slowdown.
+      await oldBridge.dispose(); // Direct final 1x restore.
+      expect(rateTarget.rates, [0.90, 1]);
+
+      bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () async => true,
+        onError: errors.add,
+      )..start();
+      await bridge.markSourceOpen(movie.uri.toString());
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.last == 0.90);
+      gate.complete();
+      await Future<void>.delayed(Duration.zero);
+      expect(rateTarget.rates.last, 0.90);
+      expect(rateTarget.rates, [0.90, 1, 0.90]);
+    });
+
     test('source replacement and disposal restore rate', () async {
       await useRateTarget();
       heartbeat(const Duration(seconds: 8));
@@ -1095,6 +1126,63 @@ void main() {
       await until(() => rateTarget.rates.last == 1);
       await bridge.markSourceOpen(second.uri.toString());
       expect(rateTarget.rates, [0.90, 1]);
+    });
+
+    test('failed 1x restore retries once before allowing slowdown', () async {
+      await useRateTarget();
+      rateTarget.resetFailures = 1;
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      heartbeat(const Duration(milliseconds: 9600));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => errors.isNotEmpty);
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      expect(rateTarget.rates.where((rate) => rate < 1), [0.90]);
+      await until(
+        () => rateTarget.rates.where((rate) => rate == 1).length == 2,
+      );
+      expect(rateTarget.rates, [0.90, 1, 1]);
+    });
+
+    test(
+      'timed-out 1x restore retries and late completion is harmless',
+      () async {
+        await useRateTarget(commandTimeout: const Duration(milliseconds: 30));
+        final gate = Completer<void>();
+        rateTarget.resetGate = gate;
+        heartbeat(const Duration(seconds: 8));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await until(() => rateTarget.rates.contains(0.90));
+        heartbeat(const Duration(milliseconds: 9600));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await until(() => errors.whereType<TimeoutException>().isNotEmpty);
+        await until(
+          () => rateTarget.rates.where((rate) => rate == 1).length == 2,
+        );
+        gate.complete();
+        await Future<void>.delayed(Duration.zero);
+        expect(rateTarget.rates, [0.90, 1, 1]);
+      },
+    );
+
+    test('persistent 1x failures stop after three attempts', () async {
+      await useRateTarget();
+      rateTarget.resetFailures = 99;
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(() => rateTarget.rates.contains(0.90));
+      heartbeat(const Duration(milliseconds: 9600));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await until(
+        () => rateTarget.rates.where((rate) => rate == 1).length == 3,
+      );
+      heartbeat(const Duration(seconds: 8));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      await Future<void>.delayed(const Duration(milliseconds: 650));
+      expect(rateTarget.rates, [0.90, 1, 1, 1]);
+      expect(errors.length, 3);
     });
 
     test(
@@ -1207,13 +1295,22 @@ class PauseCompletionGatedTarget extends SyncTestTarget {
 class RateTestTarget extends SyncTestTarget implements PlaybackRateTarget {
   final rates = <double>[];
   Completer<void>? rateGate;
+  Completer<void>? resetGate;
+  int resetFailures = 0;
 
   @override
   Future<void> setPlaybackRate(double rate) async {
     rates.add(rate);
+    if (rate == 1 && resetFailures > 0) {
+      resetFailures--;
+      throw StateError('native rate reset failed');
+    }
+    final pendingReset = rate == 1 ? resetGate : null;
+    if (rate == 1) resetGate = null;
     final gate = rateGate;
     rateGate = null;
     await gate?.future;
+    await pendingReset?.future;
   }
 }
 

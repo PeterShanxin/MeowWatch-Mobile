@@ -1,5 +1,13 @@
 # MeowWatch Mobile — demo script
 
+The cloud compositor has also completed a separate **32-second recording
+review**, using the pinned [review EDL](demo/recording-review.edl.json) and
+[source pins](demo/recording-review.edl.sources.json). Hosted run
+[36017540928](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36017540928)
+renders and strictly decodes all 960 frames, retaining eight full-size review
+images. This verifies the low-load hosted rendering path. It neither replaces
+the longer editorial draft below nor establishes final motion acceptance.
+
 ## Current edit: 118-second Review Preview
 
 The current edit combines accepted **5137e58 Together** recordings with

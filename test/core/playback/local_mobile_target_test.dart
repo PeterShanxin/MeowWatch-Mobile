@@ -182,6 +182,8 @@ void main() {
     );
     targets.add(target);
     await target.load(_media('rate-timeout'));
+    await target.play();
+    platform.rates.clear();
     final gate = Completer<void>();
     platform.nextRateGate = gate;
 

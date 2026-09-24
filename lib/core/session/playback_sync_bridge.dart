@@ -49,6 +49,11 @@ class PlaybackSyncBridge {
   Stopwatch? _rateCooldown;
   double _requestedRate = 1;
   bool _rateTouched = false;
+  bool _rateDirty = false;
+  bool _rateResetPending = false;
+  int _rateResetAttempts = 0;
+  Timer? _rateResetRetry;
+  int _rateGeneration = 0;
 
   /// Keep the accepted room intent through transient native buffering events.
   bool get playRequested => _hasSource && _publishedPaused == false;
@@ -270,6 +275,9 @@ class PlaybackSyncBridge {
       _stopRateCorrection(cooldown: ahead < const Duration(milliseconds: 450));
       return;
     }
+    // A failed native 1x command leaves the actual speed uncertain. Do not
+    // issue another slowdown until restoration has succeeded.
+    if (_rateDirty && _requestedRate == 1) return;
     if (_requestedRate == 1) {
       if (ahead < const Duration(milliseconds: 900) ||
           (_rateCooldown?.elapsed ?? const Duration(days: 1)) <
@@ -292,20 +300,77 @@ class PlaybackSyncBridge {
   }
 
   void _requestRate(double rate) {
-    if (_requestedRate == rate || target is! PlaybackRateTarget) return;
+    if (target is! PlaybackRateTarget) return;
+    if (rate == 1) {
+      if (_requestedRate != 1) _rateGeneration++;
+      _requestedRate = 1;
+      _queueRateReset();
+      return;
+    }
+    if (_rateDirty && _requestedRate == 1) return;
+    if (_requestedRate == rate) return;
+    _rateGeneration++;
     _requestedRate = rate;
-    if (rate != 1) _rateTouched = true;
+    _rateTouched = true;
+    _rateDirty = true;
+    final generation = _rateGeneration;
     final source = _sourceGeneration;
     final intent = _intent;
     final rateTarget = target as PlaybackRateTarget;
     _background(
       _enqueue(() async {
-        if (rate != 1 &&
-            (!_current(intent, source) || _requestedRate != rate)) {
+        if (!_current(intent, source) ||
+            generation != _rateGeneration ||
+            _requestedRate != rate) {
           return;
         }
         await rateTarget.setPlaybackRate(rate).timeout(commandTimeout);
+      }).catchError((Object _) {
+        if (!_disposed && _requestedRate == rate) _stopRateCorrection();
       }),
+    );
+  }
+
+  void _queueRateReset() {
+    if (!_rateDirty ||
+        _rateResetPending ||
+        _rateResetRetry != null ||
+        _rateResetAttempts >= 3 ||
+        target is! PlaybackRateTarget) {
+      return;
+    }
+    _rateResetPending = true;
+    _rateResetAttempts++;
+    final generation = _rateGeneration;
+    final rateTarget = target as PlaybackRateTarget;
+    _background(
+      _enqueue(() {
+        if (_disposed || generation != _rateGeneration) {
+          return Future<void>.value();
+        }
+        return rateTarget.setPlaybackRate(1).timeout(commandTimeout);
+      }).then<void>(
+        (_) {
+          if (_disposed || generation != _rateGeneration) return;
+          _rateResetPending = false;
+          _rateDirty = false;
+          _rateResetAttempts = 0;
+          _rateResetRetry?.cancel();
+          _rateResetRetry = null;
+        },
+        onError: (Object _) {
+          if (generation != _rateGeneration) return;
+          _rateResetPending = false;
+          if (_disposed || _rateResetAttempts >= 3) return;
+          _rateResetRetry = Timer(
+            Duration(milliseconds: 200 * _rateResetAttempts),
+            () {
+              _rateResetRetry = null;
+              if (!_disposed && _requestedRate == 1) _queueRateReset();
+            },
+          );
+        },
+      ),
     );
   }
 
@@ -672,7 +737,13 @@ class PlaybackSyncBridge {
     if (_disposed) return;
     final restoreRate = _rateTouched && target is PlaybackRateTarget;
     _disposed = true;
+    _rateResetRetry?.cancel();
+    _rateResetRetry = null;
     _nextIntent();
+    // A queued 1x command from this bridge must not land after a replacement
+    // bridge starts correcting the same target. The direct restore below is
+    // the final rate command this bridge is allowed to issue.
+    _rateGeneration++;
     _sourceGeneration++;
     // Native commands already in the queue may still be pending. The local
     // target serializes and bounds its own rate calls, so restore directly

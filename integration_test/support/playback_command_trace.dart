@@ -64,7 +64,7 @@ class TracedMobileTarget extends LocalMobileTarget {
       'positionMs': snapshot.position.inMilliseconds,
       if (requestedPosition != null)
         'requestedPositionMs': requestedPosition.inMilliseconds,
-      if (requestedRate != null) 'requestedRate': requestedRate,
+      'requestedRate': ?requestedRate,
       if (error != null) 'errorType': error.runtimeType.toString(),
     });
     record('start');

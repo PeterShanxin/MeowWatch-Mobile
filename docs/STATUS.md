@@ -73,8 +73,22 @@ The current repairs and their acceptance boundaries are:
   below the unchanged four-second rewind threshold. Both players advance and
   teardown succeeds; radio loss is never reached. A bounded review recommends
   guarded one-sided rate correction rather than more frequent seek/rebuffer
-  cycles. That implementation is in progress. Production phone/tablet
-  `36015870817` covers 5569701 and is still running.
+  cycles. `a056dda` adds fresh non-self heartbeat eligibility and bounded local
+  0.90/0.95 correction, with unchanged convergence requirements. Its first
+  hosted checks stop at a trace-map lint before native execution; there is no
+  rate-convergence result. A bounded structural review identifies failed 1x
+  restoration and an old bridge's queued reset overwriting its replacement.
+  The fixes retain dirty state, cap/pause retries and invalidate old queued
+  requests; new regressions and native verification are pending.
+  Production phone/tablet `36015870817` at 5569701 passes all 26 host / 25 guest
+  steps. Independent JSON/hash audit confirms settled pause 10,356 ms, host
+  seek 53,361 ms and guest pause 54,691 ms match across devices, unchanged
+  endpoint/quota through link/error/history recovery, and new-host charging
+  without charging the joining original host. All native ANR guards pass.
+  The originals are 165.678/165.496 seconds with 1,544/1,412 pictures; tablet
+  has a 0.173-second final gap. Guest recovery/history observations retain
+  buffering=true, so these checkpoints do not prove completed frame rendering.
+  Hosted original-frame review `36019377413` remains pending.
 - **Fullscreen intent (`6829cc7`).** Buffering-end may report not-playing
   before the native playing event. Preserving the accepted play intent fixes
   unwanted idle-timer resets, while explicit pause, completion and errors still
@@ -311,6 +325,12 @@ The separately accepted `300ca2e` paired recording is 216.667 seconds, with its
 original timing gaps visible. The `2fc38317` phone guide/local-player recording
 from run 35236920763 has been copied unchanged into the local showcase; its
 SHA256 is `73c2a9c928c597d7f30e502f9811b6da1189d6d12b00ae2ca6ef3638e0d12a47`.
+Hosted film run `36017540928` renders the pinned 32-second recording review
+from c53fc6a Together originals without starting Android. Its 960-frame
+1920x1080 H.264 output passes strict full decode; the independently recomputed
+SHA-256 is `bad6295ccf57cb1c5c9b99c281d37a2115ededf18dfbdc9e24eb9f9961ee77b7`.
+One exported full-size paired frame was inspected for framing and legibility.
+This is a cloud-render rehearsal, not the final film or full motion acceptance.
 The final under-two-minute submission edit and full clean-install rehearsal
 remain open. Historical runs and asset provenance are preserved in
 [Acceptance history](ACCEPTANCE_HISTORY.md).

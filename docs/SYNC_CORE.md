@@ -83,7 +83,12 @@ heartbeats stop for two seconds, and convergence/time limits impose an
 eight-second cooldown. Buffering, connection loss, source changes, new user
 intent and disposal restore 1x. Rate commands do not publish a user seek.
 Native rate calls are serialized and bounded; unsupported external targets
-keep their existing clock behavior. Unit coverage establishes the boundary;
+keep their existing clock behavior. A failed 1x restoration stays unconfirmed
+and receives at most three attempts with short retry delays; no new slowdown
+starts until restoration succeeds. Every failure reaches `onError`. Disposal
+cancels retry timers and invalidates this bridge's queued rate commands before
+its final bounded restore, so they cannot override a replacement bridge.
+Unit coverage establishes the boundary;
 native recordings must separately establish actual convergence.
 
 All synchronized user controls go through `play()`, `pause()` and `seek()`.

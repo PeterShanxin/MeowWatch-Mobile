@@ -9,16 +9,16 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | fdebec3 passes normal API 29/35 debug and API 35 release clean install in hosted run 36044617989. These are normal lib/main.dart APKs. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36067406288 at 5ea2aa2 passes the secret scan, formatting, analysis, 807 app tests, 87 Nearby tests and 14 platform tests. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36073397389 at 01d6106 passes the secret scan, formatting, analysis, 814 app tests, 87 Nearby tests, 14 platform tests and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators; failed-source recovery follow-up open | fdebec3 Together 36053642428 passes all 26 host and 25 guest stages with repeated two-way controls. Settled native positions match at 12,416, 53,361 and 55,242 ms. Profile network 36055097185 passes at 0454176. Debug network 36062762988 reveals a decoder source failure during the outage; its paused recovery fix is being verified. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | Normal release lifecycle passes at fdebec3; permanent and transient foreground audio focus pass in 36063562267 at f56c8e8 with original UI/AudioService evidence. Profile network 36055097185 at 0454176 passes real radio loss, automatic pause, no-autoplay rejoin and explicit replay/Pause/Seek. The current debug gate enforces unobscured MainApp ownership and exposes a failed network decoder that needs paused source rebuilding. Physical and Together-room transient-focus acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. 56fcd32 SAF relaunch 36039255967 retains the real content grant and restores 8 seconds. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | 6e46041 Android Nearby 36037410146 passes real pinned TLS pairing/control/revocation and protected persistence. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | 6e46041 production Test Store 36037410075 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore. Same-customer relaunch/expiry 36037410042 passes. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 6ad19ac production Test Store 36071310593 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original evidence and six selected screens are reviewed. Same-customer relaunch/expiry 36068920015 passes at 48e5a65. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | Native purchase verifies one free plus two distinct Plus sessions. fdebec3 Together verifies joining, shared links, media recovery and history do not recharge. Profile network 36055097185 retains the original quota ledger across a real outage and reconnect |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | 6e46041 passes five viewport journeys and normal-release phone/tablet fullscreen. 9a3fc05 native Together verifies complete player/reaction bounds with tablet keyboard inset; original frame review shows the full heart and video. Source frame hashes are verified in hosted reviews. Final film motion and physical checks remain open; the SDK candidate is unadopted |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Fresh 48e5a65 five-viewport journey 36068920060 passes 20 steps per profile; nine selected original screens are reviewed. 6e46041 passes normal-release phone/tablet fullscreen. 9a3fc05 native Together verifies complete player/reaction bounds with tablet keyboard inset. Final film motion and physical checks remain open; the SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
 | 13 | No placeholders, dead ends or silent failures | Partial | 6e46041 first-use/layout and purchase flows pass. 9a3fc05 Together verifies readable media errors, Choose another video recovery and shared-link confirmation. 5347142 makes same-source restoration visible and disables stale controls; native journey 36041063625 passes. Final-film inspection remains open |
 | 14 | Clean-install full demo rehearsal | Partial | fdebec3 Together 36053642428 passes all 26 host and 25 guest stages on standard phone/tablet layouts. Profile network 36055097185 passes. The debug failed-source recovery remains under verification. The 98-second film has passed static sample review; full-motion acceptance remains open and prior candidates are retained |
@@ -26,9 +26,10 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Current verification
 
-Hosted [Check 36068920186](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36068920186)
-at `48e5a65` passes **807 app, 87 Nearby and 14 platform tests**, formatting,
-analysis, media contracts and the secret scan. Eighteen bridge regressions and
+Hosted [Check 36073397389](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36073397389)
+at `01d6106` passes **814 app, 87 Nearby and 14 platform tests**, formatting,
+analysis, native observer SDK compilation, media contracts and the secret scan.
+Eighteen source-recovery bridge regressions and
 three native-platform contract tests cover paused source rebuilding, consecutive
 outages, stale Play, new intent, cancellation, authorization and retained media
 clocks. A two-socket-client regression verifies that a settled native interruption
@@ -41,7 +42,12 @@ The bridge now rechecks the live snapshot at the end of that window and publishe
 a sustained pause. New intent, source changes, native resume and disposal cancel
 the pending check. Both the earlier settled-interruption socket case and a new
 early-interruption case are retained, with controlled-clock cancellation tests.
-Only formatting has been checked for this new slice; hosted checks are pending.
+Hosted Check `36072483614` at `9d3cd22` passes 813 tests but the new early
+socket case fails: a paused heartbeat alone lets the next old room Play overwrite
+the pause before the server receives it. The follow-up at `01d6106` signals one
+local pause change through the existing Syncplay pending-change handshake.
+Hosted Check `36073397389` passes both socket cases and all controlled-clock
+cancellation cases at that follow-up. The original failure is retained.
 An interruption that resumes entirely inside the echo window remains
 indistinguishable from a delayed native echo with the current player API.
 
@@ -90,6 +96,18 @@ converges in 26.148 seconds on this debug AVD; replay takes 1.535 seconds.
 The 224 retained native-position records have no rejected or dropped entries.
 No SDK Setup recovery occurs, and teardown/radio restoration succeed.
 
+An explicit `decoder_failure` native variant is prepared to exercise the missing
+failure path. After healthy native playback and real radio/socket loss, only the
+guest seeks into a fixture region whose video keyframe and unserved byte ranges
+are proved. The gate requires an error from the original Android controller,
+one paused rebuild with a new ID, retained URI/clock, and an unchanged healthy
+host. The task-owned fixture releases its prefetch cap by an identity-checked
+local signal before radios return; release acknowledgement follows the actual
+state change. This is a controlled cache miss during a real outage, not a claim
+that radio loss alone always fails a decoder. Independent source review and 60
+lightweight Python checks (one platform skip) are complete. Native evidence for
+the variant is pending; the default healthy-network gate remains unchanged.
+
 Focus `36069925181` stops before any focus-helper request: the observer reaches
 `automation_start` but fails to connect to UiAutomation within its 20-second
 startup budget. The original failure screenshot still shows an unobscured
@@ -119,7 +137,19 @@ included in the existing 15-second rotation-gap limit. The three-second duration
 tolerance and 90% journey coverage requirement are unchanged. All 102 purchase
 and lifecycle recorder contracts pass locally without native tools or video
 decoding. This repairs the coverage clock; it does not establish the cause of
-the earlier encoded-duration shortfall. Fresh native validation is required.
+the earlier encoded-duration shortfall.
+
+Fresh production purchase `36071310593` at `6ad19ac` passes all 12 stages on a
+clean API 35 MainApp install. Original result validation confirms native Test
+Store cancel/failure/success, same-customer Restore after SDK cache invalidation,
+one free and two distinct Plus rooms, both premium themes and a premium reaction
+received by the real TLS peer. Six selected original screenshots were visually
+inspected; all 12 required screenshots retain their native 1179x2556 dimensions.
+Three 480x1040 recordings cover 199.514 of 206.491 measured seconds (96.621%),
+with a largest rotation gap of 3.548 seconds. File hashes are retained. This is
+one native player with a headless TLS peer, not two devices. Its runner checks
+live picture readiness and ffprobe duration; strict whole-video decoding and
+full-motion visual review are not established by this purchase run.
 
 Previously accepted profile network `36055097185` at `0454176` uses one API 35
 AVD with two real TLS clients and native decoders. Initial playback converges

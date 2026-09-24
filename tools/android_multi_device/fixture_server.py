@@ -63,6 +63,8 @@ class FixtureServer(ThreadingHTTPServer):
         *,
         log: TextIO = sys.stdout,
         max_log_records: int = MAX_LOG_RECORDS,
+        max_body_offset: int = 0,
+        body_bytes_per_second: int = 0,
     ) -> None:
         self.directory = directory.resolve(strict=True)
         fixture_path(self.directory, ASSETS[0])
@@ -72,6 +74,13 @@ class FixtureServer(ThreadingHTTPServer):
         self.max_log_records = max_log_records
         self._log_count = 0
         self._log_lock = threading.Lock()
+        self.max_body_offset = max_body_offset
+        self.body_bytes_per_second = body_bytes_per_second
+        self.body_cap_released = threading.Event()
+        if (max_body_offset == 0) != (body_bytes_per_second == 0):
+            raise ValueError("fixture byte cap and pacing must be enabled together")
+        if max_body_offset and not 0 < max_body_offset < fixture_path(self.directory, ASSETS[0]).stat().st_size:
+            raise ValueError("fixture byte cap must be within the media body")
         super().__init__((HOST, port), FixtureHandler)
 
     def record(self, row: dict) -> None:
@@ -214,15 +223,50 @@ class FixtureHandler(BaseHTTPRequestHandler):
             self.end_headers()
             if head:
                 return
+            if self.server.max_body_offset:
+                self.server.record({"event": "body_response", "asset": self._asset,
+                                    "status": status, "range": self._range,
+                                    "first": start, "last": end,
+                                    "client_port": self.client_address[1]})
             media.seek(start)
             remaining = end - start + 1
+            offset = start
+            paced_started = time.monotonic()
+            paced_bytes = 0
             try:
                 while remaining:
-                    chunk = media.read(min(64 * 1024, remaining))
+                    cap = (0 if self.server.body_cap_released.is_set()
+                           else self.server.max_body_offset)
+                    if cap and offset >= cap:
+                        self.server.record({"event": "body_cap_wait", "asset": self._asset,
+                                            "next_offset": offset, "client_port": self.client_address[1]})
+                        # Keep the HTTP response open. Truncating it before the
+                        # radio outage would turn this into a server EOF test.
+                        if not self.server.body_cap_released.wait(120):
+                            self._outcome = "body_cap_timeout"
+                            break
+                        continue
+                    length = min(64 * 1024, remaining, cap - offset if cap else remaining)
+                    chunk = media.read(length)
                     if not chunk:
                         raise OSError("fixture truncated during response")
+                    if cap:
+                        # An initial buffer is delivered promptly. Subsequent
+                        # prefetch is paced so the cap is reached after the
+                        # healthy playback proof, while every byte remains real.
+                        paced_bytes += len(chunk)
+                        delay = max(0.0, (paced_bytes - 8 * 1024 * 1024)
+                                    / self.server.body_bytes_per_second
+                                    - (time.monotonic() - paced_started))
+                        if delay:
+                            time.sleep(delay)
                     self.wfile.write(chunk)
                     self._written += len(chunk)
+                    if cap:
+                        self.server.record({"event": "body_span", "asset": self._asset,
+                                            "first": offset, "last": offset + len(chunk) - 1,
+                                            "client_port": self.client_address[1]})
+                    offset += len(chunk)
                     remaining -= len(chunk)
             except (BrokenPipeError, ConnectionResetError):
                 self._outcome = "cancelled"
@@ -278,7 +322,13 @@ def main() -> int:
     if args.start_ticks is not None or args.parent_pid is not None:
         parser.error("start-ticks and parent-pid require owner-pid")
     try:
-        server = FixtureServer(args.directory, args.port)
+        max_body_offset = int(os.environ.get("NETWORK_FIXTURE_MAX_BODY_OFFSET", "0"))
+        body_bytes_per_second = int(os.environ.get("NETWORK_FIXTURE_BODY_BYTES_PER_SECOND", "0"))
+        if max_body_offset < 0 or body_bytes_per_second < 0:
+            raise ValueError("fixture pacing values must be nonnegative")
+        server = FixtureServer(args.directory, args.port,
+                               max_body_offset=max_body_offset,
+                               body_bytes_per_second=body_bytes_per_second)
     except (OSError, ValueError):
         print("Fixture server could not bind or validate the prepared media.", file=sys.stderr)
         return 2
@@ -286,9 +336,21 @@ def main() -> int:
     def stop(signum: int, frame: object) -> None:
         raise KeyboardInterrupt
 
+    def release_body_cap(signum: int, frame: object) -> None:
+        if not server.max_body_offset or server.body_cap_released.is_set():
+            return
+        server.body_cap_released.set()
+        server.record({"event": "body_cap_released", "at_utc": datetime.now(timezone.utc).isoformat(),
+                       "pid": os.getpid(), "max_body_offset": server.max_body_offset,
+                       "body_bytes_per_second": server.body_bytes_per_second})
+
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
-    server.record({"event": "ready", "pid": os.getpid(), "port": args.port})
+    if server.max_body_offset:
+        signal.signal(signal.SIGUSR1, release_body_cap)
+    server.record({"event": "ready", "pid": os.getpid(), "port": args.port,
+                   "max_body_offset": server.max_body_offset,
+                   "body_bytes_per_second": server.body_bytes_per_second})
     try:
         server.serve_forever(poll_interval=0.1)
     except KeyboardInterrupt:

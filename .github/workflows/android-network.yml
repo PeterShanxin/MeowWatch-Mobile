@@ -1,5 +1,5 @@
 name: Android real network interruption
-run-name: Android network interruption (${{ inputs.build_mode || 'debug' }})
+run-name: Android network interruption (${{ inputs.build_mode || 'debug' }}, ${{ inputs.variant || 'normal' }})
 
 on:
   workflow_dispatch:
@@ -9,6 +9,11 @@ on:
         type: choice
         options: [debug, profile]
         default: debug
+      variant:
+        description: 'Normal radio recovery or controlled native failed-decoder recovery'
+        type: choice
+        options: [normal, decoder_failure]
+        default: normal
   pull_request:
     paths:
       - '.github/workflows/android-network.yml'
@@ -32,7 +37,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-network-${{ github.ref }}
+  group: android-network-${{ github.ref }}-${{ inputs.variant || 'normal' }}
   cancel-in-progress: true
 
 jobs:
@@ -44,6 +49,7 @@ jobs:
       NETWORK_RUN_ID: network_${{ github.run_id }}_${{ github.run_attempt }}
       NETWORK_AVD_NAME: meowwatch_network_${{ github.run_id }}_${{ github.run_attempt }}
       NETWORK_BUILD_MODE: ${{ inputs.build_mode || 'debug' }}
+      NETWORK_VARIANT: ${{ inputs.variant || 'normal' }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -66,7 +72,9 @@ jobs:
       - name: Verify radio ownership and evidence contracts
         run: |
           python3 -m unittest discover -s tools/android_network_runtime -p 'test_*.py'
+          python3 -m unittest tools.android_multi_device.test_fixture_server
           bash -n tools/android_network_runtime/ci.sh
+          bash -n tools/android_multi_device/start_fixture_server.sh
       - name: Prepare native playback fixture
         run: |
           sudo apt-get update
@@ -77,6 +85,8 @@ jobs:
           flutter build apk --${NETWORK_BUILD_MODE} --target=integration_test/network_interruption_test.dart
           --target-platform android-x64
           --dart-define=NETWORK_RUN_ID=${{ env.NETWORK_RUN_ID }}
+          --dart-define=NETWORK_VARIANT=${{ env.NETWORK_VARIANT }}
+          --dart-define=NETWORK_FAILURE_SEEK_MS=85000
       - name: Build independent native accessibility observer
         run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
       - name: Enable KVM
@@ -109,6 +119,7 @@ jobs:
             build/android-network-fixture/*.sha256
             build/android-network-fixture/*.ffprobe.json
             build/android-network-fixture/fixture-provenance.tsv
+            build/android-network-fixture/failure-proof.json
             build/android-install-artifacts/storage-readiness.log
             build/android-native-ui/build.json
             build/android-native-ui/manifest.log

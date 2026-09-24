@@ -348,7 +348,8 @@ class StablePrimaryRecoveryTests(unittest.TestCase):
 
 
 def result():
-    return {"runId": RUN_ID, "passed": True, "buildMode": "debug", "verified": sorted(REQUIRED),
+    return {"runId": RUN_ID, "passed": True, "buildMode": "debug", "variant": "normal",
+            "verified": sorted(REQUIRED),
             "billingSetup": {"status": "success", "errorCode": None, "configured": True, "isPlus": False},
             "teardownErrors": [], "observations": [
                 {"phase": "probe-healthy", "address": "sync.example", "port": 8997,
@@ -456,6 +457,29 @@ class NativePositionDiagnosticTests(unittest.TestCase):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_decoder_failure_variant_requires_original_error_and_rebuild_receipts(self):
+        value = result()
+        value["variant"] = "decoder_failure"
+        value["verified"].append("original_native_guest_decoder_failed_during_radio_outage")
+        value["observations"].extend([
+            {"phase": "offline-decoder-failure", "controlledCacheMiss": True, "seekMs": 85000,
+             "nativeError": "source error"},
+            {"phase": "decoder-continuity", "role": "host", "validated": True,
+             "rebuiltFailedDecoder": False},
+            {"phase": "decoder-continuity", "role": "guest", "validated": True,
+             "rebuiltFailedDecoder": True},
+        ])
+        validate_result(value, RUN_ID, variant="decoder_failure")
+        with self.assertRaisesRegex(RuntimeFailure, "variant"):
+            validate_result(value, RUN_ID)
+        for item in (value["observations"][-3], value["observations"][-1]):
+            changed = json.loads(json.dumps(value))
+            changed_item = changed["observations"][value["observations"].index(item)]
+            changed_item.pop("nativeError" if item is value["observations"][-3]
+                             else "rebuiltFailedDecoder")
+            with self.assertRaisesRegex(RuntimeFailure, "original guest native failure"):
+                validate_result(changed, RUN_ID, variant="decoder_failure")
+
     def test_checkpoint_requires_run_id_pid_and_known_phase(self):
         self.assertIsNone(parse_checkpoint("unrelated native output", RUN_ID))
         marker = {"runId": RUN_ID, "phase": "initial-ready", "pid": 456}
@@ -521,6 +545,59 @@ class EvidenceTests(unittest.TestCase):
         runner.radios.adb = runner.adb
         runner.observer = FakeObserver()
         return runner
+
+    def test_failed_decoder_releases_owned_fixture_before_radio_restore(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.variant = "decoder_failure"
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.android_pid = 456
+            runner.phase_index = PHASES.index("offline-confirmed")
+            runner.adb.radios = {"wifi": False, "data": False}
+            order = []
+            proof = {"maxBodyOffset": 900, "bodyBytesPerSecond": 262144}
+            marker = {"runId": RUN_ID, "phase": "offline-confirmed", "pid": 456}
+            with patch.object(runner, "capture"), \
+                    patch.object(runner, "finish_recording"), \
+                    patch.object(runner, "start_recording"), \
+                    patch.object(runner, "ack"), \
+                    patch("tools.android_network_runtime.run.Path.read_text",
+                          return_value=json.dumps(proof)), \
+                    patch("tools.android_network_runtime.run.validate_spans",
+                          return_value={"highestServedOffset": 899}) as spans, \
+                    patch("tools.android_network_runtime.run.release_owned_server",
+                          side_effect=lambda *_: order.append("release") or {"event": "body_cap_released"}), \
+                    patch.object(runner.radios, "restore",
+                                 side_effect=lambda **_: order.append("restore")):
+                runner.observe_checkpoint(marker)
+            self.assertEqual(order, ["release", "restore"])
+            self.assertTrue(spans.called)
+            self.assertEqual(runner.fixture_release_receipt["event"], "body_cap_released")
+
+    def test_failed_cap_release_cannot_ack_or_restore_in_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.variant = "decoder_failure"
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.android_pid = 456
+            runner.phase_index = PHASES.index("offline-confirmed")
+            runner.adb.radios = {"wifi": False, "data": False}
+            marker = {"runId": RUN_ID, "phase": "offline-confirmed", "pid": 456}
+            with patch.object(runner, "capture"), \
+                    patch("tools.android_network_runtime.run.Path.read_text",
+                          return_value='{}'), \
+                    patch("tools.android_network_runtime.run.validate_spans",
+                          return_value={"highestServedOffset": 899}), \
+                    patch("tools.android_network_runtime.run.release_owned_server",
+                          side_effect=RuntimeFailure("release missing")), \
+                    patch.object(runner.radios, "restore") as restore, \
+                    patch.object(runner, "ack") as ack, \
+                    self.assertRaisesRegex(RuntimeFailure, "release missing"):
+                runner.observe_checkpoint(marker)
+            restore.assert_not_called()
+            ack.assert_not_called()
 
     def test_wifi_readiness_failure_restores_original_radios_without_ack(self):
         with tempfile.TemporaryDirectory() as directory:

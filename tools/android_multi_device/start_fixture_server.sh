@@ -4,6 +4,7 @@ set -euo pipefail
 usage() {
   cat <<'EOF'
 Usage: start_fixture_server.sh [--fixture <mp4>] [--state <directory>] [--port <port>]
+       [--max-body-offset <bytes> --body-bytes-per-second <bytes>]
 
 Starts a task-owned range-capable MP4 server on host loopback. Android emulators reach
 the default service as http://10.0.2.2:18765/sync-fixture.mp4.
@@ -13,11 +14,15 @@ EOF
 fixture='build/android-multi-device/fixture/sync-fixture.mp4'
 state_dir='build/android-multi-device/fixture-server'
 port=18765
+max_body_offset=0
+body_bytes_per_second=0
 while (( $# > 0 )); do
   case "$1" in
     --fixture) fixture="${2:-}"; shift 2 ;;
     --state) state_dir="${2:-}"; shift 2 ;;
     --port) port="${2:-}"; shift 2 ;;
+    --max-body-offset) max_body_offset="${2:-}"; shift 2 ;;
+    --body-bytes-per-second) body_bytes_per_second="${2:-}"; shift 2 ;;
     -h|--help) usage; exit 0 ;;
     *) echo "Unknown argument: $1" >&2; usage >&2; exit 2 ;;
   esac
@@ -29,6 +34,16 @@ if [[ ! -s "$fixture" || "$(basename "$fixture")" != 'sync-fixture.mp4' ]]; then
 fi
 if [[ ! "$port" =~ ^[0-9]+$ ]] || (( port < 1024 || port > 65535 )); then
   echo '--port must be an integer from 1024 through 65535.' >&2
+  exit 2
+fi
+if [[ ! "$max_body_offset" =~ ^[0-9]+$ || ! "$body_bytes_per_second" =~ ^[0-9]+$ ]] || \
+    { (( max_body_offset == 0 )) && (( body_bytes_per_second != 0 )); } || \
+    { (( max_body_offset != 0 )) && (( body_bytes_per_second == 0 )); }; then
+  echo 'Byte cap and pacing must be nonnegative and enabled together.' >&2
+  exit 2
+fi
+if (( max_body_offset > 0 )) && (( max_body_offset >= $(stat -c %s "$fixture") )); then
+  echo 'Byte cap must be below the fixture size.' >&2
   exit 2
 fi
 for tool in python3 curl; do
@@ -50,6 +65,8 @@ server_log="$state_dir/http-server.log"
 server_env="$state_dir/server.env"
 server_script="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)/fixture_server.py"
 
+NETWORK_FIXTURE_MAX_BODY_OFFSET="$max_body_offset" \
+NETWORK_FIXTURE_BODY_BYTES_PER_SECOND="$body_bytes_per_second" \
 python3 "$server_script" --directory "$fixture_dir" --port "$port" \
   > "$server_log" 2>&1 &
 server_pid=$!
@@ -129,6 +146,8 @@ fi
   printf 'FIXTURE_FILE=%q\n' "$fixture"
   printf 'HOST_FIXTURE_URL=%q\n' "$host_url"
   printf 'EMULATOR_FIXTURE_URL=%q\n' "http://10.0.2.2:$port/sync-fixture.mp4"
+  printf 'MAX_BODY_OFFSET=%q\n' "$max_body_offset"
+  printf 'BODY_BYTES_PER_SECOND=%q\n' "$body_bytes_per_second"
 } > "$server_env"
 
 startup_ok=1

@@ -22,6 +22,7 @@ import xml.etree.ElementTree as ET
 from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, ARTIFACT_ROOT
 from tools.android_lifecycle_runtime.run import LifecycleRecording, recording_size
 from tools.android_native_ui.observer import NativeUiObserver
+from tools.android_network_runtime.fixture_proof import release_owned_server, validate_spans
 from tools.billing_runtime.native_dialog import (
     SETUP_PACKAGE, UnsafeDialog, image_size, select_google_sdk_setup_anr_close,
 )
@@ -38,6 +39,7 @@ REQUIRED = {
     "same_room_media_validated_decoders_quota_and_no_autoplay",
     "explicit_production_play_pause_seek_and_real_peer_sync",
 }
+FAILURE_REQUIRED = REQUIRED | {"original_native_guest_decoder_failed_during_radio_outage"}
 RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
 AVD_NAME = re.compile(r"meowwatch_network_[A-Za-z0-9_]{1,80}")
 MARKER = "NETWORK_CHECKPOINT "
@@ -344,11 +346,13 @@ class Radios:
             raise readiness_error
 
 
-def validate_result(result: dict, run_id: str, build_mode: str = "debug") -> None:
+def validate_result(result: dict, run_id: str, build_mode: str = "debug", variant: str = "normal") -> None:
     if result.get("runId") != run_id or result.get("passed") is not True:
         raise RuntimeFailure("the integration test did not report a successful owned run")
     if result.get("buildMode") != build_mode:
         raise RuntimeFailure("actual Dart build mode does not match the requested comparison")
+    if result.get("variant") != variant:
+        raise RuntimeFailure("actual Dart network variant does not match the requested gate")
     billing = result.get("billingSetup")
     expected_billing = ({"status": "success", "errorCode": None, "configured": True, "isPlus": False}
                         if build_mode == "debug" else
@@ -356,8 +360,25 @@ def validate_result(result: dict, run_id: str, build_mode: str = "debug") -> Non
                          "configured": False, "isPlus": False})
     if billing != expected_billing:
         raise RuntimeFailure("real free billing setup does not match the build mode")
-    if set(result.get("verified", [])) != REQUIRED or result.get("teardownErrors") != []:
+    required = FAILURE_REQUIRED if variant == "decoder_failure" else REQUIRED
+    if set(result.get("verified", [])) != required or result.get("teardownErrors") != []:
         raise RuntimeFailure("required recovery assertions or test teardown are incomplete")
+    if variant == "decoder_failure":
+        observations = result.get("observations", [])
+        decoder_rows = [item for item in observations if isinstance(item, dict)
+                        and item.get("phase") == "decoder-continuity"]
+        decoders = {item.get("role"): item for item in decoder_rows}
+        injection = [item for item in observations if isinstance(item, dict)
+                     and item.get("phase") == "offline-decoder-failure"]
+        if (len(injection) != 1 or len(decoder_rows) != 2
+                or set(decoders) != {"host", "guest"}
+                or any(item.get("validated") is not True for item in decoder_rows)
+                or not injection[0].get("nativeError")
+                or injection[0].get("controlledCacheMiss") is not True
+                or injection[0].get("seekMs") != 85000
+                or decoders.get("guest", {}).get("rebuiltFailedDecoder") is not True
+                or decoders.get("host", {}).get("rebuiltFailedDecoder") is not False):
+            raise RuntimeFailure("original guest native failure and one paused rebuild are required")
     probes = {item.get("phase"): item for item in result.get("observations", [])
               if isinstance(item, dict) and str(item.get("phase", "")).startswith("probe-")}
     if any(probes.get(phase, {}).get("reachable") is not reachable for phase, reachable in (
@@ -389,12 +410,17 @@ def stop_owned_process(process: subprocess.Popen | None) -> None:
 
 
 class Runner:
-    def __init__(self, serial: str, avd_name: str, apk: Path, run_id: str, output: Path, *, build_mode: str = "debug"):
+    def __init__(self, serial: str, avd_name: str, apk: Path, run_id: str, output: Path, *, build_mode: str = "debug", variant: str = "normal"):
         if not RUN_ID.fullmatch(run_id):
             raise RuntimeFailure("invalid network run ID")
         if build_mode not in {"debug", "profile"}:
             raise RuntimeFailure("network comparison requires debug or profile mode")
+        if variant not in {"normal", "decoder_failure"}:
+            raise RuntimeFailure("invalid native network variant")
         self.build_mode = build_mode
+        self.variant = variant
+        self.fixture_byte_proof: dict | None = None
+        self.fixture_release_receipt: dict | None = None
         self.adb = Adb(serial, run_id)
         self.observer = NativeUiObserver(self.adb)
         self.avd_name, self.apk, self.run_id = avd_name, apk.resolve(strict=True), run_id
@@ -686,6 +712,16 @@ class Runner:
             self.capture(phase)
             if self.radios.read() != {"wifi": False, "data": False}:
                 raise RuntimeFailure("radios changed before the offline observation")
+            if self.variant == "decoder_failure":
+                proof = json.loads(Path("build/android-network-fixture/failure-proof.json")
+                                   .read_text(encoding="utf-8"))
+                self.fixture_byte_proof = validate_spans(
+                    Path("build/android-network-fixture-server/http-server.log"), proof)
+                self.write("fixture-byte-proof.json", self.fixture_byte_proof)
+                self.fixture_release_receipt = release_owned_server(
+                    Path("build/android-network-fixture-server/server.env"),
+                    Path("build/android-network-fixture-server/http-server.log"), proof)
+                self.write("fixture-cap-release.json", self.fixture_release_receipt)
             self.finish_recording(phase)
             self.start_recording()
             self.radios.restore(stable_primary=True)
@@ -743,6 +779,7 @@ class Runner:
         self.output.mkdir(parents=True, exist_ok=False)
         self.write("runtime.json", {"runtime": RUNTIME, "runId": self.run_id,
                                    "requestedBuildMode": self.build_mode,
+                                   "requestedVariant": self.variant,
                                    "serial": self.adb.serial, "avdName": self.avd_name,
                                    "apkSha256": hashlib.sha256(self.apk.read_bytes()).hexdigest()})
         try:
@@ -788,7 +825,10 @@ class Runner:
             else:
                 raise RuntimeFailure("network runtime exceeded its original 600-second deadline")
             result = json.loads((self.output / "result.json").read_text(encoding="utf-8"))
-            validate_result(result, self.run_id, self.build_mode)
+            validate_result(result, self.run_id, self.build_mode, self.variant)
+            if self.variant == "decoder_failure" and (
+                    self.fixture_byte_proof is None or self.fixture_release_receipt is None):
+                raise RuntimeFailure("native failed-decoder variant lacks byte and cap release proof")
             if len(self.recordings) != 4 or any(item["status"] != "verified" for item in self.recordings):
                 raise RuntimeFailure("four complete native recording phases are required")
         except Exception as error:
@@ -833,7 +873,9 @@ class Runner:
                                                                    or self.sdk_setup_recovery_attempts > 0),
                                      "sdkSetupPreflightRecovered": self.sdk_setup_preflight_recovered,
                                      "sdkSetupInRunRecoveryAttempts": self.sdk_setup_recovery_attempts,
-                                     "nativePositionDiagnostics": position_diagnostics})
+                                     "nativePositionDiagnostics": position_diagnostics,
+                                     "fixtureByteProof": self.fixture_byte_proof,
+                                     "fixtureCapRelease": self.fixture_release_receipt})
         return not self.errors
 
 
@@ -844,6 +886,7 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     parser.add_argument("--apk", type=Path, required=True)
     parser.add_argument("--build-mode", choices=("debug", "profile"), default="debug")
+    parser.add_argument("--variant", choices=("normal", "decoder_failure"), default="normal")
     args = parser.parse_args()
     if os.name != "posix":
         parser.error("this dedicated CI AVD runner requires POSIX process-group ownership")
@@ -853,7 +896,8 @@ def main() -> int:
     signal.signal(signal.SIGINT, interrupted)
     try:
         runner = Runner(args.serial, args.avd_name, args.apk, args.run_id,
-                        Path("build/android-network-artifacts") / args.run_id, build_mode=args.build_mode)
+                        Path("build/android-network-artifacts") / args.run_id,
+                        build_mode=args.build_mode, variant=args.variant)
         return 0 if runner.run() else 1
     except (RuntimeFailure, OSError, ValueError) as error:
         print(str(error), flush=True)

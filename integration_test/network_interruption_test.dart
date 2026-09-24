@@ -16,6 +16,7 @@ import 'package:meowwatch_mobile/core/billing/file_hosting_quota_store.dart';
 import 'package:meowwatch_mobile/core/billing/hosting_access_policy.dart';
 import 'package:meowwatch_mobile/core/billing/revenuecat_billing_service.dart';
 import 'package:meowwatch_mobile/core/playback/local_mobile_target.dart';
+import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/session/playback_sync_bridge.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
@@ -27,6 +28,14 @@ import 'support/playback_command_trace.dart';
 import 'support/test_text_entry.dart';
 
 const _runId = String.fromEnvironment('NETWORK_RUN_ID');
+const _variant = String.fromEnvironment(
+  'NETWORK_VARIANT',
+  defaultValue: 'normal',
+);
+const _failureSeekMs = int.fromEnvironment(
+  'NETWORK_FAILURE_SEEK_MS',
+  defaultValue: 85000,
+);
 const _videoUrl = 'http://10.0.2.2:18765/sync-fixture.mp4';
 const _runtime =
     'API 35 emulator; one MainApp process; two real STARTTLS clients and '
@@ -40,6 +49,7 @@ void main() {
     (tester) async {
       expect(Platform.isAndroid, isTrue);
       expect(RegExp(r'^[A-Za-z0-9_-]{1,80}$').hasMatch(_runId), isTrue);
+      expect(['normal', 'decoder_failure'], contains(_variant));
       final support = await getApplicationSupportDirectory();
       final repositoryFile = File(
         '${support.path}/network-$_runId-history.json',
@@ -346,6 +356,56 @@ void main() {
         expect(await quotaFile.readAsString(), quota);
         await screenshot('offline');
         verified.add('physical_avd_network_unreachable_and_visible_auto_pause');
+        if (_variant == 'decoder_failure') {
+          stage = 'offline-native-decoder-failure';
+          final originalGuestController = guestController!;
+          expect(
+            identical(peerTarget.controller, originalGuestController),
+            isTrue,
+          );
+          expect(originalGuestController.value.hasError, isFalse);
+          final injection = <String, Object?>{
+            'phase': 'offline-decoder-failure',
+            'controlledCacheMiss': true,
+            'seekMs': _failureSeekMs,
+            'originalControllerId': originalGuestController.playerId,
+            'before': _playerEvidence(peerTarget, peerBridge.playRequested),
+          };
+          observations.add(injection);
+          try {
+            await peerTarget
+                .seek(Duration(milliseconds: _failureSeekMs))
+                .timeout(const Duration(seconds: 12));
+            injection['seekOutcome'] = 'returned';
+          } catch (error) {
+            injection['seekOutcome'] = 'native-command-error';
+            injection['seekError'] = error.toString();
+          }
+          await _wait(
+            tester,
+            () =>
+                identical(peerTarget.controller, originalGuestController) &&
+                originalGuestController.value.hasError &&
+                peerTarget.snapshot.connection == PlaybackConnection.failed,
+            'original guest native decoder failure while radios are off',
+            seconds: 25,
+          );
+          expect(originalGuestController.value.errorDescription, isNotEmpty);
+          expect(peerTarget.snapshot.playing, isFalse);
+          expect(peerBridge.playRequested, isFalse);
+          expect(peerTarget.snapshot.media?.uri, media.uri);
+          injection['nativeError'] =
+              originalGuestController.value.errorDescription;
+          injection['failedPositionMs'] =
+              peerTarget.snapshot.position.inMilliseconds;
+          injection['after'] = _playerEvidence(
+            peerTarget,
+            peerBridge.playRequested,
+          );
+          verified.add(
+            'original_native_guest_decoder_failed_during_radio_outage',
+          );
+        }
         await checkpoint('offline-confirmed', 'network-restored');
 
         stage = 'automatic-reconnect-without-autoplay';
@@ -396,10 +456,13 @@ void main() {
         expect(app.room?.isHost, isTrue);
         expect(phone.snapshot.media?.uri, media.uri);
         expect(peerTarget.snapshot.media?.uri, media.uri);
-        observations.addAll([
-          hostContinuity.verify(),
-          guestContinuity.verify(),
-        ]);
+        final hostDecoder = hostContinuity.verify();
+        final guestDecoder = guestContinuity.verify();
+        observations.addAll([hostDecoder, guestDecoder]);
+        if (_variant == 'decoder_failure') {
+          expect(hostDecoder['rebuiltFailedDecoder'], isFalse);
+          expect(guestDecoder['rebuiltFailedDecoder'], isTrue);
+        }
         final recoveredHostController = phone.controller;
         final recoveredGuestController = peerTarget.controller;
         expect(await hosting.remainingFreeHostsToday(), 0);
@@ -540,6 +603,7 @@ void main() {
         binding.reportData ??= <String, dynamic>{};
         binding.reportData!.addAll({
           'runId': _runId,
+          'variant': _variant,
           'runtime': _runtime,
           'buildMode': kProfileMode
               ? 'profile'
@@ -604,6 +668,7 @@ class _DecoderContinuity {
       'durationMs': state.duration.inMilliseconds,
       'playing': state.playing,
       'error': state.error,
+      'nativeError': target.controller?.value.errorDescription,
     });
   }
 
@@ -624,6 +689,8 @@ class _DecoderContinuity {
         'ready',
       ]);
       expect(records[1]['error'], isNotNull);
+      expect(records[1]['nativeError'], isNotNull);
+      expect(records[1]['nativeError'], isNotEmpty);
       expect(records[1]['controllerId'], initialController!.playerId);
       expect(records[2]['controllerId'], isNull);
       expect(records[3]['controllerId'], isNot(initialController!.playerId));

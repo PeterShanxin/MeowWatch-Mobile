@@ -31,6 +31,30 @@ position: the gate requires the original failed controller ID and error, followe
 by exactly one loading/ready transition to a new ID with the same media and a
 position difference no greater than 350 ms. Both sources must become ready within
 30 seconds. Controller identities must then remain stable through Play/Pause/Seek.
+
+The optional `decoder_failure` workflow variant adds controlled failed-source
+acceptance. The standard `normal` variant and all its checks remain unchanged.
+For this variant, the fixture server keeps HTTP 200/206 Range headers and a live
+response, sends an initial buffer, then paces the body and never sends bytes at
+or beyond 90% of the file. CI uses `ffprobe` packet positions to prove that the
+video keyframe preceding the 85-second seek starts beyond this cap. The server
+records every delivered byte span. After the real radio-off socket proof and
+automatic pause, the guest's original native controller seeks to 85 seconds
+while both radios remain off. It must report a native error and target failure
+within 25 seconds before the runner restores connectivity. The runner verifies
+the actual delivered intervals remained below the cap before restoration.
+It rejects a server cap stall in those receipts, so the player cannot pass from
+an artificial pre-outage HTTP pause or premature EOF.
+The runner then checks the server's exact PID, birth token, command, port and
+cap configuration and sends one local `SIGUSR1` to release the body cap. It
+waits up to five seconds for the server's timestamped release receipt before
+restoring either radio. The release allows the paused replacement decoder to
+read the same HTTP media at 85 seconds; no LAN control endpoint is exposed.
+Recovery then requires guest `ready → failed → loading → ready`, the original
+native error and ID, one new ID, retained clock, unchanged URI, and paused state;
+the healthy host ID must remain unchanged. Existing explicit controls and quota
+checks still apply. This proves a controlled cache miss during a real Android
+radio outage, not that a natural radio outage always fails a decoder.
 Nine live paused observations spanning
 at least 800 ms establish no autoplay. Explicit UI Play must advance both native
 players; Pause and Seek must reach the peer and settle within 350 ms. No simulated
@@ -122,6 +146,9 @@ The workflow builds a unique APK with `NETWORK_RUN_ID` and creates an AVD named
 `NETWORK_AVD_NAME`. `tools/android_network_runtime/ci.sh` starts/stops only its
 owned fixture server and runs the Python orchestrator. The orchestrator requires
 POSIX process groups (the Linux CI host); never point it at a personal emulator.
+Select `variant=decoder_failure` in the manual workflow dispatch for the added
+native gate. The APK's `NETWORK_VARIANT` Dart define and the runner's variant
+argument must match. The normal PR workflow remains `variant=normal`.
 
 Local contract checks (no Android SDK required):
 

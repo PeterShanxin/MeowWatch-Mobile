@@ -9,6 +9,7 @@ import json
 import os
 from pathlib import Path
 import re
+import signal
 import socket
 import subprocess
 import sys
@@ -26,6 +27,47 @@ PAYLOAD = bytes(range(251)) * 4096
 
 
 class FixtureHttpTests(unittest.TestCase):
+    def test_opt_in_body_cap_retains_range_headers_and_real_byte_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "sync-fixture.mp4").write_bytes(PAYLOAD)
+            log = io.StringIO()
+            server = fixture.FixtureServer(root, 0, log=log, max_body_offset=150000,
+                                           body_bytes_per_second=256 * 1024)
+            thread = threading.Thread(target=server.serve_forever,
+                                      kwargs={"poll_interval": 0.01}, daemon=True)
+            thread.start()
+            try:
+                connection = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                connection.request("GET", "/sync-fixture.mp4", headers={"Range": "bytes=100000-200000"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 206)
+                self.assertEqual(response.getheader("Content-Range"),
+                                 f"bytes 100000-200000/{len(PAYLOAD)}")
+                self.assertEqual(response.read(50000), PAYLOAD[100000:150000])
+                deadline = time.monotonic() + 2
+                while '"event":"body_cap_wait"' not in log.getvalue() and time.monotonic() < deadline:
+                    time.sleep(0.01)
+                rows = [json.loads(line) for line in log.getvalue().splitlines()]
+                self.assertTrue(any(row.get("event") == "body_cap_wait" for row in rows))
+                server.body_cap_released.set()
+                self.assertEqual(response.read(), PAYLOAD[150000:200001])
+                connection.close()
+                reopened = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=3)
+                reopened.request("GET", "/sync-fixture.mp4", headers={"Range": "bytes=180000-200000"})
+                self.assertEqual(reopened.getresponse().read(), PAYLOAD[180000:200001])
+                reopened.close()
+                responses = [row for row in rows if row.get("event") == "body_response"]
+                self.assertEqual(len(responses), 1)
+                self.assertEqual(responses[0]["range"], "bytes=100000-200000")
+                spans = [row for row in rows if row.get("event") == "body_span"]
+                self.assertTrue(spans)
+                self.assertEqual(max(row["last"] for row in spans), 149999)
+            finally:
+                server.shutdown()
+                server.server_close()
+                thread.join(timeout=2)
+
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory()
         self.addCleanup(self.temp.cleanup)
@@ -294,6 +336,79 @@ class ProcessIdentityTests(unittest.TestCase):
 
 @unittest.skipUnless(sys.platform == "linux", "actual scripts use Linux /proc ownership")
 class LinuxLifecycleTests(unittest.TestCase):
+    def test_owned_signal_releases_capped_live_and_new_range_responses(self):
+        with tempfile.TemporaryDirectory(prefix="fixture cap release ") as temporary:
+            directory = Path(temporary)
+            media = directory / "media"
+            media.mkdir()
+            (media / "sync-fixture.mp4").write_bytes(PAYLOAD)
+            state = directory / "state"
+            with socket.socket() as reserve:
+                reserve.bind(("127.0.0.1", 0))
+                port = reserve.getsockname()[1]
+            start = subprocess.run([
+                "bash", str(SCRIPTS / "start_fixture_server.sh"),
+                "--fixture", str(media / "sync-fixture.mp4"),
+                "--state", str(state), "--port", str(port),
+                "--max-body-offset", "150000", "--body-bytes-per-second", "262144",
+            ], capture_output=True, text=True, timeout=15)
+            self.assertEqual(start.returncode, 0, start.stderr)
+            receipt = (state / "server.env").read_text()
+            owned_pid = int(re.search(r"^SERVER_PID=(\d+)$", receipt, re.M)[1])
+            birth = re.search(r"^SERVER_START_TICKS=(\d+)$", receipt, re.M)[1]
+            log = state / "http-server.log"
+
+            def rows():
+                return [json.loads(line) for line in log.read_text().splitlines()
+                        if line.endswith("}")]
+
+            def await_event(name):
+                deadline = time.monotonic() + 3
+                while time.monotonic() < deadline:
+                    found = [row for row in rows() if row.get("event") == name]
+                    if found:
+                        return found
+                    time.sleep(0.02)
+                self.fail(f"owned fixture server did not record {name}")
+
+            connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+            try:
+                self.assertEqual(fixture.process_identity(owned_pid, media, port), birth)
+                connection.request("GET", "/sync-fixture.mp4",
+                                   headers={"Range": "bytes=100000-200000"})
+                response = connection.getresponse()
+                self.assertEqual(response.status, 206)
+                self.assertEqual(response.getheader("Content-Range"),
+                                 f"bytes 100000-200000/{len(PAYLOAD)}")
+                self.assertEqual(response.read(50000), PAYLOAD[100000:150000])
+                await_event("body_cap_wait")
+                self.assertFalse(any(row.get("event") == "body_cap_released" for row in rows()))
+                self.assertEqual(fixture.process_identity(owned_pid, media, port), birth)
+                os.kill(owned_pid, signal.SIGUSR1)
+                releases = await_event("body_cap_released")
+                self.assertEqual(len(releases), 1)
+                self.assertEqual(releases[0]["pid"], owned_pid)
+                self.assertEqual(releases[0]["max_body_offset"], 150000)
+                self.assertEqual(releases[0]["body_bytes_per_second"], 262144)
+                self.assertRegex(releases[0]["at_utc"], r"^\d{4}-\d{2}-\d{2}T")
+                self.assertEqual(response.read(), PAYLOAD[150000:200001])
+                connection.close()
+                reopened = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
+                try:
+                    reopened.request("GET", "/sync-fixture.mp4",
+                                     headers={"Range": "bytes=180000-200000"})
+                    later = reopened.getresponse()
+                    self.assertEqual(later.status, 206)
+                    self.assertEqual(later.read(), PAYLOAD[180000:200001])
+                finally:
+                    reopened.close()
+            finally:
+                connection.close()
+                stopped = subprocess.run(["bash", str(SCRIPTS / "stop_fixture_server.sh"),
+                                          str(state / "server.env")],
+                                         capture_output=True, text=True, timeout=20)
+                self.assertEqual(stopped.returncode, 0, stopped.stderr)
+
     def test_startup_failure_cleanup_never_signals_without_the_original_birth(self):
         # Execute the actual start script. Substitute only its process/HTTP
         # boundary observations and signals so PID reuse is deterministic and

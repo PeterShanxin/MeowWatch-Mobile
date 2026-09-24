@@ -67,7 +67,9 @@ separate from widgets:
 - A portable synchronization layer speaks the Syncplay protocol, preserving
   fail-closed STARTTLS validation.
 - An Android playback adapter reports actual player position and state to the
-  room; lifecycle handling pauses local playback and requires explicit resume.
+  room. Backgrounding and permanent interruption pause playback until explicit
+  resume; Local mode can resume after transient audio focus returns. Together
+  keeps an interrupted room paused until a participant presses Play again.
 - Local persistence keeps onboarding, playback history and daily hosting policy
   durable across app restarts.
 - The official RevenueCat Flutter SDK loads Offerings and maps `CustomerInfo`

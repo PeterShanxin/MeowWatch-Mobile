@@ -274,12 +274,15 @@ retained; an elapsed timer alone never passes.
 
 The default expiry wait is 35 minutes, the whole runner is bounded to 55 minutes
 plus short cleanup, and CI allows 65 minutes including setup. Deadline or network
-failure remains a failed gate with progress artifacts. This new expiry phase
-has not yet been accepted on Android; existing matrix/relaunch results establish
-only their recorded checks. No production access is manually granted or revoked.
+failure remains a failed gate with progress artifacts. The API 35 journey is
+accepted in [run 36044617979](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36044617979)
+at `fdebec3`: actual purchase, same-customer process relaunch, cache-invalidated
+expiry and inactive Restore pass. The SDK reports the original customer's
+expired entitlement; the runner does not infer expiry from elapsed time. No
+production access is manually granted or revoked.
 
-These device modes are executable acceptance checks, not evidence that they
-have already passed. They do not test the app's paywall visuals, real-money
+Acceptance is specific to the recorded build and runtime above. These device
+modes do not test the app's paywall visuals, real-money
 Google Play billing, uninstall recovery, cross-device identity transfer, or
 hosting/playback integration. Record those checks separately. See RevenueCat's
 [Test Store documentation](https://www.revenuecat.com/docs/test-and-launch/sandbox/test-store)

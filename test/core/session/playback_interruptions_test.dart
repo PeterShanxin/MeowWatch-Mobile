@@ -54,12 +54,30 @@ void main() {
         );
         await interruptedBridge.load(movie);
         await peerBridge.load(movie);
+        Future<void> untilPhase(
+          String phase,
+          bool Function() condition,
+        ) => _until(
+          condition,
+          onTimeout: () =>
+              '$phase: roomPaused=${server.roomPaused}, '
+              'setBy=${server.roomSetBy}, '
+              'aliceReported=${server.reportedPaused('alice')}, '
+              'bobReported=${server.reportedPaused('bob')}, '
+              'aliceNative=${interruptedTarget.snapshot.playing}, '
+              'bobNative=${peerTarget.snapshot.playing}, '
+              'aliceRequested=${interruptedBridge.playRequested}, '
+              'bobRequested=${peerBridge.playRequested}, '
+              'changeCount=${server.acceptedChanges.length}, '
+              'lastChange=${server.acceptedChanges.isEmpty ? null : server.acceptedChanges.last}',
+        );
         if (early) {
           await peerBridge.play();
         } else {
           await interruptedBridge.play();
         }
-        await _until(
+        await untilPhase(
+          'initial Play',
           () =>
               !server.roomPaused &&
               interruptedTarget.snapshot.playing &&
@@ -78,7 +96,8 @@ void main() {
           expect(server.acceptedChanges.length, beforeInterruption);
           expect(interruptedTarget.snapshot.playing, isFalse);
         }
-        await _until(
+        await untilPhase(
+          'native pause',
           () =>
               server.roomPaused &&
               server.roomSetBy == 'alice' &&
@@ -100,7 +119,8 @@ void main() {
             .where((command) => command == 'pause')
             .length;
         _emitNative(interruptedTarget, playing: true);
-        await _until(
+        await untilPhase(
+          'auto-resume correction',
           () =>
               !interruptedTarget.snapshot.playing &&
               interruptedTarget.commands
@@ -114,7 +134,8 @@ void main() {
         expect(server.acceptedChanges.length, beforeInterruption + 1);
 
         await interruptedBridge.play();
-        await _until(
+        await untilPhase(
+          'explicit Play',
           () =>
               !server.roomPaused &&
               interruptedTarget.snapshot.playing &&
@@ -144,11 +165,14 @@ void _emitNative(SyncTestTarget target, {required bool playing}) {
   );
 }
 
-Future<void> _until(bool Function() condition) async {
+Future<void> _until(
+  bool Function() condition, {
+  required String Function() onTimeout,
+}) async {
   final deadline = DateTime.now().add(const Duration(seconds: 3));
   while (!condition()) {
     if (DateTime.now().isAfter(deadline)) {
-      throw TimeoutException('Together interruption state was not reached');
+      throw TimeoutException(onTimeout());
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }

@@ -66,6 +66,10 @@ The current repairs and their acceptance boundaries are:
   to 180 seconds, retaining every assertion. Earlier normal release tablet run
   `35968302290` completed native pause and Back destinations, with hidden controls
   across 19.01 seconds. Its short Home clip does not show the entire transition.
+  The first longer-fixture run stopped at the loaded-paused check because the
+  evidence parser still expected 90 seconds. The parser now reads the actual
+  file duration and retains the one-second tolerance; 170 fullscreen, lifecycle
+  and observer contracts pass. Native fullscreen/Back must still be rerun.
 - **Recorder coverage (`2184c8e`).** A timed-out live-file read now retries the
   same byte cursor inside the existing eight-second post-roll deadline. Partial
   timed-out output is discarded and late results fail. All 201 related Python
@@ -83,9 +87,9 @@ The current repairs and their acceptance boundaries are:
 | --- | --- | --- |
 | [35972090941](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35972090941) | `773d41e` | Failed before radio loss: guest native position read times out after five seconds; earlier host/guest reads also slow. The first advancing sample differs by 475 ms, but sustained sync and recovery are not established. Original radios remain enabled; diagnosis continues |
 | [35972094368](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35972094368) | `773d41e` | Passed and audited: actual pinned TLS pairing, approval, authenticated control, revocation and rejected old credential; real NSD start/advertise/discover/stop; protected identity and revocation persist across three separate process runs in one install. API 35 x86_64 emulator, same-device transport only |
-| [35972097694](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35972097694) | `773d41e` | Production phone/tablet create, join, controls, chat and media recovery |
-| [35972199031](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35972199031) | `85956cb` | Normal release phone/tablet fullscreen, idle controls, pause and Back |
-| [35973047270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35973047270) | `01e6ad1` | Diagnostic only: original native motion and resource measurements under two-device versus isolated-tablet load |
+| [35972097694](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35972097694) | `773d41e` | Failed after Continue Watching: connected and native-ready, but Play did not advance from 65.604 seconds within 20 seconds. The 90.09-second fixture had not ended. Later SIGTERM/driver loss is not evidence of an app ANR. Command and native-state diagnosis remains open |
+| [35972199031](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35972199031) | `85956cb` | Both devices stopped before fullscreen because the parser rejected the actual 3:00 duration. No fullscreen recording was produced. Duration parsing is repaired; no observer timeout or playback threshold was relaxed |
+| [35973047270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35973047270) | `01e6ad1` | Probe failed before any capture phase: the runner could not resolve adb although both owned AVDs were ready. The script now validates and uses the session's platform-tools directory. No motion result is inferred from this run |
 
 A passing CI label is not visual acceptance. Original images, native state,
 recording integrity and actual runtime must agree. Final current-build clean
@@ -103,6 +107,12 @@ Mode and player menu were captured and visually inspected. This is not physical
 Android-to-Windows LAN acceptance. [Desktop PR #279](https://github.com/PeterShanxin/MeowWatch/pull/279)
 remains draft. Requested Copilot review returned an account-quota failure and
 performed no review; it is neither an approval nor a pending review.
+
+The companion's pending `bd931d5` dependency pin passes 38 Nearby tests,
+analysis and a normal Windows Release build. The first full local test process
+ended with incomplete tests; a separate retained run completed **1,494 tests**
+with exit zero. Its original log and exit receipt are retained. Required hosted
+Windows CI and fresh native/manual acceptance remain separate gates.
 
 The selected navy/cream/blue icon kit includes Android adaptive/themed icons,
 SVG/PNG and desktop ICO. The original 1179x2556 submission screenshot has no
@@ -130,6 +140,20 @@ remain open. Historical runs and asset provenance are preserved in
 - Desktop required native/manual review gates remain applicable before merge or release.
 
 ## Live development recording
+
+Following two reported machine freezes, local heavy work is serialized and
+Android builds, emulator runs and full regression suites use hosted CI. No
+Flutter, Gradle or emulator process was running at the September 24 10:20 UTC
+inspection; roughly 10 GiB RAM was free. This does not establish the cause of
+the earlier freezes. One read-only reviewer handles bounded source/log work.
+
+The showcase now supports `--evidence-only`, disabling live ADB subprocesses.
+The evidence library loads media only after selection and retains unchanged
+cards, removing the former 15-second recreation of every video/image element.
+The load regression fails before the change and passes afterwards; all eight
+showcase contracts pass. The current viewer uses one original still image and
+the existing two-fps silent canvas recorder. A recording gap after the last
+08:10:40 UTC saved chunk is retained; capture resumed at approximately 10:30 UTC.
 
 The initial recording began when the local Codex showcase opened. Its last
 saved chunk is September 18; a new recording started on September 24 after the

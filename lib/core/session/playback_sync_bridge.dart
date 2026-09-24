@@ -51,6 +51,7 @@ class PlaybackSyncBridge {
   Stopwatch? _rateCooldown;
   Stopwatch? _rateReadyClock;
   bool _rateRecoveryPending = false;
+  bool _strongRateCorrection = false;
   double _requestedRate = 1;
   bool _rateTouched = false;
   bool _rateDirty = false;
@@ -299,6 +300,9 @@ class PlaybackSyncBridge {
       _stopRateCorrection(cooldown: ahead < const Duration(milliseconds: 450));
       return;
     }
+    if (ahead < const Duration(milliseconds: 900)) {
+      _strongRateCorrection = false;
+    }
     // A failed native 1x command leaves the actual speed uncertain. Do not
     // issue another slowdown until restoration has succeeded.
     if (_rateDirty && _requestedRate == 1) return;
@@ -314,9 +318,13 @@ class PlaybackSyncBridge {
     _rateExpiry = Timer(const Duration(seconds: 2) - age, () {
       _stopRateCorrection(preserveWindow: true, waitForFreshHeartbeat: true);
     });
-    // One-sided only: never speed up the lagging player. Larger safe drift
-    // gets a short 0.90 window; near convergence uses the gentler 0.95 rate.
-    _requestRate(ahead >= const Duration(milliseconds: 1500) ? 0.90 : 0.95);
+    // Keep stronger correction through moderate drift instead of switching
+    // back and forth at 1.5 s. Buffering still restores 1x; only this bounded
+    // window's band survives so a fresh heartbeat can resume the correction.
+    if (ahead >= const Duration(milliseconds: 1500)) {
+      _strongRateCorrection = true;
+    }
+    _requestRate(_strongRateCorrection ? 0.90 : 0.95);
   }
 
   void _requestRate(double rate) {
@@ -404,7 +412,10 @@ class PlaybackSyncBridge {
     if (cooldown && _rateWindow != null) {
       _rateCooldown = Stopwatch()..start();
     }
-    if (!preserveWindow) _rateWindow = null;
+    if (!preserveWindow) {
+      _rateWindow = null;
+      _strongRateCorrection = false;
+    }
     if (waitForFreshHeartbeat) {
       _rateRecoveryPending = true;
       _rateReadyClock = null;

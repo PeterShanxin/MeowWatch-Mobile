@@ -77,8 +77,13 @@ After that startup watch, a local decoder supporting `PlaybackRateTarget` can
 gently slow when it leads the room by 900 ms to less than four seconds. This
 requires consecutive advancing heartbeats from the same named peer; self,
 pending own-change handshakes, pause, seek, stall and stale heartbeats are
-excluded. Rates are 0.90 for a lead of at least 1.5 seconds and 0.95 closer to
-convergence. Correction ends below 450 ms, after 25 seconds, or when eligible
+excluded. A lead of at least 1.5 seconds enters 0.90 correction, which stays
+active until the lead drops below 900 ms; closer playback uses 0.95. This
+separate entry/exit band avoids repeated rate switching around 1.5 seconds.
+Buffering immediately restores 1x but preserves the band within the original
+25-second window. Resuming correction still requires an uninterrupted second
+of ready playback and a new eligible heartbeat. Correction ends below 450 ms,
+after 25 seconds, or when eligible
 heartbeats stop for two seconds, and convergence/time limits impose an
 eight-second cooldown. Buffering, connection loss, source changes, new user
 intent and disposal restore 1x. Rate commands do not publish a user seek.

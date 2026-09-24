@@ -1003,15 +1003,15 @@ void main() {
     );
 
     test(
-      'a moderate lead reaches subsecond sync during five seconds of progress',
+      'strong correction reaches subsecond sync through moderate drift',
       () async {
         await useRateTarget();
         var roomMs = 30000;
-        var nativeMs = 31400;
+        var nativeMs = 31600;
         // Model two advancing decoders after the slower player becomes the
         // room anchor. Feed the rate actually requested by the bridge back
         // into the leading decoder; no peer seek or user command occurs.
-        for (var tick = 0; tick < 10; tick++) {
+        for (var tick = 0; tick < 14; tick++) {
           heartbeat(Duration(milliseconds: roomMs));
           emitNativePosition(
             target,
@@ -1019,7 +1019,7 @@ void main() {
             playing: true,
           );
           // Drain the serialized native command, without waiting for a real
-          // five-second movie. Each pair above is a fresh room observation.
+          // seven-second movie. Each pair above is a fresh room observation.
           await Future<void>.delayed(Duration.zero);
           final rate = rateTarget.rates.isEmpty ? 1.0 : rateTarget.rates.last;
           roomMs += 500;
@@ -1071,10 +1071,38 @@ void main() {
         }
 
         await Future<void>.delayed(const Duration(milliseconds: 950));
-        heartbeat(const Duration(seconds: 8));
+        heartbeat(const Duration(milliseconds: 8900));
         emitNativePosition(target, const Duration(seconds: 10), playing: true);
         await until(() => rateTarget.rates.last == 0.90);
         expect(rateTarget.rates, [0.90, 1, 0.90]);
+        expect(target.commands, isEmpty);
+        expect(sync.changes, isEmpty);
+      },
+    );
+
+    test(
+      'buffer recovery below 900 ms leaves the strong correction band',
+      () async {
+        await useRateTarget();
+        heartbeat(const Duration(seconds: 8));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await until(() => rateTarget.rates.contains(0.90));
+        emitNative(target, playing: false, buffering: true);
+        await until(() => rateTarget.rates.last == 1);
+        emitNative(target, playing: true, buffering: false);
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+
+        heartbeat(const Duration(milliseconds: 9200));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        await Future<void>.delayed(Duration.zero);
+        expect(rateTarget.rates, [0.90, 1]);
+        heartbeat(const Duration(milliseconds: 10400));
+        emitNativePosition(
+          target,
+          const Duration(milliseconds: 11500),
+          playing: true,
+        );
+        await until(() => rateTarget.rates.last == 0.95);
         expect(target.commands, isEmpty);
         expect(sync.changes, isEmpty);
       },

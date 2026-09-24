@@ -66,7 +66,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends ffmpeg
-          bash tools/android_multi_device/prepare_fixture.sh --output build/android-fullscreen-fixture --seconds 90
+          bash tools/android_multi_device/prepare_fixture.sh --output build/android-fullscreen-fixture --seconds 180
       - name: Build normal release lib/main.dart
         run: >-
           flutter build apk --release --target=lib/main.dart

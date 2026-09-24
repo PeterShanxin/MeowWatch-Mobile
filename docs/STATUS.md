@@ -62,6 +62,14 @@ peer and teardown errors are empty. Ordinary app notices now explicitly expire
 after eight seconds (screen-reader navigation retains manual Dismiss), and sync
 errors use recovery guidance instead of raw exception text. Three added
 regressions and the unchanged native replay gate await hosted verification.
+Repeated identical notices share the original expiry instead of extending it,
+so repeated errors cannot permanently hide controls; a later occurrence after
+dismissal starts a fresh notice. The Local audio-focus runner now retains its
+permanent-loss case and appends independent transient loss/automatic-resume
+acceptance with fresh nonce/UID/PID and current AudioService proof. All 29
+lightweight Python contracts pass. A 180-second version of the same source
+provides room for both cases without changing pause/recovery deadlines. Native
+execution is still required; this does not establish Together-room focus behavior.
 Profile `36044653778`
 passes initial playback, radio
 loss, automatic pause and no-autoplay reconnect, then fails explicit replay:

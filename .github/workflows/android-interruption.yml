@@ -24,7 +24,7 @@ concurrency:
 
 jobs:
   audio-focus:
-    name: Permanent audio focus, release and explicit Play (API 35)
+    name: Permanent and transient audio focus recovery (API 35)
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
@@ -46,11 +46,11 @@ jobs:
           python3 -m unittest tools.android_interruption_runtime.test_run tools.android_lifecycle_runtime.test_prepare_avd -v
           python3 -m tools.android_interruption_runtime.run --help
           bash -n tools/android_interruption_runtime/ci.sh
-      - name: Prepare reviewed 90-second media
+      - name: Prepare reviewed media for both focus cases
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends ffmpeg
-          bash tools/android_multi_device/prepare_fixture.sh --output build/android-interruption-fixture --seconds 90
+          bash tools/android_multi_device/prepare_fixture.sh --output build/android-interruption-fixture --seconds 180
       - name: Build normal release application
         run: >-
           flutter build apk --release --target=lib/main.dart

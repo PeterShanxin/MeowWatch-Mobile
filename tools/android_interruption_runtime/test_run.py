@@ -13,7 +13,8 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_interruption_runtime.run import (
     FOCUS_HEADER, HELPER, LIFECYCLE_TAGS, Runner, focus_stack, lifecycle_events,
     package_uid, probe_events, require_focus, require_foreground_history, require_resumed_baseline,
-    require_owned_avd, require_prompt_pause,
+    require_owned_avd, require_prompt_pause, require_prompt_transient_resume,
+    require_transient_focus,
 )
 from tools.android_lifecycle_runtime.run import Playback
 
@@ -63,6 +64,20 @@ class FocusEvidenceTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(RuntimeFailure):
                 focus_stack(raw)
 
+    def test_transient_owner_must_interrupt_the_exact_underlying_app(self):
+        raw = audio(focus_row(PACKAGE, 10178, loss="LOSS_TRANSIENT"),
+                    focus_row(HELPER, 10179, gain="GAIN_TRANSIENT"))
+        self.assertEqual(require_transient_focus(raw, 10179, 10178)[-1]["gain"], "GAIN_TRANSIENT")
+        for changed in (raw.replace("LOSS_TRANSIENT", "none"),
+                        raw.replace("GAIN_TRANSIENT", "GAIN"),
+                        raw.replace("uid: 10178", "uid: 10180"),
+                        audio(focus_row(HELPER, 10179, gain="GAIN_TRANSIENT")),
+                        audio(focus_row(PACKAGE, 10178, loss="LOSS_TRANSIENT"),
+                              focus_row(HELPER, 10179, gain="GAIN_TRANSIENT"),
+                              focus_row(HELPER, 10179, gain="GAIN_TRANSIENT"))):
+            with self.subTest(changed=changed), self.assertRaises(RuntimeFailure):
+                require_transient_focus(changed, 10179, 10178)
+
     def test_package_identity_requires_exact_single_user_zero_package(self):
         self.assertEqual(package_uid(f"package:{HELPER} uid:10179\n", HELPER), 10179)
         for value in (f"package:{HELPER}.other uid:10179", f"package:{HELPER} uid:110179",
@@ -84,6 +99,16 @@ class FocusEvidenceTests(unittest.TestCase):
             with self.subTest(raw=raw), self.assertRaises(RuntimeFailure):
                 probe_events(raw, NONCE, 10179, 4321)
 
+    def test_transient_events_require_gain_two_and_fresh_nonce(self):
+        raw = event(gain=2) + "\n" + event("released", sequence=2, gain=2)
+        self.assertEqual([row["gain"] for row in probe_events(raw, NONCE, 10179, 4321, gain=2)], [2, 2])
+        self.assertEqual(probe_events(event(gain=2, nonce="b" * 32), NONCE, 10179, 4321, gain=2), [])
+        for changed in (event(gain=1),
+                        event(gain=2) + "\n" + event("released", sequence=2, gain=1),
+                        event(gain=2) + "\n" + event("released", sequence=2, gain=2, pid=123)):
+            with self.subTest(changed=changed), self.assertRaises(RuntimeFailure):
+                probe_events(changed, NONCE, 10179, 4321, gain=2)
+
     def test_pause_bound_includes_full_traversal_and_cannot_use_stale_or_other_xml(self):
         request = probe_events(event(), NONCE, 10179, 4321)[0]
         xml = "paused-hierarchy"
@@ -100,6 +125,26 @@ class FocusEvidenceTests(unittest.TestCase):
                        dict(applicationPid=4445), dict(applicationPidAfter=4445)):
             with self.subTest(fields=fields), self.assertRaises(RuntimeFailure):
                 require_prompt_pause(request, {**observation, **fields}, xml, "4444")
+
+    def test_transient_auto_resume_uses_release_clock_and_fresh_hierarchy(self):
+        release = probe_events(event(gain=2) + "\n" + event("released", sequence=2, gain=2),
+                               NONCE, 10179, 4321, gain=2)[1]
+        xml = "playing-hierarchy"
+        observation = dict(status="success", applicationPid=4444, applicationPidAfter=4444,
+                           xmlSha256=hashlib.sha256(xml.encode()).hexdigest(),
+                           captureStartedAtElapsedRealtimeMs=1200,
+                           captureCompletedAtElapsedRealtimeMs=11002)
+        self.assertEqual(require_prompt_transient_resume(release, observation, xml, "4444")
+                         ["resumeUpperBoundMs"], 10000)
+        for fields in (dict(captureCompletedAtElapsedRealtimeMs=11003),
+                       dict(captureStartedAtElapsedRealtimeMs=1001),
+                       dict(captureCompletedAtElapsedRealtimeMs=1199),
+                       dict(xmlSha256="other"), dict(status="failure"),
+                       dict(applicationPid=4445), dict(applicationPidAfter=4445)):
+            with self.subTest(fields=fields), self.assertRaises(RuntimeFailure):
+                require_prompt_transient_resume(release, {**observation, **fields}, xml, "4444")
+        with self.assertRaises(RuntimeFailure):
+            require_prompt_transient_resume({**release, "gain": 1}, observation, xml, "4444")
 
     def test_background_events_or_lost_history_cannot_count_as_focus_acceptance(self):
         previous = [f"1789600000.000 100 101 I wm_on_paused_called: [1,{PACKAGE}.MainActivity,old]"]
@@ -161,6 +206,7 @@ class FlowTests(unittest.TestCase):
             runner.prepare = Mock(return_value={})
             runner.start_recording = lambda: events.append("record-start")
             runner.finish_recording = lambda **kwargs: events.append("record-finish")
+            runner.run_transient = lambda: events.append("transient") or {"autoResumeAdvanceSeconds": 3}
             runner.load_fixture = Mock()
             runner.pid = Mock(return_value="4444")
             runner.foreground = lambda phase: events.append("foreground:" + phase)
@@ -194,8 +240,86 @@ class FlowTests(unittest.TestCase):
             self.assertEqual(report["replayAdvanceSeconds"], 3)
             self.assertEqual(report["pauseTiming"]["pauseUpperBoundMs"], 1000)
             self.assertEqual(report["preActionDisplayedAdvanceSeconds"], 5)
+            self.assertLess(events.index("record-finish"), events.index("transient"))
+            self.assertTrue(report["permanentCompleted"])
             self.assertIn("no GSM call", report["scope"])
             self.assertIn("quota", report["scope"])
+
+    def test_transient_case_auto_resumes_without_any_play_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.target(directory)
+            runner.output.mkdir()
+            runner.expected_pid = "4444"
+            runner.helper_uid = 10179
+            runner.nonce = NONCE
+            runner.start_recording = Mock()
+            runner.finish_recording = Mock()
+            runner.foreground = Mock()
+            runner.focus = Mock()
+            runner.tap = Mock(side_effect=AssertionError("transient case must not tap Play"))
+            runner.adb.screenshot = Mock(return_value=b"png")
+            xml = "same-source-hierarchy"
+            def observe(start, end):
+                runner.observer.observations.append(dict(
+                    status="success", applicationPid=4444, applicationPidAfter=4444,
+                    xmlSha256=hashlib.sha256(xml.encode()).hexdigest(),
+                    captureStartedAtElapsedRealtimeMs=start,
+                    captureCompletedAtElapsedRealtimeMs=end))
+            states = {"15-transient-playing": Playback(20, 90, True),
+                      "16-transient-paused": Playback(21, 90, False),
+                      "17-transient-held-stable": Playback(21, 90, False),
+                      "20-transient-auto-advanced": Playback(26, 90, True)}
+            def sample(phase, **kwargs):
+                if phase == "16-transient-paused":
+                    observe(1100, 2000)
+                return xml, states[phase]
+            def wait(phase, check, timeout=45):
+                self.assertEqual((phase, timeout), ("19-transient-auto-resumed", 10))
+                observe(4300, 5000)
+                return xml, Playback(22, 90, True)
+            def command(action):
+                if action == "acquire":
+                    runner.helper_events = [dict(event="requested", result=1, gain=2,
+                                                 requestStartedElapsedRealtimeMs=1000,
+                                                 elapsedRealtimeMs=1001)]
+                else:
+                    runner.helper_events.append(dict(event="released", result=1, gain=2,
+                                                     elapsedRealtimeMs=4000))
+            runner.sample = sample
+            runner.wait = wait
+            runner.command = command
+            with patch("tools.android_interruption_runtime.run.time.sleep"):
+                proof = runner.run_transient()
+            runner.tap.assert_not_called()
+            self.assertNotEqual(runner.nonce, NONCE)
+            self.assertEqual(runner.focus_gain, 2)
+            self.assertEqual(proof["pauseTiming"]["pauseUpperBoundMs"], 1000)
+            self.assertEqual(proof["resumeTiming"]["resumeUpperBoundMs"], 1000)
+            self.assertEqual(proof["autoResumeAdvanceSeconds"], 4)
+            self.assertFalse(proof["manualPlayAfterRelease"])
+            self.assertEqual([call.kwargs.get("transient") for call in runner.focus.call_args_list],
+                             [None, True, True, None, None])
+            runner.finish_recording.assert_called_once_with(required_phase="20-transient-auto-advanced")
+
+    def test_transient_command_requests_gain_two_with_fresh_nonce(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.target(directory)
+            runner.nonce, runner.helper_uid, runner.focus_gain = NONCE, 10179, 2
+            runner.raw = Mock(side_effect=["Starting service: Intent { test }", event(gain=2),
+                                           "Starting service: Intent { test }",
+                                           event(gain=2) + "\n" + event("released", sequence=2, gain=2)])
+            runner.adb.run = Mock(return_value=subprocess.CompletedProcess([], 0, b"4321\n"))
+            runner.command("acquire")
+            runner.command("release")
+            self.assertEqual(runner.helper_pid, 4321)
+            self.assertTrue(runner.focus_released)
+            calls = runner.raw.call_args_list
+            self.assertEqual(calls[0].args, ("transient-focus-acquire", "command", "shell", "am",
+                           "start-foreground-service", "--user", "0", "-n", HELPER + "/.FocusService",
+                           "-a", "acquire", "--es", "nonce", NONCE, "--es", "mode", "transient"))
+            self.assertEqual(calls[2].args, ("transient-focus-release", "command", "shell", "am",
+                           "startservice", "--user", "0", "-n", HELPER + "/.FocusService",
+                           "-a", "release", "--es", "nonce", NONCE))
 
     def test_foreground_pid_change_fails_before_audio_observation_can_mask_it(self):
         with tempfile.TemporaryDirectory() as directory:

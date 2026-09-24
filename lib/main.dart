@@ -169,6 +169,8 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
 
   void _changed() {
     if (!mounted) return;
+    // Coalesce repeats while visible so an ongoing error cannot keep covering
+    // the controls. After dismissal, the same text can start a fresh notice.
     if (_app?.message != _lastMessage) {
       _lastMessage = _app?.message;
       _messageVersion++;

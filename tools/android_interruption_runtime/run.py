@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove permanent Android audio-focus loss while the normal app stays foreground."""
+"""Prove permanent and transient audio-focus loss while MainApp stays foreground."""
 
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ import time
 
 from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, install_output_succeeded, focused_component
 from tools.android_lifecycle_runtime.run import (
-    Runner as LifecycleRunner, button, require_paused_stability, require_playing_advance,
+    Runner as LifecycleRunner, button, playback, require_paused_stability, require_playing_advance,
 )
 from tools.android_native_ui.observer import DEFAULT_APK, ObserverIntegrityFailure
 from tools.incoming_media_runtime.run import exact
@@ -79,7 +79,20 @@ def require_focus(raw: str, package: str, uid: int) -> list[dict]:
     return stack
 
 
-def probe_events(raw: str, nonce: str, uid: int, pid: int | None = None) -> list[dict]:
+def require_transient_focus(raw: str, helper_uid: int, app_uid: int) -> list[dict]:
+    stack = focus_stack(raw)
+    helper = {"package": HELPER, "uid": helper_uid, "gain": "GAIN_TRANSIENT", "loss": "none"}
+    app = {"package": PACKAGE, "uid": app_uid, "gain": "GAIN", "loss": "LOSS_TRANSIENT"}
+    if (len(stack) < 2 or stack[-1] != helper or stack[-2] != app
+            or sum(row["package"] == HELPER for row in stack) != 1
+            or sum(row["package"] == PACKAGE for row in stack) != 1):
+        raise RuntimeFailure("the transient helper did not interrupt the exact current MainApp focus owner")
+    return stack
+
+
+def probe_events(raw: str, nonce: str, uid: int, pid: int | None = None, *, gain: int = 1) -> list[dict]:
+    if gain not in (1, 2):
+        raise ValueError("focus proof requires permanent or transient gain")
     result = []
     for line in raw.splitlines():
         if nonce not in line:
@@ -93,7 +106,7 @@ def probe_events(raw: str, nonce: str, uid: int, pid: int | None = None) -> list
             raise RuntimeFailure("focus helper event JSON is invalid") from error
         if (set(row) != {"protocol", "nonce", "sequence", "event", "result", "gain", "pid", "uid",
                          "elapsedRealtimeMs", "requestStartedElapsedRealtimeMs"}
-                or row["protocol"] != 2 or row["nonce"] != nonce or row["gain"] != 1
+                or row["protocol"] != 2 or row["nonce"] != nonce or row["gain"] != gain
                 or row["uid"] != uid or row["pid"] != int(match[1])
                 or (pid is not None and row["pid"] != pid)
                 or row["sequence"] != len(result) + 1
@@ -131,6 +144,28 @@ def require_prompt_pause(request: dict, observation: dict, xml: str, app_pid: st
             "pauseUpperBoundMs": elapsed, "limitMs": 4000}
 
 
+def require_prompt_transient_resume(release: dict, observation: dict, xml: str, app_pid: str) -> dict:
+    """Bound auto-resume by the complete native hierarchy, not ADB transport time."""
+    released = release.get("elapsedRealtimeMs")
+    capture_start = observation.get("captureStartedAtElapsedRealtimeMs")
+    capture_end = observation.get("captureCompletedAtElapsedRealtimeMs")
+    if (any(type(value) is not int for value in (released, capture_start, capture_end))
+            or not 0 < released <= capture_start <= capture_end
+            or release.get("event") != "released" or release.get("result") != 1
+            or release.get("gain") != 2
+            or observation.get("status") != "success"
+            or observation.get("applicationPid") != int(app_pid)
+            or observation.get("applicationPidAfter") != int(app_pid)
+            or observation.get("xmlSha256") != hashlib.sha256(xml.encode()).hexdigest()):
+        raise RuntimeFailure("transient resume timing is not bound to a fresh same-process hierarchy")
+    elapsed = capture_end - released
+    if elapsed > 10000:
+        raise RuntimeFailure("transient audio-focus auto-resume was not observed within ten device-clock seconds")
+    return {"releasedAtElapsedRealtimeMs": released,
+            "playingHierarchyCompletedAtElapsedRealtimeMs": capture_end,
+            "resumeUpperBoundMs": elapsed, "limitMs": 10000}
+
+
 def lifecycle_events(raw: str) -> list[str]:
     result = []
     for line in raw.splitlines():
@@ -166,6 +201,9 @@ class Runner(LifecycleRunner):
         self.helper_pid: int | None = None
         self.focus_requested = False
         self.focus_released = False
+        self.focus_gain = 1
+        self.permanent_completed = False
+        self.permanent_helper_events: list[dict] = []
         self.foreground_baseline: list[str] | None = None
         self.expected_pid: str | None = None
         self.checks: list[dict] = []
@@ -218,7 +256,7 @@ class Runner(LifecycleRunner):
         else:
             require_foreground_history(self.foreground_baseline, history)
 
-    def focus(self, phase: str, owner: str | None) -> list[dict]:
+    def focus(self, phase: str, owner: str | None, *, transient: bool = False) -> list[dict]:
         raw = self.raw(phase, "audio", "shell", "dumpsys", "audio")
         if owner is None:
             stack = focus_stack(raw)
@@ -227,7 +265,14 @@ class Runner(LifecycleRunner):
         else:
             uid = self.helper_uid if owner == HELPER else package_uid(
                 self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", PACKAGE).stdout.decode(), PACKAGE)
-            stack = require_focus(raw, owner, uid)
+            if transient:
+                if owner != HELPER:
+                    raise ValueError("only the independent helper may request transient focus")
+                app_uid = package_uid(self.adb.run(
+                    "shell", "pm", "list", "packages", "-U", "--user", "0", PACKAGE).stdout.decode(), PACKAGE)
+                stack = require_transient_focus(raw, uid, app_uid)
+            else:
+                stack = require_focus(raw, owner, uid)
         self.foreground(phase)
         self.checks.append({"phase": phase, "focusStack": stack, "appPid": self.expected_pid})
         return stack
@@ -235,17 +280,21 @@ class Runner(LifecycleRunner):
     def command(self, action: str) -> None:
         if action not in ("acquire", "release"):
             raise ValueError("only fixed focus commands are permitted")
+        if self.focus_gain not in (1, 2):
+            raise ValueError("only permanent or transient focus may be requested")
         command = "start-foreground-service" if action == "acquire" else "startservice"
         if action == "acquire":
             self.focus_requested = True
-        value = self.raw(f"focus-{action}", "command", "shell", "am", command, "--user", "0", "-n", SERVICE,
-                         "-a", action, "--es", "nonce", self.nonce)
+        mode = ("--es", "mode", "transient") if action == "acquire" and self.focus_gain == 2 else ()
+        phase = f"{'transient-' if self.focus_gain == 2 else ''}focus-{action}"
+        value = self.raw(phase, "command", "shell", "am", command, "--user", "0", "-n", SERVICE,
+                         "-a", action, "--es", "nonce", self.nonce, *mode)
         if "Error" in value or "Exception" in value or "Starting service:" not in value:
             raise RuntimeFailure("Android did not accept the owned focus service command")
         deadline = time.monotonic() + 15
         while time.monotonic() < deadline:
-            raw = self.raw(f"focus-{action}", "events", "logcat", "-d", "-v", "epoch", "MWFocusProbe:I", "*:S")
-            events = probe_events(raw, self.nonce, self.helper_uid, self.helper_pid)
+            raw = self.raw(phase, "events", "logcat", "-d", "-v", "epoch", "MWFocusProbe:I", "*:S")
+            events = probe_events(raw, self.nonce, self.helper_uid, self.helper_pid, gain=self.focus_gain)
             expected = ["requested"] if action == "acquire" else ["requested", "released"]
             if [row["event"] for row in events] == expected:
                 self.helper_events = events
@@ -259,6 +308,60 @@ class Runner(LifecycleRunner):
                 return
             time.sleep(0.2)
         raise RuntimeFailure("fresh nonce-bound focus service result was not observed")
+
+    def run_transient(self) -> dict:
+        # A fresh request/nonce makes the transient case independent of the
+        # completed permanent-loss case while retaining the same app and media.
+        self.nonce = secrets.token_hex(16)
+        self.focus_gain = 2
+        self.helper_pid = None
+        self.helper_events = []
+        self.focus_requested = self.focus_released = False
+        self.start_recording()
+        self.foreground("15-before-transient")
+        _, before = self.sample("15-transient-playing", playing=True, screenshot=False)
+        self.focus("15-transient-app-focus", PACKAGE)
+        self.command("acquire")
+        xml, paused = self.sample("16-transient-paused", playing=False)
+        pause_timing = require_prompt_pause(self.helper_events[0], self.observer.observations[-1],
+                                            xml, self.expected_pid)
+        if paused.position_seconds < before.position_seconds - 1 or paused.duration_seconds != before.duration_seconds:
+            raise RuntimeFailure("transient audio focus changed the source or rewound the media")
+        self.focus("16-transient-held", HELPER, transient=True)
+        self.foreground("16-transient-paused")
+        time.sleep(4)
+        _, held = self.sample("17-transient-held-stable", playing=False)
+        require_paused_stability(paused, held)
+        self.focus("17-transient-held", HELPER, transient=True)
+        self.command("release")
+        self.focus("18-transient-released", None)
+
+        def playing(xml: str):
+            state = playback(xml, expected_duration_seconds=self.expected_duration_seconds)
+            if not state.playing:
+                raise RuntimeFailure("transient focus did not automatically resume playback")
+            return state
+
+        xml, resumed = self.wait("19-transient-auto-resumed", playing, timeout=10)
+        self.samples.append({"phase": "19-transient-auto-resumed",
+                             "observedAtMonotonic": time.monotonic(), **asdict(resumed)})
+        self.output.joinpath("19-transient-auto-resumed.png").write_bytes(self.adb.screenshot())
+        resume_timing = require_prompt_transient_resume(
+            self.helper_events[1], self.observer.observations[-1], xml, self.expected_pid)
+        if (resumed.duration_seconds != before.duration_seconds
+                or resumed.position_seconds < held.position_seconds - 1):
+            raise RuntimeFailure("transient auto-resume changed the source or rewound the media")
+        self.focus("19-transient-app-focus-regained", PACKAGE)
+        self.foreground("19-transient-auto-resumed")
+        time.sleep(4)
+        _, advanced = self.sample("20-transient-auto-advanced", playing=True)
+        advance = require_playing_advance(resumed, advanced)
+        self.foreground("20-transient-auto-advanced")
+        self.finish_recording(required_phase="20-transient-auto-advanced")
+        return {"pauseTiming": pause_timing, "resumeTiming": resume_timing,
+                "autoResumeAdvanceSeconds": advance, "observedPause": asdict(paused),
+                "observedResume": asdict(resumed), "helperEvents": list(self.helper_events),
+                "sameAppPid": self.expected_pid, "manualPlayAfterRelease": False}
 
     def run(self):
         report = self.prepare()
@@ -311,13 +414,19 @@ class Runner(LifecycleRunner):
         replay_advance = require_playing_advance(replay, replay_advanced)
         self.foreground("14-replay-advanced")
         self.finish_recording(required_phase="14-replay-advanced")
+        self.permanent_completed = True
+        self.permanent_helper_events = list(self.helper_events)
+        transient = self.run_transient()
         report.update(completed=True, initialAdvanceSeconds=initial_advance, replayAdvanceSeconds=replay_advance,
                       pauseTiming=pause_timing,
                       preActionDisplayedAdvanceSeconds=paused.position_seconds - before_focus.position_seconds,
                       observedPause=asdict(paused), samples=self.samples, focusChecks=self.checks,
-                      helperEvents=self.helper_events, nativeUiObservations=self.observer.observations,
+                      helperEvents=self.permanent_helper_events, transient=transient,
+                      permanentCompleted=self.permanent_completed,
+                      nativeUiObservations=self.observer.observations,
                       sameAppPid=self.expected_pid, noActivityPauseOrStop=True,
-                      scope="Local mode; permanent AUDIOFOCUS_GAIN; no GSM call, transient focus, room, remote peer or quota proof")
+                      scope="Local mode; permanent AUDIOFOCUS_GAIN and separate AUDIOFOCUS_GAIN_TRANSIENT; "
+                            "no GSM call, Together room, remote peer or quota proof")
         return report
 
     def cleanup(self):
@@ -367,6 +476,8 @@ def main(argv=None):
         status = 1
         report = {"completed": False, "phase": runner.phase, "error": str(error), "samples": runner.samples,
                   "focusChecks": runner.checks, "helperEvents": runner.helper_events,
+                  "permanentCompleted": runner.permanent_completed,
+                  "permanentHelperEvents": runner.permanent_helper_events,
                   "nativeUiObservations": runner.observer.observations}
         if runner.evidence_started:
             args.output.joinpath("failure.xml").write_text(runner.last_xml, encoding="utf-8")

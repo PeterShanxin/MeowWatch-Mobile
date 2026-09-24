@@ -21,7 +21,11 @@ void main() {
     await _settleNotices(tester);
     expect(find.text(message), findsOneWidget);
 
-    await tester.pump(const Duration(seconds: 9));
+    await tester.pump(const Duration(seconds: 7));
+    app.report(message);
+    await tester.pump();
+    // Repeated sync failures must not extend the original notice indefinitely.
+    await tester.pump(const Duration(seconds: 2));
     await _settleNotices(tester);
     expect(find.byType(SnackBar), findsNothing);
     expect(app.message, isNull);

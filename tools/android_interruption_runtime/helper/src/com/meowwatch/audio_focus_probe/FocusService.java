@@ -26,6 +26,7 @@ public final class FocusService extends Service {
     private AudioFocusRequest request;
     private String nonce;
     private int sequence;
+    private int gain = AudioManager.AUDIOFOCUS_GAIN;
     private long requestStartedElapsed;
 
     @Override public IBinder onBind(Intent intent) { return null; }
@@ -43,6 +44,13 @@ public final class FocusService extends Service {
             return START_NOT_STICKY;
         }
         if (!"acquire".equals(intent.getAction()) || nonce != null) return START_NOT_STICKY;
+        String mode = intent.getStringExtra("mode");
+        if (mode != null && !"permanent".equals(mode) && !"transient".equals(mode)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        gain = "transient".equals(mode)
+            ? AudioManager.AUDIOFOCUS_GAIN_TRANSIENT : AudioManager.AUDIOFOCUS_GAIN;
         nonce = incoming;
         NotificationManager notifications = getSystemService(NotificationManager.class);
         notifications.createNotificationChannel(new NotificationChannel(
@@ -53,7 +61,7 @@ public final class FocusService extends Service {
             .setSmallIcon(android.R.drawable.ic_media_pause).setOngoing(true).build();
         startForeground(71, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
         audio = getSystemService(AudioManager.class);
-        request = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
+        request = new AudioFocusRequest.Builder(gain)
             .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
                 .setContentType(AudioAttributes.CONTENT_TYPE_SPEECH).build())
             .setAcceptsDelayedFocusGain(false)
@@ -76,7 +84,7 @@ public final class FocusService extends Service {
         try {
             JSONObject value = new JSONObject();
             value.put("protocol", 2).put("nonce", nonce).put("sequence", ++sequence)
-                .put("event", name).put("result", result).put("gain", AudioManager.AUDIOFOCUS_GAIN)
+                .put("event", name).put("result", result).put("gain", gain)
                 .put("pid", Process.myPid()).put("uid", Process.myUid())
                 .put("requestStartedElapsedRealtimeMs", requestStartedElapsed)
                 .put("elapsedRealtimeMs", SystemClock.elapsedRealtime());

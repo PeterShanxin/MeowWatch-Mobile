@@ -50,6 +50,8 @@ POSITION_PHASES = {
 POSITION_FIELDS = {"runId", "pid", "phase", "readStage", "readIndex", "role",
                    "controllerId", "startedAtUtc", "timeoutMs", "status", "event",
                    "endedAtUtc", "elapsedMs", "positionMs", "error"}
+WIFI_READY_TIMEOUT = 30
+WIFI_READY_POLL_INTERVAL = 0.5
 
 
 def parse_checkpoint(line: str, run_id: str) -> dict | None:
@@ -160,6 +162,33 @@ def parse_radio(value: bytes) -> bool:
     return value.strip() == b"1"
 
 
+def default_wifi_network(connectivity: str) -> tuple[int | None, str]:
+    """Match the active default ID to one connected Wi-Fi agent, not a request."""
+    defaults = re.findall(r"^Active default network: ([0-9]+)[ \t]*$", connectivity, re.MULTILINE)
+    if len(defaults) != 1:
+        return None, "active default network is missing or ambiguous"
+    network_id = int(defaults[0])
+    sections = re.split(r"^Current Networks:[ \t]*$", connectivity, flags=re.MULTILINE)
+    if len(sections) != 2:
+        return None, "current networks section is missing or ambiguous"
+    agents = []
+    for line in sections[1].splitlines()[1:]:
+        if line and not line[0].isspace():
+            break
+        if line.startswith("  NetworkAgentInfo{"):
+            agents.append(line)
+    matches = [line for line in agents if re.match(
+        rf"^  NetworkAgentInfo\{{network\{{{network_id}\}}\s", line)]
+    if len(matches) != 1:
+        return None, f"default network {network_id} has no unique current agent"
+    agent = matches[0]
+    if not re.search(r"\bni\{WIFI CONNECTED(?:\s|\})", agent):
+        return None, f"default network {network_id} is not connected Wi-Fi"
+    if not re.search(r"\bnc\{\[ Transports: WIFI\s", agent):
+        return None, f"default network {network_id} lacks Wi-Fi transport"
+    return network_id, "connected default Wi-Fi"
+
+
 class Radios:
     """Restore both original settings even if disable only partially succeeds."""
 
@@ -220,9 +249,70 @@ class Radios:
         self.changed = True
         self._apply({"wifi": False, "data": False}, "disable")
 
-    def restore(self) -> None:
-        if self.changed and self.initial is not None:
+    def _wait_for_default_wifi(self) -> None:
+        deadline = time.monotonic() + WIFI_READY_TIMEOUT
+        previous_id = None
+        consecutive = 0
+        reason = "no connectivity observation"
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                result = self.adb.run("shell", "dumpsys", "connectivity",
+                                      timeout=min(5, remaining), check=False)
+                network_id, reason = default_wifi_network(
+                    result.stdout.decode("utf-8", errors="replace")) if result.returncode == 0 else (
+                        None, f"dumpsys connectivity exited {result.returncode}")
+                self.record({"operation": "wifi-default-observation",
+                             "networkId": network_id, "reason": reason,
+                             "stdoutBytes": len(result.stdout),
+                             "stdoutSha256": hashlib.sha256(result.stdout).hexdigest(),
+                             "stderrBytes": len(result.stderr),
+                             "stderrSha256": hashlib.sha256(result.stderr).hexdigest()})
+            except (OSError, RuntimeFailure, subprocess.TimeoutExpired) as error:
+                network_id = None
+                reason = f"dumpsys connectivity failed: {type(error).__name__}: {error}"
+                self.record({"operation": "wifi-default-observation",
+                             "networkId": None, "reason": reason[:400]})
+            if network_id is not None:
+                consecutive = consecutive + 1 if network_id == previous_id else 1
+                previous_id = network_id
+                if consecutive == 2:
+                    self.record({"operation": "wifi-default-ready", "networkId": network_id,
+                                 "observations": consecutive})
+                    return
+            else:
+                previous_id = None
+                consecutive = 0
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(WIFI_READY_POLL_INTERVAL, remaining))
+        raise RuntimeFailure(f"stable default Wi-Fi not observed within {WIFI_READY_TIMEOUT}s: {reason}")
+
+    def restore(self, *, stable_primary: bool = False) -> None:
+        if not self.changed or self.initial is None:
+            return
+        if not stable_primary or self.initial != {"wifi": True, "data": True}:
             self._apply(self.initial, "restore")
+            return
+        readiness_error = None
+        try:
+            self._apply({"wifi": True, "data": False}, "restore-wifi-first")
+            self._wait_for_default_wifi()
+        except Exception as error:
+            readiness_error = error
+        try:
+            self._apply(self.initial, "restore")
+        except Exception as error:
+            if readiness_error is not None:
+                raise RuntimeFailure(
+                    f"Wi-Fi recovery failed: {readiness_error}; original radio restore failed: {error}") from error
+            raise
+        if readiness_error is not None:
+            self.record({"operation": "wifi-default-ready", "passed": False,
+                         "reason": f"{type(readiness_error).__name__}: {readiness_error}"[:400]})
+            raise readiness_error
 
 
 def validate_result(result: dict, run_id: str, build_mode: str = "debug") -> None:
@@ -461,7 +551,7 @@ class Runner:
                 raise RuntimeFailure("radios changed before the offline observation")
             self.finish_recording(phase)
             self.start_recording()
-            self.radios.restore()
+            self.radios.restore(stable_primary=True)
             self.capture("radios-restored")
             self.ack("network-restored")
         elif phase == "reconnected-confirmed":

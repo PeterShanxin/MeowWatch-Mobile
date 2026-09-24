@@ -12,7 +12,8 @@ from unittest.mock import patch
 
 from tools.android_network_runtime.run import (
     PACKAGE, PHASES, REQUIRED, Radios, Runner, RuntimeFailure,
-    native_position_diagnostics, parse_checkpoint, parse_radio, require_owned_avd, validate_result,
+    default_wifi_network, native_position_diagnostics, parse_checkpoint, parse_radio,
+    require_owned_avd, validate_result,
 )
 
 
@@ -32,6 +33,9 @@ class FakeAdb:
         self.fail_once = None
         self.pid = b""
         self.installed = True
+        self.connectivity_responses = []
+        self.radios_at_connectivity = []
+        self.connectivity_timeouts = []
 
     def run(self, *args, **kwargs):
         self.calls.append(args)
@@ -49,6 +53,10 @@ class FakeAdb:
                 raise RuntimeFailure("native svc failure")
             self.radios[args[2]] = args[3] == "enable"
             value = b""
+        elif args == ("shell", "dumpsys", "connectivity"):
+            self.radios_at_connectivity.append(self.radios.copy())
+            self.connectivity_timeouts.append(kwargs.get("timeout"))
+            value = self.connectivity_responses.pop(0) if self.connectivity_responses else b""
         elif args == ("shell", "pidof", PACKAGE):
             value = self.pid
         elif args == ("shell", "pm", "list", "packages", "--user", "0", PACKAGE):
@@ -173,6 +181,147 @@ class OwnershipTests(unittest.TestCase):
         with self.assertRaises(RuntimeFailure):
             radios.restore()
         self.assertFalse(any(call[:2] == ("shell", "svc") for call in adb.calls[before:]))
+
+
+def connectivity(default: int, *agents: tuple[int, str, str]) -> bytes:
+    lines = [f"Active default network: {default}", "Current Networks:"]
+    for network_id, transport, state in agents:
+        lines.append(
+            f"  NetworkAgentInfo{{network{{{network_id}}}  handle{{123}}  "
+            f"ni{{{transport} {state} extra: }} created=now "
+            f"nc{{[ Transports: {transport} Capabilities: INTERNET&VALIDATED]}}"
+        )
+    return "\n".join([*lines, "Status for known UIDs:", ""]).encode()
+
+
+class StablePrimaryRecoveryTests(unittest.TestCase):
+    def test_default_wifi_must_match_one_current_connected_agent(self):
+        cellular = connectivity(102, (102, "MOBILE[HSPA]", "CONNECTED"),
+                                (103, "WIFI", "CONNECTED"))
+        self.assertIn("not connected Wi-Fi", default_wifi_network(cellular.decode())[1])
+        self.assertEqual(default_wifi_network(connectivity(
+            103, (102, "MOBILE[HSPA]", "CONNECTED"),
+            (103, "WIFI", "CONNECTED")).decode())[0], 103)
+        for text in (
+            connectivity(103, (102, "MOBILE[HSPA]", "CONNECTED")),
+            connectivity(103, (103, "WIFI", "CONNECTING")),
+            connectivity(103, (103, "WIFI|CELLULAR", "CONNECTED")),
+            connectivity(103, (103, "WIFI", "CONNECTED"), (103, "WIFI", "CONNECTED")),
+            connectivity(103, (103, "WIFI", "CONNECTED"))
+            + b"Active default network: 103\n",
+        ):
+            with self.subTest(text=text[:80]):
+                self.assertIsNone(default_wifi_network(text.decode())[0])
+
+    def test_cellular_default_then_two_fresh_wifi_observations_restore_data_last(self):
+        adb, evidence = FakeAdb(), []
+        adb.radios["data"] = True
+        adb.connectivity_responses = [
+            connectivity(102, (102, "MOBILE[HSPA]", "CONNECTED")),
+            connectivity(103, (103, "WIFI", "CONNECTED")),
+            connectivity(103, (103, "WIFI", "CONNECTED")),
+        ]
+        radios = Radios(adb, AVD, evidence.append)
+        radios.capture_initial()
+        radios.disable()
+        with patch("tools.android_network_runtime.run.WIFI_READY_POLL_INTERVAL", 0):
+            radios.restore(stable_primary=True)
+        self.assertEqual(adb.radios, {"wifi": True, "data": True})
+        self.assertEqual(adb.radios_at_connectivity,
+                         [{"wifi": True, "data": False}] * 3)
+        self.assertTrue(all(0 < timeout <= 5 for timeout in adb.connectivity_timeouts))
+        self.assertEqual([item["networkId"] for item in evidence
+                          if item["operation"] == "wifi-default-observation"],
+                         [None, 103, 103])
+        self.assertTrue(all(len(item["stdoutSha256"]) == 64 for item in evidence
+                            if item["operation"] == "wifi-default-observation"))
+        self.assertLess(adb.calls.index(("shell", "dumpsys", "connectivity")),
+                        adb.calls.index(("shell", "svc", "data", "enable")))
+        self.assertEqual(evidence[-1]["operation"], "restore")
+
+    def test_single_original_radio_uses_existing_restore_path(self):
+        adb, evidence = FakeAdb(), []
+        radios = Radios(adb, AVD, evidence.append)
+        radios.capture_initial()
+        radios.disable()
+        radios.restore(stable_primary=True)
+        self.assertEqual(adb.radios, {"wifi": True, "data": False})
+        self.assertEqual(adb.radios_at_connectivity, [])
+        self.assertEqual([item["operation"] for item in evidence if
+                          item["operation"].startswith("restore")], ["restore"])
+
+    def test_ambiguous_wifi_observation_breaks_consecutive_streak(self):
+        adb, evidence = FakeAdb(), []
+        adb.radios["data"] = True
+        ready = connectivity(103, (103, "WIFI", "CONNECTED"))
+        adb.connectivity_responses = [ready, ready + b"Active default network: 103\n",
+                                      ready, ready]
+        radios = Radios(adb, AVD, evidence.append)
+        radios.capture_initial()
+        radios.disable()
+        with patch("tools.android_network_runtime.run.WIFI_READY_POLL_INTERVAL", 0):
+            radios.restore(stable_primary=True)
+        self.assertEqual(len(adb.radios_at_connectivity), 4)
+        self.assertEqual(adb.radios, {"wifi": True, "data": True})
+
+    def test_wifi_timeout_and_failure_still_restore_original_exact_state(self):
+        for failure in ("timeout", "dumpsys failure"):
+            with self.subTest(failure=failure):
+                adb, evidence = FakeAdb(), []
+                adb.radios["data"] = True
+                radios = Radios(adb, AVD, evidence.append)
+                radios.capture_initial()
+                radios.disable()
+                if failure == "timeout":
+                    with patch("tools.android_network_runtime.run.WIFI_READY_TIMEOUT", 0), \
+                            self.assertRaisesRegex(RuntimeFailure, "stable default Wi-Fi"):
+                        radios.restore(stable_primary=True)
+                else:
+                    with patch.object(radios, "_wait_for_default_wifi",
+                                      side_effect=RuntimeFailure("dumpsys failed")), \
+                            self.assertRaisesRegex(RuntimeFailure, "dumpsys failed"):
+                        radios.restore(stable_primary=True)
+                self.assertEqual(adb.radios, {"wifi": True, "data": True})
+                self.assertEqual([item["operation"] for item in evidence[-2:]],
+                                 ["restore", "wifi-default-ready"])
+                self.assertTrue(any(item["operation"] == "wifi-default-ready"
+                                    and item.get("passed") is False for item in evidence))
+
+    def test_expired_poll_budget_never_issues_adb_with_negative_timeout(self):
+        adb, evidence = FakeAdb(), []
+        radios = Radios(adb, AVD, evidence.append)
+        with patch("tools.android_network_runtime.run.WIFI_READY_TIMEOUT", 0.5), \
+                patch("tools.android_network_runtime.run.time.monotonic",
+                      side_effect=[0.0, 0.0, 1.0]), \
+                self.assertRaisesRegex(RuntimeFailure, "stable default Wi-Fi"):
+            radios._wait_for_default_wifi()
+        self.assertNotIn(("shell", "dumpsys", "connectivity"), adb.calls)
+
+    def test_wifi_readiness_and_final_restore_errors_are_both_reported(self):
+        adb, evidence = FakeAdb(), []
+        adb.radios["data"] = True
+        radios = Radios(adb, AVD, evidence.append)
+        radios.capture_initial()
+        radios.disable()
+        original_run = adb.run
+
+        def fail_after_data_enable(*args, **kwargs):
+            result = original_run(*args, **kwargs)
+            if args == ("shell", "svc", "data", "enable"):
+                raise RuntimeFailure("data enable reported failure")
+            return result
+
+        with patch.object(adb, "run", side_effect=fail_after_data_enable), \
+                patch.object(radios, "_wait_for_default_wifi",
+                             side_effect=RuntimeFailure("Wi-Fi never became default")), \
+                self.assertRaisesRegex(RuntimeFailure,
+                                       "Wi-Fi recovery failed:.*Wi-Fi never became default; "
+                                       "original radio restore failed"):
+            radios.restore(stable_primary=True)
+        self.assertEqual(adb.radios, {"wifi": True, "data": True})
+        self.assertTrue(any("data: data enable reported failure" in error
+                            for item in evidence if item["operation"] == "restore"
+                            for error in item["commandErrors"]))
 
 
 def result():
@@ -349,6 +498,30 @@ class EvidenceTests(unittest.TestCase):
         runner.radios.adb = runner.adb
         runner.observer = FakeObserver()
         return runner
+
+    def test_wifi_readiness_failure_restores_original_radios_without_ack(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.adb.radios["data"] = True
+            runner.radios.capture_initial()
+            runner.radios.disable()
+            runner.android_pid = 456
+            runner.phase_index = PHASES.index("offline-confirmed")
+            marker = {"runId": RUN_ID, "phase": "offline-confirmed", "pid": 456}
+            with patch.object(runner, "capture"), \
+                    patch.object(runner, "finish_recording"), \
+                    patch.object(runner, "start_recording"), \
+                    patch.object(runner, "ack") as ack, \
+                    patch.object(runner.radios, "_wait_for_default_wifi",
+                                 side_effect=RuntimeFailure("Wi-Fi never became default")), \
+                    self.assertRaisesRegex(RuntimeFailure, "Wi-Fi never became default"):
+                runner.observe_checkpoint(marker)
+            ack.assert_not_called()
+            self.assertEqual(runner.adb.radios, {"wifi": True, "data": True})
+            self.assertTrue(any(item["operation"] == "wifi-default-ready"
+                                and item.get("passed") is False for item in runner.events))
 
     def test_playing_capture_uses_fresh_native_observer_without_idle_wait(self):
         with tempfile.TemporaryDirectory() as directory:

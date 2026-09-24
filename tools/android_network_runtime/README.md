@@ -30,6 +30,16 @@ at least 800 ms establish no autoplay. Explicit UI Play must advance both native
 players; Pause and Seek must reach the peer and settle within 350 ms. No simulated
 disconnect, connectivity plugin, manual reconnect, or acceptance retry is used.
 
+When both radios originally were enabled, recovery enables Wi-Fi first and
+requires two fresh observations of the same connected default Wi-Fi network
+before restoring mobile data. The check is bounded to 30 seconds with each ADB
+read bounded to five seconds; ambiguous or cellular defaults do not qualify.
+This avoids creating a second outage when Android retires a temporary cellular
+connection after Wi-Fi takes over. Each observation retains its network ID,
+reason and output hashes. A failed readiness check still restores both original
+settings and fails without acknowledging recovery. Final cleanup always uses
+the ordinary exact-state restoration path.
+
 Run-specific logcat checkpoints coordinate external actions. Local sandbox
 acknowledgement files allow the test to wait without IP connectivity. The runner
 writes each payload to a unique sibling temporary file, closes it, then atomically

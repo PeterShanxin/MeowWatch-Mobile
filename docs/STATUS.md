@@ -33,7 +33,14 @@ purchase, same-customer RevenueCat relaunch/expiry and SAF local-file relaunch.
 Network debug `36044617832` fails while the independent UI observer returns
 `root_missing` on all 16 capture attempts at `initial-ready`. The application
 retains focus and its PID; no playback result is available. Its unchanged
-second attempt is pending. Profile `36044653778` passes initial playback, radio
+second attempt passes the initial outage, then encounters a second real network
+loss: restored cellular network 102 is replaced by Wi-Fi 103, and Android's
+30-second linger expiry closes the old sockets during replay. The app correctly
+pauses again. The runner now waits for two matching connected default Wi-Fi
+observations before restoring cellular data, with a 30-second limit and exact
+original-state cleanup on failure. All 45 runnable local mocked radio contracts
+pass; one POSIX-only check is skipped on Windows. Fresh native debug proof is
+still required for this harness change. Profile `36044653778` passes initial playback, radio
 loss, automatic pause and no-autoplay reconnect, then fails explicit replay:
 all 198 position reads succeed, but the closest pair is 1,105 ms apart and the
 last is 54,953 / 53,416 ms. Peer and teardown errors are empty. These failures
@@ -52,15 +59,25 @@ earlier diagnostic at `64c2f5e` fails with 1,150 ms after five modeled seconds;
 the final regression covers the retained strong band through moderate drift.
 Hosted Check `36054666023` passes all **782 app, 87 Nearby and 14 platform
 tests**, formatting, analysis, media contracts and the secret scan. Fresh
-profile network `36055097185` is running for the production correction; its
-native result remains required. No native threshold is relaxed.
+profile network `36055097185` passes on one API 35 AVD with two real TLS clients
+and native decoders. Initial playback converges in 7.561 seconds at 4,551 / 4,183
+ms, and explicit replay after the outage converges in 5.531 seconds at 39,733 /
+40,459 ms. Automatic pause, no-autoplay rejoin, explicit Pause/Seek, unchanged
+controllers/quota and complete teardown pass; peer/teardown errors are empty.
+This run predates the staged radio restore and does not verify that harness
+change. No native threshold is relaxed.
 
 Together `36044618079` reports both app tests passed, but the tablet ADB
 recording connection terminates and its recorder exits 255 during final result
 recovery. Concurrent low-memory activity does not establish which process
 caused the disconnect. The incomplete journey is not accepted as a pass.
-Run `36053642428` repeats the standard phone/tablet layouts with smaller native
-recording output, preserving original failure checks and recording gaps.
+Run `36053642428` passes all 26 host and 25 guest stages with standard phone/tablet
+layouts and smaller native recording output. Settled native positions match at
+12,416, 53,361 and 55,242 ms. Each device records one complete segment; no recorder
+restart is required. The routine Together workflow now defaults to this compact
+capture without changing UI geometry or acceptance checks. Hosted original-frame
+review `36056723226` strictly decodes both sources and all 95 exported PNG hashes
+match. Sampled visual review is in progress; source held-frame gaps remain visible.
 
 The 116-second film renders in `36044649586` and strictly decodes all 3,480
 frames. SHA-256:

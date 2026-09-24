@@ -33,9 +33,8 @@ class LocalMobileTarget extends PlaybackTarget {
   @override
   PlaybackSnapshot get snapshot => _snapshot;
   @override
-  bool get playRequested =>
-      _snapshot.ready &&
-      (_snapshot.buffering ? _playRequested : _snapshot.playing);
+  // Buffering can end before the native isPlaying update arrives.
+  bool get playRequested => _snapshot.ready && _playRequested;
   @override
   Stream<PlaybackSnapshot> get states => _states.stream;
   VideoPlayerController? get controller => _controller;

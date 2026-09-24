@@ -218,6 +218,56 @@ void main() {
     },
   );
 
+  test('buffering end does not turn a requested play into a pause', () async {
+    final target = createTarget();
+    await target.load(_media('buffering-transition'));
+    await target.play();
+    expect(target.playRequested, isTrue);
+
+    platform.emit(VideoEvent(eventType: VideoEventType.bufferingStart));
+    await _flushEvents();
+    expect(target.snapshot.buffering, isTrue);
+
+    platform.emit(
+      VideoEvent(
+        eventType: VideoEventType.isPlayingStateUpdate,
+        isPlaying: false,
+      ),
+    );
+    await _flushEvents();
+    expect(target.snapshot.playing, isFalse);
+    expect(target.playRequested, isTrue);
+
+    // Android emits bufferingEnd before its next isPlaying=true update.
+    platform.emit(VideoEvent(eventType: VideoEventType.bufferingEnd));
+    await _flushEvents();
+    expect(target.snapshot.buffering, isFalse);
+    expect(target.snapshot.playing, isFalse);
+    expect(target.playRequested, isTrue);
+
+    platform.emit(
+      VideoEvent(
+        eventType: VideoEventType.isPlayingStateUpdate,
+        isPlaying: true,
+      ),
+    );
+    await _flushEvents();
+    expect(target.snapshot.playing, isTrue);
+    expect(target.playRequested, isTrue);
+
+    // A separate non-buffering native pause still clears the intent.
+    platform.emit(
+      VideoEvent(
+        eventType: VideoEventType.isPlayingStateUpdate,
+        isPlaying: false,
+      ),
+    );
+    await _flushEvents();
+    expect(target.snapshot.buffering, isFalse);
+    expect(target.snapshot.playing, isFalse);
+    expect(target.playRequested, isFalse);
+  });
+
   test('load, completion, and player errors clear play intent', () async {
     final target = createTarget();
     await target.load(_media('first'));

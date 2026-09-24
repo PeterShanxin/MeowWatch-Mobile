@@ -231,6 +231,16 @@ timing/gap manifest, driver observations, and device logs before attributing a
 change in visible motion to the app, recorder, or hosted emulator. A passing
 driver or side-by-side composition alone is insufficient motion evidence.
 
+Flutter 3.44's integration binding uses a real IME, while
+`WidgetTester.enterText` sends a special test client ID that Flutter accepts
+only in debug mode. The production Together test keeps `tester.enterText` for
+debug runs. In profile diagnostics it focuses the same visible text field and
+injects a `TextEditingValue` through its `EditableTextState`, then verifies
+that the field actually retained the full value before continuing through the
+normal UI submit and validation path. This is test-only synthetic text input,
+not physical keyboard proof. Profile runs still require a successful real
+guest join, native playback, and every existing explicit test expectation.
+
 `ci_together.sh` starts the loopback-only fixture server, launches the two AVDs,
 records the complete smoke, composes valid native recordings, and then stops
 the task-owned AVDs and server even when a stage fails. It preserves the first

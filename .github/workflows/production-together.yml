@@ -27,6 +27,7 @@ on:
       - 'tools/native_capture/**'
       - '.github/workflows/production-together.yml'
       - 'integration_test/production_together_test.dart'
+      - 'integration_test/support/test_text_entry.dart'
       - 'test_driver/production_together_driver.dart'
       - 'tools/production_together/**'
       - 'tools/android_multi_device/**'

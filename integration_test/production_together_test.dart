@@ -20,6 +20,7 @@ import 'package:video_player/video_player.dart';
 import '../tools/native_capture/native_screenshot.dart';
 import '../tools/production_together/json_request.dart';
 import 'support/native_invite_qr.dart';
+import 'support/test_text_entry.dart';
 
 const _role = String.fromEnvironment('TOGETHER_ROLE', defaultValue: 'host');
 const _runId = String.fromEnvironment('TOGETHER_ROOM');
@@ -1087,7 +1088,7 @@ Future<void> _completeOnboarding(WidgetTester tester, String name) async {
     timeout: const Duration(seconds: 40),
   );
   if (initial.evaluate().first.widget.key == const Key('display-name-field')) {
-    await tester.enterText(initial, name);
+    await enterTogetherTestText(tester, initial, name);
     FocusManager.instance.primaryFocus?.unfocus();
     await tester.pump(const Duration(milliseconds: 200));
     await _tap(
@@ -1112,7 +1113,7 @@ Future<void> _joinThroughUi(WidgetTester tester, String invite) async {
   );
   final joinField = find.byKey(const Key('join-code-field'));
   await _waitFor(tester, joinField, 'production join sheet');
-  await tester.enterText(joinField, invite);
+  await enterTogetherTestText(tester, joinField, invite);
   FocusManager.instance.primaryFocus?.unfocus();
   await tester.pump(const Duration(milliseconds: 200));
   await _tap(
@@ -1148,7 +1149,7 @@ Future<void> _chooseVideoUrlThroughUi(
   );
   final field = find.byType(TextField).hitTestable();
   await _waitFor(tester, field, 'direct video URL field');
-  await tester.enterText(field.last, url);
+  await enterTogetherTestText(tester, field.last, url);
   FocusManager.instance.primaryFocus?.unfocus();
   await tester.pump(const Duration(milliseconds: 200));
   await _tap(tester, find.text('Use this link'), 'Use this link');
@@ -1499,7 +1500,7 @@ Future<void> _sendChatThroughUi(
   await _openChat(tester);
   final field = find.byType(TextField).hitTestable();
   await _waitFor(tester, field, 'production chat field');
-  await tester.enterText(field.last, message);
+  await enterTogetherTestText(tester, field.last, message);
   await _tap(
     tester,
     find.byTooltip('Send message').hitTestable(),

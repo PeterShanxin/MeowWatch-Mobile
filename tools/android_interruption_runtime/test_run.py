@@ -227,7 +227,7 @@ class FlowTests(unittest.TestCase):
             def sample(phase, **kwargs):
                 events.append("sample:" + phase)
                 position, playing = next(iterator)
-                return xml, Playback(position, 90, playing)
+                return xml, Playback(position, 180, playing)
             runner.sample = sample
             with patch("tools.android_interruption_runtime.run.time.sleep"):
                 report = runner.run()
@@ -265,10 +265,10 @@ class FlowTests(unittest.TestCase):
                     xmlSha256=hashlib.sha256(xml.encode()).hexdigest(),
                     captureStartedAtElapsedRealtimeMs=start,
                     captureCompletedAtElapsedRealtimeMs=end))
-            states = {"15-transient-playing": Playback(20, 90, True),
-                      "16-transient-paused": Playback(21, 90, False),
-                      "17-transient-held-stable": Playback(21, 90, False),
-                      "20-transient-auto-advanced": Playback(26, 90, True)}
+            states = {"15-transient-playing": Playback(20, 180, True),
+                      "16-transient-paused": Playback(21, 180, False),
+                      "17-transient-held-stable": Playback(21, 180, False),
+                      "20-transient-auto-advanced": Playback(26, 180, True)}
             def sample(phase, **kwargs):
                 if phase == "16-transient-paused":
                     observe(1100, 2000)
@@ -276,7 +276,7 @@ class FlowTests(unittest.TestCase):
             def wait(phase, check, timeout=45):
                 self.assertEqual((phase, timeout), ("19-transient-auto-resumed", 10))
                 observe(4300, 5000)
-                return xml, Playback(22, 90, True)
+                return xml, Playback(22, 180, True)
             def command(action):
                 if action == "acquire":
                     runner.helper_events = [dict(event="requested", result=1, gain=2,

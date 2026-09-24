@@ -192,7 +192,7 @@ def require_resumed_baseline(history: list[str], pid: str) -> None:
 
 class Runner(LifecycleRunner):
     def __init__(self, *args, avd_name: str, helper_apk: Path = HELPER_APK, **kwargs):
-        super().__init__(*args, **kwargs)
+        super().__init__(*args, expected_duration_seconds=180, **kwargs)
         self.avd_name = avd_name
         self.helper_apk = helper_apk
         self.nonce = secrets.token_hex(16)

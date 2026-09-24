@@ -565,6 +565,9 @@ class _RecordingSocket extends StreamView<Uint8List> implements Socket {
   Future<void> flush() async {}
 
   @override
+  Future<dynamic> get done => _inner.done;
+
+  @override
   dynamic noSuchMethod(Invocation invocation) => null;
 }
 

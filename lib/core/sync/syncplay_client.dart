@@ -283,6 +283,10 @@ class SyncplayClient extends SyncCore {
         _port,
         timeout: const Duration(seconds: 10),
       );
+      // Socket reports transport errors on both its read stream and sink
+      // completion. The read listener owns failure/reconnect; handling that
+      // stream alone leaves this second error unhandled during radio loss.
+      plain.done.ignore();
       // A late dial that resolves after we already moved on: drop it.
       if (generation != _generation || _manualDisconnect) {
         plain.destroy();
@@ -486,6 +490,9 @@ class SyncplayClient extends SyncCore {
               _failTlsNegotiation('TLS handshake failed: $e');
               return;
             }
+            // The upgraded socket has its own sink completion, including if
+            // this handshake finishes after its connection was abandoned.
+            secure.done.ignore();
             // The await above can outlive a teardown — drop the upgraded socket
             // rather than binding it over a newer attempt.
             if (stale()) {

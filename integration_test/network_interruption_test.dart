@@ -23,6 +23,7 @@ import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/main.dart';
 
 import '../tools/native_capture/native_screenshot.dart';
+import 'support/test_text_entry.dart';
 
 const _runId = String.fromEnvironment('NETWORK_RUN_ID');
 const _videoUrl = 'http://10.0.2.2:18765/sync-fixture.mp4';
@@ -181,7 +182,8 @@ void main() {
           'production onboarding',
         );
         final tag = _runId.substring(_runId.length > 8 ? _runId.length - 8 : 0);
-        await tester.enterText(
+        await enterTogetherTestText(
+          tester,
           find.byKey(const Key('display-name-field')),
           'NetworkHost $tag',
         );
@@ -224,15 +226,15 @@ void main() {
         );
         stage = 'host-media-load';
         await _tap(tester, find.widgetWithText(TextButton, 'Video'));
+        final videoField = find.byType(TextField).hitTestable();
         await _wait(
           tester,
-          () => find.text('Choose what to watch').evaluate().isNotEmpty,
-          'production media sheet',
+          () =>
+              find.text('Choose what to watch').evaluate().isNotEmpty &&
+              videoField.evaluate().isNotEmpty,
+          'production media sheet and URL field',
         );
-        await tester.enterText(
-          find.byType(TextField).hitTestable().last,
-          _videoUrl,
-        );
+        await enterTogetherTestText(tester, videoField.last, _videoUrl);
         FocusManager.instance.primaryFocus?.unfocus();
         await _tap(tester, find.text('Use this link'));
         await _wait(

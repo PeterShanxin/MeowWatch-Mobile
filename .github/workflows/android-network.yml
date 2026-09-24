@@ -13,6 +13,7 @@ on:
     paths:
       - '.github/workflows/android-network.yml'
       - 'integration_test/network_interruption_test.dart'
+      - 'integration_test/support/test_text_entry.dart'
       - 'test_driver/network_interruption_driver.dart'
       - 'tools/android_network_runtime/**'
       - 'tools/android_lifecycle_runtime/**'
@@ -57,6 +58,7 @@ jobs:
           test/core/sync/syncplay_client_starttls_test.dart
           test/core/sync/syncplay_client_tls_cancellation_test.dart
           test/core/session/playback_sync_bridge_test.dart
+          test/integration_support/test_text_entry_test.dart
       - name: Verify radio ownership and evidence contracts
         run: |
           python3 -m unittest discover -s tools/android_network_runtime -p 'test_*.py'

@@ -9,7 +9,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Partial | Fresh 54b4203 API 35 debug, API 29 debug and API 35 release normal installs pass independent audit, including seven intake reviews and two confirmed playback cases per variant. The late SDK Setup ANR recovery branch is not exercised in this run. Physical acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 9f69ecc snapshot passes Gitleaks 8.30.1 with zero findings in 504 tracked files and 81 all-ref commits; no suspicious tracked paths. Subsequent edits need a final scan. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. The 8290c61 snapshot passes Gitleaks 8.30.1 with zero findings in 504 tracked files and 82 all-ref commits; no suspicious tracked paths. Subsequent edits need a final scan. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Partial | af45d24 passes all five first-use/layout drivers and teardown, including native keyboard visibility after invalid join. The guide's primary instructions and actions remain accessible. 5137e58 production Together passes actual Start, invitation review and Join on independent emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6c44e415 runtime matrix passes on two API 35 emulators after fixing the stale pause snapshot. 5137e58 production Together also passes all named two-way playback checkpoints. Equal position checkpoints do not establish identical decoded frames or physical-device behavior |
 | 5 | Real-session chat/reactions/presence | Partial | 5137e58 production Together passes chat, reactions, presence and confirmed peer-link playback on independent phone/tablet emulators. 2fc38317 purchase also proves the premium reaction received by a TLS peer. Final submission film remains open |
@@ -26,7 +26,8 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Latest targeted native verification
 
-The September 18 local verification on official Flutter 3.44 passes formatting, analysis,
+The September 24 local verification on an isolated official Flutter 3.44.0 SDK
+(Dart 3.12.0) passes locked dependency resolution, formatting, analysis,
 **725 app tests with zero skips**, and a normal debug APK build. Same-host Nearby
 TLS tests use the actual Windows WSL virtual adapter; this is not physical LAN
 acceptance. The short-landscape join regression now keeps both the editable text
@@ -40,14 +41,48 @@ or replacement room; revision/lifecycle guards and owned-notice cleanup fix that
 case, including preserving unrelated queued app messages. All eighteen immersive
 platform/widget tests pass; these are included in the app total.
 
-September 24 resumed work preserves that application baseline. The test-only
+That full check precedes the input-modality fix below. The test-only
 native observer now separates bounded cold startup from its original four-second
 hierarchy budget, propagates caller deadlines through fullscreen/system-dialog
 checks, and rejects late results. Its Android SDK 35 APK builds and verifies;
 189 related Python tests and another 53 network/audio-interruption tests pass.
 Fullscreen auto-hide now captures an observer-free native interval for explicit
 image/video review, because accessibility reads themselves reveal the controls.
-Fresh phone/tablet fullscreen and network runtime acceptance remain required.
+Fresh phone/tablet fullscreen run `35958877057` at `8290c61` fails: the phone
+passes native landscape playback and first Back restoration, then its static
+Home transition fails live recording readiness. The finalized third MP4 fully
+decodes and visibly reaches Home, but the fresh Home hierarchy gate was never
+executed. The tablet times out during the post-idle observer capture. Both
+phone idle PNGs still show controls; auto-hide is not verified by this run.
+Both tablet idle PNGs also retain controls across 17.92 device seconds, while
+the native picture and timeline advance. These failures are not accepted as passes.
+The tablet's first post-idle capture now has one 30-second caller budget to
+accommodate the observer's existing bounded cold setup/traversal/transfer; late
+results still fail and actual two-second native advancement remains mandatory.
+The third phone segment now verifies a finite, finalized Home transition, with
+fresh Home UI/PNG evidence and explicit manual video review instead of claiming
+continuous video over a static screen. All 195 related Python contracts pass.
+
+A separate widget regression reproduces controls remaining visible after keyboard
+focus switches to touch without moving focus. The player now tracks focus and
+input modality independently, resumes timed hiding on touch, and reveals controls
+when keyboard navigation resumes. All 18 fullscreen widget tests pass, including
+dynamic accessibility disable and keyboard/touch/keyboard navigation. This is a
+confirmed product fix, but its relationship to the native auto-hide failure still
+needs a fresh phone/tablet run. Full app verification is being repeated.
+
+Network run `35958879510` at the same head captures a fresh app hierarchy but
+fails before playback or radio interruption: Dart sees the acknowledgement path
+before the shell has written its payload. Publication now writes a unique sibling
+temporary file and atomically renames it, with exact readback and owned cleanup.
+The unchanged Dart exists/read protocol passes a real POSIX interleaving regression
+that pauses the writer midway. All 35 network tool tests pass on WSL; a fresh
+native run `35960629684` tests `ad05764` and is in progress. Four additional Bash contract tests verify the
+optional Together Profile build/drive mode, APK identity checks and default Debug
+behavior. The first Profile dispatch stops before building because existing
+fixture tests lacked the new APK provenance inputs; those fixtures are corrected,
+all 69 related tool tests pass, and `35960861121` tests `511eed6`. Profile is a
+motion diagnostic, not purchase or Debug acceptance.
 The development showcase recording resumes in a new file; the prior file's last
 saved chunk is September 18. The intervening gap is not continuous footage.
 
@@ -696,11 +731,14 @@ remain open. Historical runs and asset provenance are preserved in
 
 ## Live development recording
 
-Continuous recording began when the local Codex showcase opened. The viewer
+The initial recording began when the local Codex showcase opened. Its last
+saved chunk is September 18; a new recording started on September 24 after the
+development pause. This gap is retained and is not continuous recorded work.
+The viewer
 labels captured native footage, missing devices and recording gaps. The unchanged
 `2fc38317` guide/local-player and purchase source recordings are available there
 and have been replayed inside its running 2 fps silent canvas capture. The
-118-second Review Preview has a separate browser player. The continuous capture
+118-second Review Preview is available in the resumed browser canvas. The capture
 does not record microphone/desktop or
 reconstruct earlier unrecorded development. The final demo will use actual
 phone/tablet footage with simple frames; submission screenshots remain unframed.

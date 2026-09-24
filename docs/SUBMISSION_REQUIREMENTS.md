@@ -4,6 +4,12 @@ Verified against the current primary sources on 2026-09-16. The English
 [Official Rules on Devpost](https://revenuecat-shipaton-2026.devpost.com/rules)
 control if another Shipaton page or translation differs.
 
+The deadline, explicit Next Gen no-store path and organizer's Test Store answer
+were rechecked on 2026-09-24 at the linked primary sources below. They remain
+unchanged. The organizer discussion still has no answer to the required
+store-release checkbox follow-up; do not attest to a store release that did not
+happen.
+
 ## Confirmed submission path
 
 - **Category and entrant:** Next Gen is for an active student aged 13 or older

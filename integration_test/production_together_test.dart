@@ -470,6 +470,7 @@ void main() {
       } else {
         await _waitForCheckpoint(tester, 'host', 'send-heart');
         await _sendReactionThroughUi(tester, '❤️');
+        _expectTabletVideoVisible(tester, includeReaction: true);
         await _waitForCheckpoint(tester, 'host', 'heart-seen');
       }
       verified.add('reaction_sent_and_rendered_via_production_ui');
@@ -1533,6 +1534,7 @@ Future<void> _sendChatThroughUi(
       (tester.view.physicalSize.height - tester.view.viewInsets.bottom) /
       tester.view.devicePixelRatio;
   expect(tester.getRect(field.last).bottom, lessThanOrEqualTo(keyboardTop));
+  _expectTabletVideoVisible(tester);
   final editable = tester.widget<EditableText>(
     find.descendant(of: field.last, matching: find.byType(EditableText)),
   );
@@ -1553,6 +1555,45 @@ Future<void> _sendChatThroughUi(
   FocusManager.instance.primaryFocus?.unfocus();
   await tester.pump(const Duration(milliseconds: 200));
   if (closeAfter) await _closeChatIfNeeded(tester);
+}
+
+void _expectTabletVideoVisible(
+  WidgetTester tester, {
+  bool includeReaction = false,
+}) {
+  if (tester.view.physicalSize.width / tester.view.devicePixelRatio < 900) {
+    return;
+  }
+  final video = find.byType(VideoPlayer);
+  expect(video, findsOneWidget);
+  final card = find.ancestor(of: video, matching: find.byType(ClipRRect)).first;
+  final list = find.ancestor(of: card, matching: find.byType(ListView)).first;
+  final viewport = tester.getRect(list);
+  void expectInside(Rect inner, Rect outer, String label) {
+    expect(inner.width, greaterThan(0), reason: label);
+    expect(inner.height, greaterThan(0), reason: label);
+    expect(inner.left, greaterThanOrEqualTo(outer.left - .5), reason: label);
+    expect(inner.top, greaterThanOrEqualTo(outer.top - .5), reason: label);
+    expect(inner.right, lessThanOrEqualTo(outer.right + .5), reason: label);
+    expect(inner.bottom, lessThanOrEqualTo(outer.bottom + .5), reason: label);
+  }
+
+  final cardRect = tester.getRect(card);
+  expectInside(cardRect, viewport, 'Whole tablet video card remains visible');
+  expectInside(
+    tester.getRect(video),
+    cardRect,
+    'Native video fits the card above the Android keyboard',
+  );
+  if (includeReaction) {
+    final reaction = find.byKey(const ValueKey('active-room-reaction'));
+    expect(reaction, findsOneWidget);
+    expectInside(
+      tester.getRect(reaction),
+      cardRect,
+      'Whole tablet reaction remains inside the visible video card',
+    );
+  }
 }
 
 Future<void> _sendReactionThroughUi(WidgetTester tester, String emoji) async {

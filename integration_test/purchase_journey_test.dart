@@ -29,6 +29,8 @@ const _runtime =
 
 void main() {
   final binding = IntegrationTestWidgetsFlutterBinding.ensureInitialized();
+  // Preserve normal rendering between native store dialogs and peer checks.
+  binding.framePolicy = LiveTestWidgetsFlutterBindingFramePolicy.fullyLive;
   testWidgets(
     'production paywall unlocks themes and further hosted sessions',
     (tester) async {
@@ -48,6 +50,7 @@ void main() {
       final evidence = <String, Object?>{
         'result': 'running',
         'runtime': _runtime,
+        'framePolicy': binding.framePolicy.name,
         'verified': verified,
         'screenshots': screenshots,
         'sessions': sessions,

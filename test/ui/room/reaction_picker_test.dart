@@ -5,11 +5,14 @@ import 'package:meowwatch_mobile/app/app_controller.dart';
 import 'package:meowwatch_mobile/core/chat/chat_signals.dart';
 import 'package:meowwatch_mobile/core/chat/reaction_catalog.dart';
 import 'package:meowwatch_mobile/core/connect/room_config.dart';
+import 'package:meowwatch_mobile/core/media/media_item.dart';
+import 'package:meowwatch_mobile/core/playback/playback_target.dart';
 import 'package:meowwatch_mobile/core/sync/endpoint_settings.dart';
 import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/ui/app_theme.dart';
+import 'package:meowwatch_mobile/ui/chat/chat_panel.dart';
 import 'package:meowwatch_mobile/ui/room/room_screen.dart';
 
 import '../../support/sync_playback_fakes.dart';
@@ -240,6 +243,69 @@ void main() {
       expect(app.reaction?.emoji, '🦊');
       expect(find.text('🦊'), findsOneWidget);
       expect(app.needsPlus, isFalse);
+    },
+  );
+
+  testWidgets(
+    'tablet reaction fits the visible player before and during chat',
+    (tester) async {
+      tester.view.physicalSize = const Size(1280, 800);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      addTearDown(tester.view.resetViewInsets);
+      await openRoom(tester, textScale: 2);
+      player.emit(
+        PlaybackSnapshot(
+          media: MediaItem(
+            uri: Uri.parse('https://example.test/bee.mp4'),
+            title: 'Bee.mp4',
+          ),
+          duration: const Duration(seconds: 90),
+          connection: PlaybackConnection.ready,
+        ),
+      );
+      await tester.runAsync(() async {
+        client.receiveReaction('🦊');
+        await Future<void>.delayed(Duration.zero);
+      });
+      await tester.pump();
+
+      expect(player.snapshot.ready, isTrue);
+      expect(find.text('Bee.mp4'), findsOneWidget);
+      final reaction = find.byKey(const ValueKey('active-room-reaction'));
+      final stage = find
+          .ancestor(of: reaction, matching: find.byType(ClipRRect))
+          .first;
+      final playerList = find
+          .ancestor(of: stage, matching: find.byType(ListView))
+          .first;
+      void expectVisibleStage() {
+        final stageRect = tester.getRect(stage);
+        final listRect = tester.getRect(playerList);
+        final reactionRect = tester.getRect(reaction);
+        expect(stageRect.top, greaterThanOrEqualTo(listRect.top));
+        expect(stageRect.bottom, lessThanOrEqualTo(listRect.bottom + .01));
+        expect(reactionRect.top, greaterThanOrEqualTo(stageRect.top - .01));
+        expect(reactionRect.bottom, lessThanOrEqualTo(stageRect.bottom + .01));
+        expect(reactionRect.left, greaterThanOrEqualTo(stageRect.left - .01));
+        expect(reactionRect.right, lessThanOrEqualTo(stageRect.right + .01));
+      }
+
+      expectVisibleStage();
+      final stageHeight = tester.getSize(stage).height;
+      final chatState = tester.state(find.byType(ChatPanel));
+      tester.view.viewInsets = const FakeViewPadding(bottom: 370);
+      await tester.pump();
+      expect(find.byType(ChatPanel), findsOneWidget);
+      expect(tester.state(find.byType(ChatPanel)), same(chatState));
+      expectVisibleStage();
+      expect(tester.getSize(stage).height, lessThan(stageHeight));
+      expect(
+        tester.widget<Text>(find.text('🦊')).textScaler,
+        TextScaler.noScaling,
+      );
+      expect(tester.takeException(), isNull);
     },
   );
 

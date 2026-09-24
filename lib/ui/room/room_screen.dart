@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -461,85 +462,103 @@ class RoomScreenState extends State<RoomScreen> {
               children: [
                 header,
                 Expanded(
-                  child: ListView(
-                    padding: EdgeInsets.symmetric(horizontal: tablet ? 28 : 20),
-                    children: [
-                      const SizedBox(height: 12),
-                      ClipRRect(
-                        borderRadius: BorderRadius.circular(20),
-                        child: AspectRatio(aspectRatio: 16 / 10, child: stage),
-                      ),
-                      const SizedBox(height: 24),
-                      Text(
-                        app.target.snapshot.media?.title ??
-                            (app.isNearby
-                                ? 'Ready when your desktop is.'
-                                : app.isLocal
-                                ? 'Settle in.'
-                                : 'The best seat is together.'),
-                        style: Theme.of(context).textTheme.headlineMedium,
-                        maxLines: 3,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        app.target.snapshot.media == null
-                            ? app.isNearby
-                                  ? 'Choose this video’s file on your desktop. Phone files are not transferred.'
-                                  : 'Choose a video file or open a direct video link.'
-                            : 'Playing on ${app.target.label.toLowerCase()}',
-                        style: TextStyle(color: colors.onSurfaceVariant),
-                      ),
-                      if (!app.isLocal) ...[
-                        const SizedBox(height: 24),
-                        Wrap(
-                          spacing: 12,
-                          runSpacing: 12,
-                          children: [
-                            _Person(name: app.username, self: true),
-                            ...app.peers.map((name) => _Person(name: name)),
-                          ],
+                  child: LayoutBuilder(
+                    builder: (context, listConstraints) {
+                      // The list clips a taller stage before its bottom reaction.
+                      final stageHeight = tablet
+                          ? math.min(
+                              (listConstraints.maxWidth - 56) * 10 / 16,
+                              math.max(0.0, listConstraints.maxHeight - 12),
+                            )
+                          : null;
+                      return ListView(
+                        padding: EdgeInsets.symmetric(
+                          horizontal: tablet ? 28 : 20,
                         ),
-                        if (app.peers.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 20),
-                            child: OutlinedButton.icon(
-                              onPressed: onInvite,
-                              icon: const Icon(Icons.link_rounded),
-                              label: const Text('Invite someone'),
-                            ),
+                        children: [
+                          const SizedBox(height: 12),
+                          ClipRRect(
+                            borderRadius: BorderRadius.circular(20),
+                            child: stageHeight == null
+                                ? AspectRatio(
+                                    aspectRatio: 16 / 10,
+                                    child: stage,
+                                  )
+                                : SizedBox(height: stageHeight, child: stage),
                           ),
-                        if (!tablet && app.messages.isNotEmpty)
-                          Padding(
-                            padding: const EdgeInsets.only(top: 20),
-                            child: InkWell(
-                              onTap: () => showChatSheet(context, app),
-                              borderRadius: BorderRadius.circular(16),
-                              child: Padding(
-                                padding: const EdgeInsets.all(16),
-                                child: Row(
-                                  children: [
-                                    Icon(
-                                      Icons.chat_bubble_outline_rounded,
-                                      color: colors.secondary,
-                                    ),
-                                    const SizedBox(width: 14),
-                                    Expanded(
-                                      child: Text(
-                                        app.messages.last.text,
-                                        maxLines: 2,
-                                        overflow: TextOverflow.ellipsis,
-                                      ),
-                                    ),
-                                    const Icon(Icons.chevron_right_rounded),
-                                  ],
+                          const SizedBox(height: 24),
+                          Text(
+                            app.target.snapshot.media?.title ??
+                                (app.isNearby
+                                    ? 'Ready when your desktop is.'
+                                    : app.isLocal
+                                    ? 'Settle in.'
+                                    : 'The best seat is together.'),
+                            style: Theme.of(context).textTheme.headlineMedium,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                          const SizedBox(height: 8),
+                          Text(
+                            app.target.snapshot.media == null
+                                ? app.isNearby
+                                      ? 'Choose this video’s file on your desktop. Phone files are not transferred.'
+                                      : 'Choose a video file or open a direct video link.'
+                                : 'Playing on ${app.target.label.toLowerCase()}',
+                            style: TextStyle(color: colors.onSurfaceVariant),
+                          ),
+                          if (!app.isLocal) ...[
+                            const SizedBox(height: 24),
+                            Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: [
+                                _Person(name: app.username, self: true),
+                                ...app.peers.map((name) => _Person(name: name)),
+                              ],
+                            ),
+                            if (app.peers.isEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 20),
+                                child: OutlinedButton.icon(
+                                  onPressed: onInvite,
+                                  icon: const Icon(Icons.link_rounded),
+                                  label: const Text('Invite someone'),
                                 ),
                               ),
-                            ),
-                          ),
-                      ],
-                      const SizedBox(height: 24),
-                    ],
+                            if (!tablet && app.messages.isNotEmpty)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 20),
+                                child: InkWell(
+                                  onTap: () => showChatSheet(context, app),
+                                  borderRadius: BorderRadius.circular(16),
+                                  child: Padding(
+                                    padding: const EdgeInsets.all(16),
+                                    child: Row(
+                                      children: [
+                                        Icon(
+                                          Icons.chat_bubble_outline_rounded,
+                                          color: colors.secondary,
+                                        ),
+                                        const SizedBox(width: 14),
+                                        Expanded(
+                                          child: Text(
+                                            app.messages.last.text,
+                                            maxLines: 2,
+                                            overflow: TextOverflow.ellipsis,
+                                          ),
+                                        ),
+                                        const Icon(Icons.chevron_right_rounded),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                          ],
+                          const SizedBox(height: 24),
+                        ],
+                      );
+                    },
                   ),
                 ),
                 controls,
@@ -741,134 +760,155 @@ class _VideoStage extends StatelessWidget {
     final state = target.snapshot;
     final controller = target is LocalMobileTarget ? target.controller : null;
     final largeText = MediaQuery.textScalerOf(context).scale(16) >= 24;
-    return ColoredBox(
-      color: fullscreen ? Colors.black : const Color(0xFF070B12),
-      child: Stack(
-        alignment: Alignment.center,
-        children: [
-          if (controller != null && state.ready)
-            Center(
-              child: AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
-            )
-          else if (state.connection == PlaybackConnection.loading)
-            const Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                CircularProgressIndicator(),
-                SizedBox(height: 16),
-                Text('Opening your video…'),
-              ],
-            )
-          else if (app.isNearby || app.isCasting)
-            SingleChildScrollView(
-              padding: const EdgeInsets.all(24),
-              child: Column(
+    return LayoutBuilder(
+      builder: (context, stageConstraints) => ColoredBox(
+        color: fullscreen ? Colors.black : const Color(0xFF070B12),
+        child: Stack(
+          alignment: Alignment.center,
+          children: [
+            if (controller != null && state.ready)
+              Center(
+                child: AspectRatio(
+                  aspectRatio: controller.value.aspectRatio,
+                  child: VideoPlayer(controller),
+                ),
+              )
+            else if (state.connection == PlaybackConnection.loading)
+              const Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    app.isCasting
-                        ? Icons.cast_connected_rounded
-                        : Icons.desktop_windows_outlined,
-                    size: 46,
-                    color: Theme.of(context).colorScheme.primary,
-                  ),
-                  const SizedBox(height: 16),
-                  Text(
-                    state.error ??
-                        (app.isCasting
-                            ? 'Watching on ${app.cast!.receiverName}'
-                            : state.media == null
-                            ? 'Choose this video’s file on your desktop'
-                            : state.ready
-                            ? 'Watching on ${app.nearby!.label}'
-                            : 'Reconnect to the desktop to keep watching'),
-                    textAlign: TextAlign.center,
-                  ),
-                  if (app.isNearby && state.media == null) ...[
-                    const SizedBox(height: 8),
-                    Text(
-                      'Local phone files stay on this device.',
-                      textAlign: TextAlign.center,
-                      style: TextStyle(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
-                    ),
-                  ],
-                  const SizedBox(height: 16),
-                  OutlinedButton.icon(
-                    onPressed: onDevices,
-                    icon: const Icon(Icons.devices_rounded),
-                    label: const Text('Choose screen'),
-                  ),
+                  CircularProgressIndicator(),
+                  SizedBox(height: 16),
+                  Text('Opening your video…'),
                 ],
-              ),
-            )
-          else
-            Padding(
-              padding: fullscreen
-                  ? const EdgeInsets.only(top: 64, bottom: 112)
-                  : EdgeInsets.zero,
-              child: SingleChildScrollView(
+              )
+            else if (app.isNearby || app.isCasting)
+              SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     Icon(
-                      state.error == null
-                          ? Icons.movie_outlined
-                          : Icons.info_outline_rounded,
+                      app.isCasting
+                          ? Icons.cast_connected_rounded
+                          : Icons.desktop_windows_outlined,
                       size: 46,
                       color: Theme.of(context).colorScheme.primary,
                     ),
                     const SizedBox(height: 16),
-                    if (state.error != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 16),
-                        child: Text(state.error!, textAlign: TextAlign.center),
-                      ),
-                    if (largeText)
-                      FilledButton.tonal(
-                        onPressed: onLoad,
-                        child: Text(
-                          state.error == null
-                              ? 'Choose a video'
-                              : 'Choose another video',
-                          textAlign: TextAlign.center,
-                        ),
-                      )
-                    else
-                      FilledButton.tonalIcon(
-                        onPressed: onLoad,
-                        icon: const Icon(Icons.add_rounded),
-                        label: Text(
-                          state.error == null
-                              ? 'Choose a video'
-                              : 'Choose another video',
+                    Text(
+                      state.error ??
+                          (app.isCasting
+                              ? 'Watching on ${app.cast!.receiverName}'
+                              : state.media == null
+                              ? 'Choose this video’s file on your desktop'
+                              : state.ready
+                              ? 'Watching on ${app.nearby!.label}'
+                              : 'Reconnect to the desktop to keep watching'),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (app.isNearby && state.media == null) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        'Local phone files stay on this device.',
+                        textAlign: TextAlign.center,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
                         ),
                       ),
+                    ],
+                    const SizedBox(height: 16),
+                    OutlinedButton.icon(
+                      onPressed: onDevices,
+                      icon: const Icon(Icons.devices_rounded),
+                      label: const Text('Choose screen'),
+                    ),
                   ],
                 ),
-              ),
-            ),
-          if (state.buffering && state.ready && app.playRequested)
-            const CircularProgressIndicator(),
-          if (app.reaction != null)
-            Positioned(
-              right: 24,
-              bottom: 20,
-              child: Semantics(
-                label:
-                    '${app.reaction!.username} reacted ${app.reaction!.emoji}',
-                child: Text(
-                  app.reaction!.emoji,
-                  style: const TextStyle(fontSize: 60),
+              )
+            else
+              Padding(
+                padding: fullscreen
+                    ? const EdgeInsets.only(top: 64, bottom: 112)
+                    : EdgeInsets.zero,
+                child: SingleChildScrollView(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        state.error == null
+                            ? Icons.movie_outlined
+                            : Icons.info_outline_rounded,
+                        size: 46,
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                      const SizedBox(height: 16),
+                      if (state.error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 16),
+                          child: Text(
+                            state.error!,
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      if (largeText)
+                        FilledButton.tonal(
+                          onPressed: onLoad,
+                          child: Text(
+                            state.error == null
+                                ? 'Choose a video'
+                                : 'Choose another video',
+                            textAlign: TextAlign.center,
+                          ),
+                        )
+                      else
+                        FilledButton.tonalIcon(
+                          onPressed: onLoad,
+                          icon: const Icon(Icons.add_rounded),
+                          label: Text(
+                            state.error == null
+                                ? 'Choose a video'
+                                : 'Choose another video',
+                          ),
+                        ),
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
+            if (state.buffering && state.ready && app.playRequested)
+              const CircularProgressIndicator(),
+            if (app.reaction != null)
+              Positioned(
+                right: 24,
+                bottom: math.min(20.0, stageConstraints.maxHeight * .1),
+                child: Semantics(
+                  key: const ValueKey('active-room-reaction'),
+                  label:
+                      '${app.reaction!.username} reacted ${app.reaction!.emoji}',
+                  excludeSemantics: true,
+                  child: SizedBox.square(
+                    dimension: math.min(
+                      80.0,
+                      math.max(
+                        0.0,
+                        stageConstraints.maxHeight -
+                            math.min(20.0, stageConstraints.maxHeight * .1),
+                      ),
+                    ),
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      child: Text(
+                        app.reaction!.emoji,
+                        textScaler: TextScaler.noScaling,
+                        style: const TextStyle(fontSize: 60),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }

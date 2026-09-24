@@ -4,8 +4,8 @@ These scripts launch two real Android Virtual Devices, capture their native
 displays independently, and optionally compose the recordings side by side.
 They never generate or substitute app screens.
 
-CI requests a maximum recording edge of 1600 pixels for the phone and 1280
-for the tablet at 3 Mbps. Before each native segment, the recorder reads the
+The generic CI wrapper defaults to a maximum recording edge of 1600 pixels
+for the phone and 1280 for the tablet at 3 Mbps. Before each native segment, the recorder reads the
 current default-display geometry and chooses proportional, even output bounds
 without upscaling. Each raw display dump and `recording-sizes.tsv` retain the
 source and requested dimensions. The recorder does not change display geometry,
@@ -14,9 +14,13 @@ Android screenrecord behavior; fresh footage must establish whether reduced
 encoding load improves stalls. CLI callers that omit these options retain
 the original full-resolution, 8 Mbps behavior.
 
-The production journey's manual `compact_capture` option requests a 960-pixel
-maximum edge for both recordings, retaining 3 Mbps and the actual display
-layouts. The default remains 1600/1280. `ci_together.sh` also accepts the
+The production journey uses `compact_capture` by default, including PR runs:
+a 960-pixel maximum edge for both recordings, retaining 3 Mbps and the actual
+display layouts. Manual dispatch can disable it to compare 1600/1280 output.
+Standard-layout run `36053642428` passes with compact capture after the larger
+capture in `36044618079` lost its tablet ADB recording connection during final
+result recovery. The latter had concurrent memory pressure; the precise cause
+of its disconnect is not established. `ci_together.sh` also accepts the
 `MEOWWATCH_PHONE_RECORD_MAX_EDGE` and `MEOWWATCH_TABLET_RECORD_MAX_EDGE`
 environment values through the recorder's existing validation. This is a
 recording-cost comparison: the accepted 5137e58 run's actual playback windows

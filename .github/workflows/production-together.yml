@@ -1,5 +1,5 @@
 name: Production phone and tablet journey
-run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }}${{ inputs.compact_capture && ', compact capture' || '' }}${{ inputs.runtime_mode == 'profile' && ', profile diagnostic' || '' }}, ${{ inputs.display_profile || 'standard' }} displays)
+run-name: Production phone and tablet journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }}${{ (github.event_name == 'pull_request' || inputs.compact_capture) && ', compact capture' || '' }}${{ inputs.runtime_mode == 'profile' && ', profile diagnostic' || '' }}, ${{ inputs.display_profile || 'standard' }} displays)
 
 on:
   workflow_dispatch:
@@ -10,10 +10,10 @@ on:
         required: false
         default: false
       compact_capture:
-        description: 'Compare lower recording output size while retaining the native phone/tablet layouts'
+        description: 'Use smaller recording output while retaining the native phone/tablet layouts'
         type: boolean
         required: false
-        default: false
+        default: true
       runtime_mode:
         description: 'Debug acceptance (default) or profile diagnostic recording'
         type: choice
@@ -124,14 +124,14 @@ jobs:
       - name: Record real Start, Join, playback and conversation
         env:
           MEOWWATCH_CI_DISPLAY_PROFILE: ${{ inputs.display_profile || 'standard' }}
-          MEOWWATCH_PHONE_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1600' }}
-          MEOWWATCH_TABLET_RECORD_MAX_EDGE: ${{ inputs.compact_capture && '960' || '1280' }}
+          MEOWWATCH_PHONE_RECORD_MAX_EDGE: ${{ (github.event_name == 'pull_request' || inputs.compact_capture) && '960' || '1600' }}
+          MEOWWATCH_TABLET_RECORD_MAX_EDGE: ${{ (github.event_name == 'pull_request' || inputs.compact_capture) && '960' || '1280' }}
         run: bash tools/android_multi_device/ci_together.sh --production-ui --mode "${{ inputs.runtime_mode || 'debug' }}"
       - name: Upload production screenshots, observations and framed video
         if: always()
         uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
         with:
-          name: production-phone-tablet-${{ github.run_attempt }}${{ inputs.semantics_candidate && '-semantics-candidate' || '' }}${{ inputs.compact_capture && '-compact-capture' || '' }}${{ inputs.runtime_mode == 'profile' && '-profile' || '' }}
+          name: production-phone-tablet-${{ github.run_attempt }}${{ inputs.semantics_candidate && '-semantics-candidate' || '' }}${{ (github.event_name == 'pull_request' || inputs.compact_capture) && '-compact-capture' || '' }}${{ inputs.runtime_mode == 'profile' && '-profile' || '' }}
           path: |
             build/android-multi-device/
             build/production-together-artifacts/

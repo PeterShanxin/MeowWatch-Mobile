@@ -78,7 +78,9 @@ class RoomScreenState extends State<RoomScreen> {
 
   bool get _keepControlsVisible =>
       _accessibleNavigation ||
-      _controlsFocused ||
+      (_controlsFocused &&
+          FocusManager.instance.highlightMode ==
+              FocusHighlightMode.traditional) ||
       _controlsPressed ||
       !app.playRequested ||
       !app.target.snapshot.ready ||
@@ -88,6 +90,18 @@ class RoomScreenState extends State<RoomScreen> {
   void initState() {
     super.initState();
     app.addListener(_appChanged);
+    FocusManager.instance.addHighlightModeListener(_highlightModeChanged);
+  }
+
+  void _highlightModeChanged(FocusHighlightMode mode) {
+    if (!mounted) return;
+    // Touch can change input modality without moving the focused control.
+    setState(() {
+      if (_fullscreen && mode == FocusHighlightMode.traditional) {
+        _controlsVisible = true;
+      }
+      _updateControlsTimer(restart: true);
+    });
   }
 
   @override
@@ -257,6 +271,7 @@ class RoomScreenState extends State<RoomScreen> {
   @override
   void dispose() {
     app.removeListener(_appChanged);
+    FocusManager.instance.removeHighlightModeListener(_highlightModeChanged);
     _hideControlsTimer?.cancel();
     _clearModeError();
     if (_platformMayBeFullscreen) _requestImmersiveMode(false);
@@ -564,10 +579,7 @@ class RoomScreenState extends State<RoomScreen> {
                     onFocusChange: (focused) {
                       if (!mounted) return;
                       setState(() {
-                        _controlsFocused =
-                            focused &&
-                            FocusManager.instance.highlightMode ==
-                                FocusHighlightMode.traditional;
+                        _controlsFocused = focused;
                         _updateControlsTimer();
                       });
                     },

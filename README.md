@@ -12,7 +12,9 @@ When a video is loaded on this device, **Enter full screen** expands the player
 and hides the system bars. Handsets request landscape; tablets keep their
 current orientation. Tap the picture to show controls. Paused playback and
 accessible navigation keep controls available. Back first exits full screen
-while preserving the current video and room.
+while preserving the current video and room. Keyboard navigation reveals the
+controls and keeps focused controls available; returning to touch restores their
+automatic hiding during playback.
 
 ## Development
 

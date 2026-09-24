@@ -170,7 +170,7 @@ void main() {
     WidgetTester tester, {
     Size size = const Size(800, 360),
     double textScale = 1,
-    bool accessibleNavigation = false,
+    bool? accessibleNavigation = false,
     bool loaded = true,
     bool room = false,
   }) async {
@@ -399,6 +399,62 @@ void main() {
     expect(leaves, 0);
     await close(tester);
   });
+
+  fullscreenTest(
+    'disabling accessible navigation restores timed control hiding',
+    (tester) async {
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures(accessibleNavigation: true);
+      addTearDown(
+        tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+      );
+      await open(tester, accessibleNavigation: null);
+      await tester.runAsync(target.play);
+      await enter(tester);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Exit full screen'), findsOneWidget);
+      tester.platformDispatcher.accessibilityFeaturesTestValue =
+          const FakeAccessibilityFeatures();
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Exit full screen'), findsNothing);
+      await close(tester);
+    },
+  );
+
+  fullscreenTest(
+    'returning from keyboard to touch resumes timed control hiding',
+    (tester) async {
+      await open(tester);
+      await tester.runAsync(target.play);
+      await enter(tester);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(
+        FocusManager.instance.highlightMode,
+        FocusHighlightMode.traditional,
+      );
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Exit full screen'), findsOneWidget);
+      // Touch changes input modality while focus may remain inside the controls.
+      await tester.tap(find.byTooltip('Pause together'));
+      await tester.pump();
+      await tester.tap(find.byTooltip('Play together'));
+      await tester.pump();
+      expect(FocusManager.instance.highlightMode, FocusHighlightMode.touch);
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Exit full screen'), findsNothing);
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      expect(find.byTooltip('Exit full screen').hitTestable(), findsOneWidget);
+      // Once the control subtree is mounted again, traversal can focus it.
+      await tester.sendKeyEvent(LogicalKeyboardKey.tab);
+      await tester.pump();
+      await tester.pump(const Duration(seconds: 4));
+      expect(find.byTooltip('Exit full screen').hitTestable(), findsOneWidget);
+      await close(tester);
+    },
+  );
 
   fullscreenTest(
     'a playback error reveals controls and leaves recovery usable',

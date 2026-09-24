@@ -26,9 +26,36 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 ## Latest targeted native verification
 
+The September 24 transport/startup revision `773d41e` passes **748 app tests with zero
+skips**, formatting of 179 Dart files, analysis and a normal debug APK build on
+official Flutter 3.44.0.
+The independent Nearby package run passes **87 tests with zero skips**, including
+real TLS on the explicit Windows WSL virtual adapter. Both Syncplay and Nearby
+retain the underlying connection during a pending TLS handshake so timeout,
+leave, replacement and shutdown can close it. Strict certificate trust or pin,
+validity and ALPN checks remain intact. Real TLS regressions cover silent peers,
+late completions, 8 MiB of backpressure, cancelled flushes, final receipts and
+fully drained leaving notifications. Independent review found a dropped leaving
+notification during early close; three real TLS regressions reproduced it and
+pass after the fix. Transport errors during STARTTLS still reconnect; malformed
+answers and failed certificate validation remain terminal refusals.
+
+Initial remote Play now measures actual native position advancement before one
+bounded catch-up seek. It also covers source loading into an already playing
+room and Local-to-Together adoption. The watch follows its accepted playback
+intent; pause, source replacement, connection loss and disposal invalidate it.
+Explicit remote seek while already loaded does not add this startup correction,
+and corrections do not echo a new user seek. The delayed-start reproduction
+fails before the patch; all 28 bridge tests pass afterwards. Both independent
+review findings are resolved. Native radio-outage and paired-playback acceptance
+still require fresh runs of this revision; these local tests do not establish
+physical Android, LAN or Cast behavior. Fresh native verification runs are
+`35972090941` (radio loss/recovery), `35972094368` (Nearby Android transport), and
+`35972097694` (production phone/tablet Together journey), all at `773d41e`.
+
 The September 24 local verification on an isolated official Flutter 3.44.0 SDK
 (Dart 3.12.0) passes locked dependency resolution, formatting, analysis,
-**727 app tests with zero skips**, and a normal debug APK build at `c142a9e`. Same-host Nearby
+**731 app tests with zero skips**, and a normal debug APK build at `1008fff`. Same-host Nearby
 TLS tests use the actual Windows WSL virtual adapter; this is not physical LAN
 acceptance. The short-landscape join regression now keeps both the editable text
 and full error visible above the keyboard, with accessible and pointer-drag
@@ -38,8 +65,10 @@ original videos. Actual native footage confirms the input and error remain
 above the open keyboard in short landscape. Independent
 review also reproduced stale fullscreen Retry callbacks overriding a later entry
 or replacement room; revision/lifecycle guards and owned-notice cleanup fix that
-case, including preserving unrelated queued app messages. All twenty immersive
-platform/widget tests pass; these are included in the app total.
+case, including preserving unrelated queued app messages. All 21 immersive
+platform/widget tests pass, including the combined paused/accessibility/play/
+input-modality regression. A fresh Gitleaks 8.30.1
+scan at `1008fff` finds no secrets in 507 tracked files or 93 reachable commits.
 
 That full check includes the input-modality fix below. The test-only
 native observer separates bounded cold startup from its
@@ -78,6 +107,55 @@ stop updating during the recording tail. This is not accepted as complete
 fullscreen coverage. The tablet's two idle screenshots still show controls
 across 14.07 device seconds (timeline 0:32 to 0:43), so the widget fix does not
 establish native auto-hide. That behavior is under separate diagnosis.
+The strict moving recordings now finish at phases 04 and 09 while playback is
+still advancing; subsequent native pause and stable-position checks retain
+fresh hierarchy, window and PNG evidence. No static tail is padded, no duration
+tolerance is relaxed, and all 200 related native tool contracts pass. Run
+`35965648994` at `1008fff` enables opt-in, fixed-field fullscreen diagnostics
+in the normal release entry point. These logs report accessibility, focus,
+pressed state and timer decisions without URLs or user content. It is a
+diagnostic run; default builds keep the flag disabled, and final native
+acceptance still requires a normal build plus original-image/video inspection.
+The phone completes the automated journey, but both original idle PNGs still
+show player controls across 11.52 device seconds. The diagnostic isolates
+17 timer cancellations in that interval: buffering-end reports a transient
+not-playing snapshot before the native playing update, and the target getter
+mistakenly exposes that as paused intent. Accessibility, keyboard focus and
+pointer holds are false throughout those cancellations. Revision `6829cc7`
+returns the already maintained play intent through this transition, retaining
+true native pause, explicit pause, completion and error behavior. The new
+event-sequence regression fails with the old getter and passes with the repair
+on the pinned Flutter 3.44 SDK; 315 affected sync/player/fullscreen tests and
+scoped analysis pass. An earlier worker test used the wrong SDK; its automatic
+dependency/configuration changes were reverted, locked dependencies restored,
+and those results are not counted as pinned-SDK verification.
+The tablet's first diagnostic attempt stops at phase 04 because its original
+native H.264 recording contains a corrupt frame. Device/pulled SHA-256 matches,
+and an independent local full decode reproduces the same macroblock error.
+The original failure is retained; the separate tablet retry completes the
+automated journey, but its idle-control images still require review. Fresh
+normal-build phone/tablet run `35968302290` tests `6829cc7` with diagnostics off.
+The tablet completes its native journey and independent original-image review:
+both 2560 x 1600 idle PNGs hide the player controls and system bars across
+19.01 device seconds. Original recording frames cover both observations, and
+the three files fully decode. Native states and screenshots verify Back to the
+normal player, then Home in the same process. The short third recording starts
+after Home appears, so it does not itself prove the full Back transition.
+The phone stops before fullscreen at phase 04: a two-second live-file read
+timeout aborts the eight-second post-roll window, leaving the last video frame
+3.896 seconds before the required observation. Revision `2184c8e` retries the
+same read-only byte range within the unchanged deadline, discards partial
+timed-out output, rejects late results, and retains the full original-frame
+coverage and decode requirements. All 201 related Python tests pass. Normal
+phone/tablet run `35969876422` at `2184c8e` now reaches fullscreen on both
+profiles. Independent review of original PNGs verifies hidden player controls
+and system bars across 12.94 phone device seconds in landscape and 18.64 tablet
+device seconds. All four original MP4s fully decode and their frame clocks cover
+the required observations. Both runs stop before Back at phase 09: the 90-second
+fixture naturally finishes before the fresh Pause-control check. Failure images
+and XML show Play at 1:30/1:30 with the same app process. Revision `85956cb`
+extends only this workflow's reviewed fixture to 180 seconds. Fresh normal-build
+run `35972199031` retains all pause, recording, orientation and Back criteria.
 
 Network run `35958879510` at the same head captures a fresh app hierarchy but
 fails before playback or radio interruption: Dart sees the acknowledgement path
@@ -100,7 +178,28 @@ connection for at most sixteen attempts 500 ms apart under the existing
 eight-second capture deadline. XML, freshness, PID, playback and sync criteria
 are unchanged. Fifty observer contracts, 35 network contracts on WSL and 21
 audio-interruption contracts pass; the API 35 observer APK builds and verifies.
-This still requires fresh native outage/recovery evidence.
+Run `35964554315` at `0fdb054` then reaches initial two-client playback and
+really disables both radios. A socket error is handled by the reconnect
+listener but also escapes into the test zone; the drive subsequently stops
+and uninstalls the app, causing the later observer PID-integrity failure.
+Revision `fe18041` handles the separate sink completion of both the plain and
+upgraded TLS socket, leaving the readable stream as the reconnect owner. A
+real loopback TLS abort with queued writes reproduces the unhandled error in
+the old client and passes after repair, with exactly one reconnect and no
+fixture-side sink error. The native workflow now runs this regression and
+STARTTLS refusal tests before building. Run `35968126247` at `6829cc7` passes
+those transport regressions but fails initial synchronization before radio loss.
+Both native decoders advance about 28–29 seconds; the guest remains 1.025–1.897
+seconds behind and never satisfies the unchanged less-than-one-second gate.
+All 96 native-read records are accepted. Sequential host/guest reads underestimate
+the host's lead, so this is not sampling skew. The first guest Play applies an
+older received position after native startup; the established steady-state
+follow policy does not correct this small lag. A guarded, one-time startup
+catch-up is under implementation. That run retains both original radios enabled;
+it does not exercise outage recovery. In the preceding failed run, no network-disabled
+acknowledgement or offline/reconnect assertion completed. Cleanup independently
+verifies restoration to the original Wi-Fi=false/data=true state. This is not
+an outage/recovery pass.
 
 Four additional Bash contract tests verify the
 optional Together Profile build/drive mode, APK identity checks and default Debug
@@ -110,7 +209,19 @@ all 69 related tool tests pass. Run `35960861121` at `511eed6` builds both
 Profile APKs but fails before media: the host times out waiting for peer
 presence and the guest times out waiting for its secure-room connection.
 Profile is a motion diagnostic, not purchase or Debug acceptance. No motion
-improvement is established by that run.
+improvement is established by that run. Native footage and the pinned Flutter
+source isolate a test-input defect: Profile drops the debug-only text-input
+client ID, leaving the guest room field empty. The test-only helper now uses
+the focused EditableText input path in Profile and verifies the actual text
+before submission; Debug retains normal tester text entry. Three regressions
+pass, including normal input formatting/validation and rejected read-only
+entry. This does not establish physical IME behavior. Profile diagnostic
+`35965651942` at `1008fff` passes 26 host and 25 guest named steps, both
+drivers and teardown, with unchanged join/play/chat/presence assertions and
+the compact native capture configuration. Original footage still contains a
+6.546-second tablet frame gap during requested playback. Functional success
+does not establish smooth decoded motion; this is not approved as the final
+demo recording or evidence of a general performance improvement.
 The development showcase recording resumes in a new file; the prior file's last
 saved chunk is September 18. The intervening gap is not continuous footage.
 The September 24 browser/process later exits after the 06:00 UTC chunk;

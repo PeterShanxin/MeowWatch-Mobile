@@ -1,8 +1,10 @@
 """Extract bounded, unmodified frames from verified native recording artifacts."""
 
 import argparse
+import bisect
 import hashlib
 import json
+import math
 from pathlib import Path
 import re
 import subprocess
@@ -29,9 +31,13 @@ def extract(artifact: Path, output: Path) -> None:
         count = recording["frameCount"]
         if count < 2 or len(video_pts) != count or len(device_pts) != count:
             raise ValueError("native frame clock count differs from the recording receipt")
-        # Short Back transitions retain every frame; longer clips retain five
-        # indexed source frames. There is no interpolation or retiming.
-        indices = list(range(count)) if count <= 16 else sorted({round((count - 1) * n / 4) for n in range(5)})
+        # Keep short Back transitions in full and bound longer reviews to five
+        # indexed frames plus 45 four-second checkpoints. Preserve held frames.
+        indices = set(range(count)) if count <= 16 else {round((count - 1) * n / 4) for n in range(5)}
+        if count > 16:
+            for tick in range(1, min(46, math.ceil((video_pts[-1] - video_pts[0]) / 4))):
+                indices.add(bisect.bisect_right(video_pts, video_pts[0] + tick * 4) - 1)
+        indices = sorted(indices)
         destination = output / source.stem
         destination.mkdir()
         selection = "+".join(f"eq(n\\,{index})" for index in indices)

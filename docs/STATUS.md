@@ -52,8 +52,13 @@ stops before radio mutation: the independent Android observer returns
 original screenshot shows an unobscured player; both window checks identify
 MainActivity and the app PID is unchanged. No SDK Setup recovery occurs. This
 isolates an observation failure before the network scenario, not an application
-network result. Extra bounded accessibility diagnostics are being prepared;
-the gate still requires complete fresh XML and exact app-window ownership.
+network result. The observer now adds one bounded, content-free accessibility
+window diagnostic after a missing active root. A root query that times out keeps
+known window metadata; no diagnostic can replace complete fresh XML and exact
+app-window ownership. All 54 observer contracts pass. The observer/network/setup/
+focus contract run passes 144 tests with one Windows platform skip. The new
+interactive-window service flag and helper still require cloud compilation and
+native acceptance; no capture or caller deadline is extended.
 
 Previously accepted profile network `36055097185` at `0454176` uses one API 35
 AVD with two real TLS clients and native decoders. Initial playback converges

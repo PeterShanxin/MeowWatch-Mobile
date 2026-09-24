@@ -12,8 +12,12 @@ import android.util.Base64;
 import android.util.Log;
 import android.util.Xml;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicReference;
 import org.xmlpull.v1.XmlSerializer;
 
 /** Read-only, self-targeted instrumentation; no Activity or application hooks. */
@@ -26,6 +30,8 @@ public final class SnapshotInstrumentation extends Instrumentation {
     private static final long CAPTURE_BUDGET_MS = 8000;
     private static final long RETRY_DELAY_MS = 500;
     private static final int MAX_STAGE_EVENTS = 128;
+    private static final int MAX_DIAGNOSTIC_WINDOWS = 8;
+    private static final long DIAGNOSTIC_BUDGET_MS = 150;
     private String nonce;
     private String expectedPackage;
     private boolean emptyExpectedAppShell;
@@ -36,6 +42,10 @@ public final class SnapshotInstrumentation extends Instrumentation {
     private long deadline;
     private int captureAttempt;
     private int stageSequence;
+    private int requestedServiceFlags;
+    private int reportedServiceFlags;
+    private int serviceCapabilities;
+    private String rootDiagnostic;
 
     @Override
     public void onCreate(Bundle arguments) {
@@ -61,8 +71,16 @@ public final class SnapshotInstrumentation extends Instrumentation {
             stage("automation_ready");
             AccessibilityServiceInfo service = automation.getServiceInfo();
             service.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS;
+            // getWindows() is used only to diagnose a missing active root. The
+            // flag must be set before the first root read to make that result
+            // meaningful; it does not provide a fallback hierarchy.
+            service.flags |= AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             service.flags &= ~AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
+            requestedServiceFlags = service.flags;
             automation.setServiceInfo(service);
+            AccessibilityServiceInfo reportedService = automation.getServiceInfo();
+            reportedServiceFlags = reportedService.flags;
+            serviceCapabilities = reportedService.getCapabilities();
             // Cold instrumentation/accessibility setup has its own host budget.
             // All hierarchy attempts still share this single eight-second limit.
             deadline = SystemClock.uptimeMillis() + CAPTURE_BUDGET_MS;
@@ -82,6 +100,9 @@ public final class SnapshotInstrumentation extends Instrumentation {
                 } catch (CaptureFailure error) {
                     stage("attempt_failed");
                     appendAttempt(attempts, error.reason);
+                    if (error.reason.equals("root_missing") && rootDiagnostic == null) {
+                        rootDiagnostic = diagnoseMissingRoot(automation);
+                    }
                     if (!error.retryable() || attempt == MAX_ATTEMPTS
                             || SystemClock.uptimeMillis() + RETRY_DELAY_MS >= deadline) {
                         fail(error.reason, attempts);
@@ -165,7 +186,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
     }
 
     private void metadata(Bundle result, StringBuilder attempts) {
-        result.putString("observer_protocol", "3");
+        result.putString("observer_protocol", "4");
         result.putString("observer_nonce", nonce);
         result.putString("observer_attempts", attempts.toString());
     }
@@ -175,8 +196,124 @@ public final class SnapshotInstrumentation extends Instrumentation {
         metadata(result, attempts);
         result.putString("observer_uptime_ms", Long.toString(SystemClock.uptimeMillis()));
         result.putString("observer_error", reason);
+        if (reason.equals("root_missing")) {
+            result.putString("observer_root_diagnostic", rootDiagnostic == null
+                ? diagnostic("budget", SystemClock.uptimeMillis(), captureAttempt, -1, false, "-")
+                : rootDiagnostic);
+        }
         stage("finish");
         finish(Activity.RESULT_CANCELED, result);
+    }
+
+    private String diagnoseMissingRoot(UiAutomation automation) {
+        final long at = SystemClock.uptimeMillis();
+        final int attempt = captureAttempt;
+        final long allowance = Math.min(DIAGNOSTIC_BUDGET_MS, deadline - at - RETRY_DELAY_MS);
+        if (allowance <= 0) {
+            return diagnostic("budget", at, attempt, -1, false, "-");
+        }
+        final AtomicReference<String> result = new AtomicReference<>();
+        final AtomicBoolean cancelled = new AtomicBoolean();
+        final long probeDeadline = at + allowance;
+        Thread worker = new Thread(() -> {
+            List<AccessibilityWindowInfo> windows = null;
+            try {
+                if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                windows = automation.getWindows();
+                if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                if (windows == null || windows.size() > 64) {
+                    result.set(diagnostic("unavailable", at, attempt, -1, false, "-"));
+                    return;
+                }
+                int count = windows.size();
+                int limit = Math.min(count, MAX_DIAGNOSTIC_WINDOWS);
+                int[][] rows = new int[limit][6];
+                for (int i = 0; i < limit; i++) {
+                    if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                    AccessibilityWindowInfo window = windows.get(i);
+                    rows[i][0] = window.getId();
+                    rows[i][1] = window.getType();
+                    rows[i][2] = window.isActive() ? 1 : 0;
+                    rows[i][3] = window.isFocused() ? 1 : 0;
+                    rows[i][4] = 3; // Root query pending.
+                }
+                result.set(diagnosticWindows(limit == 0 ? "ok" : "partial", at, attempt, count, rows));
+                for (int i = 0; i < limit; i++) {
+                    if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                    AccessibilityWindowInfo window = windows.get(i);
+                    AccessibilityNodeInfo root = null;
+                    int rootState = 0;
+                    int packageMatch = 0;
+                    try {
+                        root = window.getRoot();
+                        if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                        if (root != null) {
+                            rootState = 1;
+                            CharSequence name = root.getPackageName();
+                            packageMatch = name == null ? 0
+                                : expectedPackage.contentEquals(name) ? 1 : 2;
+                        }
+                    } catch (RuntimeException ignored) {
+                        rootState = 2;
+                    } finally {
+                        if (root != null) root.recycle();
+                    }
+                    if (cancelled.get() || SystemClock.uptimeMillis() >= probeDeadline) return;
+                    rows[i][4] = rootState;
+                    rows[i][5] = packageMatch;
+                    result.set(diagnosticWindows(i + 1 == limit ? "ok" : "partial",
+                        at, attempt, count, rows));
+                }
+                if (limit == 0) result.set(diagnosticWindows("ok", at, attempt, count, rows));
+            } catch (RuntimeException ignored) {
+                if (result.get() == null) {
+                    result.set(diagnostic("unavailable", at, attempt, -1, false, "-"));
+                }
+            } finally {
+                if (windows != null) {
+                    for (int i = 0; i < Math.min(windows.size(), 64); i++) {
+                        windows.get(i).recycle();
+                    }
+                }
+            }
+        }, "root-missing-diagnostic");
+        worker.setDaemon(true);
+        worker.start();
+        try {
+            worker.join(allowance);
+        } catch (InterruptedException ignored) {
+            Thread.currentThread().interrupt();
+        }
+        if (worker.isAlive()) {
+            cancelled.set(true);
+            worker.interrupt();
+            String partial = result.get();
+            return partial == null ? diagnostic("timeout", at, attempt, -1, false, "-") : partial;
+        }
+        String value = result.get();
+        return value == null ? diagnostic("unavailable", at, attempt, -1, false, "-") : value;
+    }
+
+    private String diagnosticWindows(String status, long at, int attempt, int count, int[][] windows) {
+        StringBuilder rows = new StringBuilder();
+        for (int i = 0; i < windows.length; i++) {
+            if (i > 0) rows.append(';');
+            for (int j = 0; j < windows[i].length; j++) {
+                if (j > 0) rows.append(':');
+                rows.append(windows[i][j]);
+            }
+        }
+        return diagnostic(status, at, attempt, count, count > MAX_DIAGNOSTIC_WINDOWS,
+            rows.length() == 0 ? "-" : rows.toString());
+    }
+
+    private String diagnostic(String status, long at, int attempt, int count,
+                              boolean truncated, String rows) {
+        // Fixed numeric fields and enums only: no titles, view text, other
+        // package names, resource IDs or arbitrary exception messages.
+        return "1|" + at + "|" + attempt + "|" + requestedServiceFlags + "|"
+            + reportedServiceFlags + "|" + serviceCapabilities + "|" + status + "|"
+            + count + "|" + (truncated ? 1 : 0) + "|" + rows;
     }
 
     private void stage(String name) {

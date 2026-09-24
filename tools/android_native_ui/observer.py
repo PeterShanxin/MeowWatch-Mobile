@@ -28,6 +28,7 @@ MAX_NODES = 2048
 MAX_DEPTH = 48
 MAX_ATTRIBUTE = 4096
 MAX_CAPTURE_ATTEMPTS = 16
+MAX_DIAGNOSTIC_WINDOWS = 8
 MAX_STAGE_EVENTS = 128
 STARTUP_TIMEOUT_SECONDS = 20
 CAPTURE_TIMEOUT_SECONDS = 8
@@ -215,10 +216,12 @@ def collect_instrumentation(command: list[str], nonce: str, *, deadline: float) 
 class ObserverCaptureFailure(RuntimeFailure):
     """A validated native failure with bounded, content-free structural evidence."""
 
-    def __init__(self, reason: str, uptime_ms: int, attempts: tuple[dict[str, object], ...]) -> None:
+    def __init__(self, reason: str, uptime_ms: int, attempts: tuple[dict[str, object], ...],
+                 root_diagnostic: dict[str, object] | None = None) -> None:
         super().__init__("native observer could not capture a complete active-window hierarchy "
                          f"({reason})")
         self.reason, self.uptime_ms, self.attempts = reason, uptime_ms, attempts
+        self.root_diagnostic = root_diagnostic
 
 
 class ObserverNativeFailure(ObserverCaptureFailure, ObserverIntegrityFailure):
@@ -255,6 +258,67 @@ def parse_attempts(value: str) -> tuple[dict[str, object], ...]:
            for attempt in attempts[:-1]):
         raise ObserverIntegrityFailure("native observer retried a terminal capture failure")
     return tuple(attempts)
+
+
+def parse_root_diagnostic(value: str, *, uptime: int, previous_uptime_ms: int,
+                          attempts: tuple[dict[str, object], ...]) -> dict[str, object]:
+    """Validate a single content-free window probe tied to this failed request."""
+    fields = value.split("|")
+    if len(fields) != 10 or fields[0] != "1":
+        raise ObserverIntegrityFailure("native root diagnostic is invalid")
+
+    def number(raw: str, lower: int, upper: int) -> int:
+        if re.fullmatch(r"-?[0-9]{1,16}", raw) is None:
+            raise ObserverIntegrityFailure("native root diagnostic is invalid")
+        parsed = int(raw)
+        if not lower <= parsed <= upper:
+            raise ObserverIntegrityFailure("native root diagnostic is invalid")
+        return parsed
+
+    at = number(fields[1], 1, uptime)
+    attempt = number(fields[2], 1, len(attempts))
+    requested = number(fields[3], 0, 2**31 - 1)
+    reported = number(fields[4], 0, 2**31 - 1)
+    capabilities = number(fields[5], 0, 2**31 - 1)
+    status = fields[6]
+    count = number(fields[7], -1, 64)
+    truncated = number(fields[8], 0, 1)
+    if (at <= previous_uptime_ms or attempts[attempt - 1]["reason"] != "root_missing"
+            or requested & 0x50 != 0x50
+            or status not in {"ok", "partial", "budget", "timeout", "unavailable"}):
+        raise ObserverIntegrityFailure("native root diagnostic is invalid")
+    if status in {"ok", "partial"}:
+        if count < 0 or truncated != int(count > MAX_DIAGNOSTIC_WINDOWS):
+            raise ObserverIntegrityFailure("native root diagnostic is invalid")
+        rows = [] if fields[9] == "-" else fields[9].split(";")
+        if len(rows) != min(count, MAX_DIAGNOSTIC_WINDOWS):
+            raise ObserverIntegrityFailure("native root diagnostic is invalid")
+        windows = []
+        for row in rows:
+            parts = row.split(":")
+            if len(parts) != 6:
+                raise ObserverIntegrityFailure("native root diagnostic is invalid")
+            window_id = number(parts[0], -1, 2**31 - 1)
+            kind = number(parts[1], 0, 8)
+            active, focused, root, package = (
+                number(raw, 0, upper)
+                for raw, upper in zip(parts[2:], (1, 1, 3, 2))
+            )
+            if root != 1 and package != 0:
+                raise ObserverIntegrityFailure("native root diagnostic is invalid")
+            windows.append({"id": window_id, "type": kind, "active": bool(active),
+                            "focused": bool(focused), "root": ("missing", "present", "error", "pending")[root],
+                            "expectedPackage": ("unknown", "yes", "no")[package]})
+        if (status == "partial" and not any(row["root"] == "pending" for row in windows)) or (
+                status == "ok" and any(row["root"] == "pending" for row in windows)):
+            raise ObserverIntegrityFailure("native root diagnostic is invalid")
+    else:
+        if count != -1 or truncated != 0 or fields[9] != "-":
+            raise ObserverIntegrityFailure("native root diagnostic is invalid")
+        windows = []
+    return {"atUptimeMs": at, "attempt": attempt, "requestedServiceFlags": requested,
+            "reportedServiceFlags": reported, "serviceCapabilities": capabilities,
+            "status": status, "windowCount": count, "truncated": bool(truncated), "windows": windows}
 
 
 def installation_diagnostics(result: subprocess.CompletedProcess[bytes]) -> dict[str, object]:
@@ -357,8 +421,11 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
             raise ObserverIntegrityFailure("native observer returned an unexpected response")
     common = {"observer_protocol", "observer_nonce", "observer_uptime_ms", "observer_attempts"}
     timing_fields = {"observer_capture_started_elapsed_ms", "observer_capture_completed_elapsed_ms"}
-    expected = common | ({"observer_nodes", "observer_xml"} | timing_fields if code == "-1" else {"observer_error"})
-    if code not in {"0", "-1"} or set(fields) != expected or fields["observer_protocol"] != "3":
+    failure_fields = {"observer_error"}
+    if code == "0" and fields.get("observer_error") == "root_missing":
+        failure_fields.add("observer_root_diagnostic")
+    expected = common | ({"observer_nodes", "observer_xml"} | timing_fields if code == "-1" else failure_fields)
+    if code not in {"0", "-1"} or set(fields) != expected or fields["observer_protocol"] != "4":
         raise ObserverIntegrityFailure("native observer response protocol is invalid")
     if (re.fullmatch(r"[a-f0-9]{32}", fields["observer_nonce"]) is None
             or not secrets.compare_digest(fields["observer_nonce"], nonce)):
@@ -373,8 +440,11 @@ def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -
         reason = fields["observer_error"]
         if reason not in CAPTURE_ERRORS or attempts[-1]["reason"] != reason:
             raise ObserverIntegrityFailure("native observer failure diagnostics do not match")
+        diagnostic = (parse_root_diagnostic(fields["observer_root_diagnostic"], uptime=uptime,
+                                            previous_uptime_ms=previous_uptime_ms, attempts=attempts)
+                      if reason == "root_missing" else None)
         failure_type = ObserverCaptureFailure if reason in RETRYABLE_CAPTURE_ERRORS else ObserverNativeFailure
-        raise failure_type(reason, uptime, attempts)
+        raise failure_type(reason, uptime, attempts, diagnostic)
     if any(re.fullmatch(r"[0-9]{1,16}", fields[name]) is None for name in timing_fields):
         raise ObserverIntegrityFailure("native observer elapsed clock is invalid")
     capture_started = int(fields["observer_capture_started_elapsed_ms"])
@@ -548,6 +618,8 @@ class NativeUiObserver:
             evidence.update({"failure": error.reason, "capturedAtUptimeMs": error.uptime_ms,
                              "attempts": list(error.attempts),
                              "integrityFailure": isinstance(error, ObserverIntegrityFailure)})
+            if error.root_diagnostic is not None:
+                evidence["rootDiagnostic"] = error.root_diagnostic
             raise
         except subprocess.TimeoutExpired:
             evidence["failure"] = stage + "_timeout"

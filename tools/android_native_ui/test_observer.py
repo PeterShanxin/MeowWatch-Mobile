@@ -39,7 +39,7 @@ def response(xml=None, *, nonce=NONCE, uptime=1234, node_count=None, attempts=No
     xml = "<hierarchy>" + node() + "</hierarchy>" if xml is None else xml
     if node_count is None:
         node_count = len(list(ET.fromstring(xml).iter("node")))
-    fields = {"observer_protocol": "3", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+    fields = {"observer_protocol": "4", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
               "observer_capture_started_elapsed_ms": str(uptime + 100),
               "observer_capture_completed_elapsed_ms": str(uptime + 125),
               "observer_attempts": attempts or f"ok:{node_count}:0:0:0",
@@ -48,9 +48,13 @@ def response(xml=None, *, nonce=NONCE, uptime=1234, node_count=None, attempts=No
             + "\nINSTRUMENTATION_CODE: -1\n").encode()
 
 
-def failure_response(reason="child_missing", *, nonce=NONCE, uptime=1234, attempts=None):
-    fields = {"observer_protocol": "3", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
-              "observer_attempts": attempts or f"{reason}:18:5:2:3", "observer_error": reason}
+def failure_response(reason="child_missing", *, nonce=NONCE, uptime=1234, attempts=None,
+                     root_diagnostic=None):
+    fields = {"observer_protocol": "4", "observer_nonce": nonce, "observer_uptime_ms": str(uptime),
+               "observer_attempts": attempts or f"{reason}:18:5:2:3", "observer_error": reason}
+    if reason == "root_missing":
+        fields["observer_root_diagnostic"] = (root_diagnostic if root_diagnostic is not None else
+            f"1|{uptime - 1}|1|80|80|1|ok|2|0|42:1:1:1:1:1;7:2:0:0:0:0")
     return ("\n".join(f"INSTRUMENTATION_RESULT: {key}={value}" for key, value in fields.items())
             + "\nINSTRUMENTATION_CODE: 0\n").encode()
 
@@ -214,8 +218,8 @@ class SnapshotParserTests(unittest.TestCase):
     def test_duplicate_and_missing_protocol_fields_are_rejected(self):
         good = response()
         for data in [good + f"INSTRUMENTATION_RESULT: observer_nonce={NONCE}\n".encode(),
-                     good.replace(b"INSTRUMENTATION_RESULT: observer_protocol=3\n", b""),
-                     good.replace(b"observer_protocol=3", b"observer_protocol=2"),
+                     good.replace(b"INSTRUMENTATION_RESULT: observer_protocol=4\n", b""),
+                     good.replace(b"observer_protocol=4", b"observer_protocol=3"),
                      good.replace(b"observer_nodes=1", b"observer_nodes=2")]:
             with self.assertRaises(ObserverIntegrityFailure):
                 parse_snapshot(data, NONCE)
@@ -231,6 +235,75 @@ class SnapshotParserTests(unittest.TestCase):
                     "<wrong>" + node() + "</wrong>"):
             with self.assertRaises(ObserverIntegrityFailure):
                 parse_snapshot(response(xml), NONCE)
+
+    def test_missing_root_probe_is_fresh_bounded_and_never_counts_as_a_snapshot(self):
+        attempts = "root_missing:0:-1:-1:-1;root_missing:0:-1:-1:-1"
+        with self.assertRaises(ObserverCaptureFailure) as caught:
+            parse_snapshot(failure_response("root_missing", attempts=attempts), NONCE)
+        probe = caught.exception.root_diagnostic
+        self.assertEqual(probe["attempt"], 1)
+        self.assertEqual(probe["requestedServiceFlags"], 80)
+        self.assertEqual(probe["reportedServiceFlags"], 80)
+        self.assertEqual(probe["serviceCapabilities"], 1)
+        self.assertEqual(probe["windowCount"], 2)
+        self.assertEqual(probe["windows"], [
+            {"id": 42, "type": 1, "active": True, "focused": True,
+             "root": "present", "expectedPackage": "yes"},
+            {"id": 7, "type": 2, "active": False, "focused": False,
+             "root": "missing", "expectedPackage": "unknown"},
+        ])
+        self.assertEqual(caught.exception.reason, "root_missing")
+
+        # A blocked getRoot() must not erase the already enumerated windows.
+        partial = "1|1233|1|80|80|1|partial|2|0|42:1:1:1:1:1;7:2:0:0:3:0"
+        with self.assertRaises(ObserverCaptureFailure) as blocked:
+            parse_snapshot(failure_response("root_missing", root_diagnostic=partial), NONCE)
+        self.assertEqual(blocked.exception.root_diagnostic["status"], "partial")
+        self.assertEqual(blocked.exception.root_diagnostic["windows"][0]["root"], "present")
+        self.assertEqual(blocked.exception.root_diagnostic["windows"][1]["root"], "pending")
+
+        for status in ("budget", "timeout", "unavailable"):
+            with self.subTest(status=status), self.assertRaises(ObserverCaptureFailure) as unavailable:
+                parse_snapshot(failure_response("root_missing", root_diagnostic=
+                    f"1|1233|1|80|0|0|{status}|-1|0|-"), NONCE)
+            self.assertEqual(unavailable.exception.root_diagnostic["status"], status)
+
+    def test_missing_root_probe_rejects_stale_flags_counts_and_private_content(self):
+        good = "1|1233|1|80|80|1|ok|2|0|42:1:1:1:1:1;7:2:0:0:0:0"
+        malformed = ("1|1235|1|80|80|1|ok|2|0|42:1:1:1:1:1;7:2:0:0:0:0",
+                     good.replace("1233", "1230"), good.replace("|1|80|", "|2|80|"),
+                     good.replace("|80|80|", "|16|80|"), good.replace("|ok|2|0|", "|ok|3|0|"),
+                     good.replace("42:1:1:1:1:1", "42:1:1:1:0:1"),
+                     good.replace("42:1:1:1:1:1", "42:1:1:1:1:private-url"),
+                     good.replace("|ok|2|0|", "|other|2|0|"),
+                     good.replace("|ok|2|0|", "|timeout|2|0|"),
+                     good.replace("|ok|2|0|", "|partial|2|0|"),
+                     good.replace("42:1:1:1:1:1", "42:1:1:1:3:1"),
+                     good + "|extra")
+        for value in malformed:
+            with self.subTest(value=value[:32]), self.assertRaises(ObserverIntegrityFailure) as caught:
+                parse_snapshot(failure_response("root_missing", root_diagnostic=value), NONCE,
+                               previous_uptime_ms=1231)
+            self.assertNotIn("private-url", str(caught.exception))
+        missing = failure_response("root_missing").replace(
+            b"INSTRUMENTATION_RESULT: observer_root_diagnostic=" + good.encode() + b"\n", b"")
+        with self.assertRaises(ObserverIntegrityFailure):
+            parse_snapshot(missing, NONCE)
+        with self.assertRaises(ObserverIntegrityFailure):
+            parse_snapshot(response() + b"INSTRUMENTATION_RESULT: observer_root_diagnostic="
+                           + good.encode() + b"\n", NONCE)
+
+        rows = ";".join(f"{i}:1:0:0:0:0" for i in range(8))
+        with self.assertRaises(ObserverCaptureFailure) as bounded:
+            parse_snapshot(failure_response("root_missing", root_diagnostic=
+                f"1|1233|1|80|80|1|ok|9|1|{rows}"), NONCE)
+        self.assertEqual(bounded.exception.root_diagnostic["windowCount"], 9)
+        self.assertEqual(len(bounded.exception.root_diagnostic["windows"]), 8)
+        for invalid in (f"1|1233|1|80|80|1|ok|9|0|{rows}",
+                        f"1|1233|1|80|80|1|ok|65|1|{rows}",
+                        f"1|1233|1|80|80|1|ok|9|1|{rows};8:1:0:0:0:0"):
+            with self.assertRaises(ObserverIntegrityFailure):
+                parse_snapshot(failure_response("root_missing", root_diagnostic=invalid), NONCE)
 
     def test_native_exceptions_and_structural_limits_are_not_retryable(self):
         for reason in ("node_limit", "depth_limit", "child_count_limit", "attribute_limit", "byte_limit",
@@ -553,6 +626,22 @@ class NativeObserverTests(unittest.TestCase):
             observer.observe()
             self.assertEqual(observer.observations[-1]["status"], "success")
             self.assertEqual(len(set(adb.nonces)), 2)
+
+    def test_missing_root_receipt_retains_only_validated_window_diagnostic(self):
+        private = "private-title-or-media-url"
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(capture_response=lambda nonce: failure_response(
+                "root_missing", nonce=nonce, attempts="root_missing:0:-1:-1:-1"),
+                window_output=f"mCurrentFocus=Window{{abc {PACKAGE}/.MainActivity}}\n{private}".encode())
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            with self.assertRaises(ObserverCaptureFailure):
+                observer.observe()
+            receipt = observer.observations[0]
+            self.assertEqual(receipt["failure"], "root_missing")
+            self.assertEqual(receipt["rootDiagnostic"]["windows"][0]["expectedPackage"], "yes")
+            self.assertTrue(receipt["window"]["applicationFocused"])
+            self.assertNotIn(private, str(receipt))
 
     def test_a_failed_complete_tree_read_still_prevents_device_time_moving_backwards(self):
         with tempfile.TemporaryDirectory() as directory:

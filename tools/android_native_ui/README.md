@@ -54,7 +54,7 @@ The installed component check matches Android PackageManager's shortened
 `package/.SnapshotInstrumentation` output and requires the exact self-target.
 Missing, duplicate, additional or differently targeted instrumentation fails.
 
-Each `am instrument -w -r` request carries a new random 128-bit nonce. Protocol 3
+Each `am instrument -w -r` request carries a new random 128-bit nonce. Protocol 4
 returns one XML snapshot as Base64 in its instrumentation result, together with
 the nonce, device uptime, node count and bounded capture-attempt diagnostics.
 Successful results also retain capture start/completion in Android elapsed
@@ -69,6 +69,38 @@ snapshot file to become stale. The host validates every field and requires
 increasing device timestamps. It independently queries window focus and checks
 the MeowWatch PID before and after capture. A PID change, malformed response or
 stale nonce is fatal, including across timeout recovery.
+
+For a `root_missing` result only, the helper makes one content-free window probe
+on the same fresh request after its first null active root. Android requires
+`FLAG_RETRIEVE_INTERACTIVE_WINDOWS` for `UiAutomation.getWindows()`, so the
+helper now requests that flag alongside view-ID reporting before capture and
+records both requested and reported service flags and capabilities. This flag
+may change which window-change events the accessibility connection receives;
+the native cloud gate must verify its effect. A missing content-retrieval
+capability or ignored flag can still yield an empty window list. The probe
+does not replace `getRootInActiveWindow()`, wait for idle or accept a window
+root as a fallback. The capture thread waits at most 150 ms within the same
+eight-second budget and inspects at most eight windows. It publishes the bounded window
+metadata before querying any individual root, so a blocked root query retains
+the known windows with remaining roots marked `pending`. After the diagnostic
+deadline, a cancellation flag prevents the worker from starting any further
+root queries even if Android ignores a thread interrupt. A blocked Binder call
+can outlive this wait; the worker recycles returned window objects when it exits.
+A timed-out probe leaves the
+original capture failure intact. The existing host watchdog remains
+authoritative if an Android framework call does not return.
+
+The validated `rootDiagnostic` receipt contains probe uptime/attempt, requested
+and reported flags, capability bits, a fixed status, bounded window count and
+truncation bit. Each retained window has only integer ID/type, active/focused
+bits, whether its root was present, missing, errored or still pending, and
+whether that root's package matched the expected app. Other package names,
+window titles, view text and resource
+IDs are not emitted. Android enumerates only interactive windows on this
+display, so zero windows does not prove the visible screen was blank; a null
+window root also does not prove the app crashed. Python rejects stale, malformed,
+oversized, unexpected or content-bearing diagnostics. A `root_missing` capture
+still fails even if this probe finds the expected app root.
 
 The Java serializer and Python parser both enforce limits: 2,048 nodes, depth 48,
 4,096 characters per attribute and 256 KiB of UTF-8 XML. The response is bounded
@@ -174,7 +206,7 @@ partial XML and stderr text are never copied into diagnostics; stderr retains
 only the same bounded metadata. Logcat independently retains stages emitted
 before a watcher disappeared. No extra ADB observation or retry is added.
 
-Progress alone never satisfies capture. The final Protocol 2 response must still
+Progress alone never satisfies capture. The final Protocol 4 response must still
 pass all nonce, freshness, complete hierarchy, attribute and structural checks;
 malformed progress also rejects a completed response. The 400,000-byte response
 limit accommodates the maximum 256 KiB XML plus all 128 stage records.

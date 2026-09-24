@@ -35,6 +35,16 @@ clocks. A two-socket-client regression verifies that a settled native interrupti
 pauses Together, suppresses a native auto-resume and accepts explicit Play again.
 That regression does not establish Android focus delivery.
 
+Review found that a ready, non-buffering native pause inside the three-second
+remote-command echo window could remain unpublished if no later event arrived.
+The bridge now rechecks the live snapshot at the end of that window and publishes
+a sustained pause. New intent, source changes, native resume and disposal cancel
+the pending check. Both the earlier settled-interruption socket case and a new
+early-interruption case are retained, with controlled-clock cancellation tests.
+Only formatting has been checked for this new slice; hosted checks are pending.
+An interruption that resumes entirely inside the echo window remains
+indistinguishable from a delayed native echo with the current player API.
+
 The current reconnection behavior protects fresh play intent for every accepted
 source and playback target. Only a failed network source on a capable local
 decoder gets one paused reopening within 30 seconds of TLS reconnection; healthy
@@ -71,8 +81,33 @@ SDK compile job and a focused `native_observer_only` dispatch so future helper
 errors are caught without first building Flutter. Run `36069836038` at
 `011da83` passes Java compilation, DEX, packaging, alignment, signing, signature
 and manifest verification, plus observer contracts and the secret scan. Native
-network `36069922387` and focus `36069925181` are running at that corrected build;
-fresh successful runtime acceptance is still required.
+network `36069922387` passes at that corrected build. Its four original app
+screenshots are unobscured; radio loss, automatic pause, paused rejoin, explicit
+Play/Pause/Seek and unchanged quota pass. All four recording hashes match and
+cloud decoding succeeds. The two native decoders keep their original identities,
+so this run does **not** exercise failed-source reopening. Initial playback
+converges in 26.148 seconds on this debug AVD; replay takes 1.535 seconds.
+The 224 retained native-position records have no rejected or dropped entries.
+No SDK Setup recovery occurs, and teardown/radio restoration succeed.
+
+Focus `36069925181` stops before any focus-helper request: the observer reaches
+`automation_start` but fails to connect to UiAutomation within its 20-second
+startup budget. The original failure screenshot still shows an unobscured
+playing Local screen, with app PID 3096 unchanged; both helpers are removed and
+no SDK Setup recovery occurs. This is not a fresh focus acceptance result.
+
+At `48e5a65`, five-viewport journey `36068920060` passes all 20 steps and saves
+16 screenshots per profile. Nine selected original screens were inspected across
+phone, small phone, landscape phone and both tablet orientations: first-use and
+replay guides, source selection, home and the native sample film. Compact sheets
+scroll above reachable actions; the landscape tablet has a separate invitation
+column. These are display overrides on one API 35 AVD, not physical rotation.
+Product matrix `36068920100` passes its two-device and two billing jobs on attempt
+two after the first attempt's Android system-image archive download failed.
+Production Together `36068920053` remains failed: both app logs reach their test
+completion, but the guest driver then loses its VM-service connection with ADB
+offline, and complete result receipts are absent. It is not accepted as a full
+production journey or clean rehearsal.
 
 Production purchase `36068920062` at `48e5a65` stops during the native
 cancel/failure sequence because its second recording contains 64.564 seconds

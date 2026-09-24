@@ -622,6 +622,109 @@ void main() {
     });
   });
 
+  test(
+    'early ready native pause publishes after the peer settle window',
+    () async {
+      await bridge.load(movie);
+      await bridge.dispose();
+      fakeAsync((clock) {
+        bridge = PlaybackSyncBridge(
+          target: target,
+          sync: sync,
+          authorizePlayback: () async => true,
+        )..start();
+        unawaited(bridge.markSourceOpen(movie.uri.toString()));
+        clock.flushMicrotasks();
+        sync.peer(remotePlay);
+        clock.flushMicrotasks();
+        expect(target.snapshot.playing, isTrue);
+
+        final published = sync.published.length;
+        emitNative(target, playing: false, buffering: false);
+        expect(sync.published.length, published);
+        clock.elapse(bridge.settleWindow - const Duration(milliseconds: 1));
+        expect(sync.published.length, published);
+        clock.elapse(const Duration(milliseconds: 1));
+        expect(sync.published.length, published + 1);
+        expect(sync.published.last.paused, isTrue);
+        expect(target.snapshot.playing, isFalse);
+
+        sync.peer(
+          const PeerPlayState(
+            position: Duration(seconds: 46),
+            paused: false,
+            setBy: 'peer',
+          ),
+        );
+        clock.flushMicrotasks();
+        expect(target.snapshot.playing, isTrue);
+        expect(sync.published.last.paused, isFalse);
+      });
+    },
+  );
+
+  for (final interruption in [
+    'native resume',
+    'new local intent',
+    'new peer intent',
+    'new source',
+    'dispose',
+  ]) {
+    test(
+      'early native pause reconciliation cancels on $interruption',
+      () async {
+        await bridge.load(movie);
+        await bridge.dispose();
+        fakeAsync((clock) {
+          bridge = PlaybackSyncBridge(
+            target: target,
+            sync: sync,
+            authorizePlayback: () async => true,
+          )..start();
+          unawaited(bridge.markSourceOpen(movie.uri.toString()));
+          clock.flushMicrotasks();
+          sync.peer(remotePlay);
+          clock.flushMicrotasks();
+          expect(target.snapshot.playing, isTrue);
+
+          emitNative(target, playing: false, buffering: false);
+          expect(sync.published.last.paused, isFalse);
+          expect(clock.pendingTimers, hasLength(1));
+
+          switch (interruption) {
+            case 'native resume':
+              emitNative(target, playing: true, buffering: false);
+            case 'new local intent':
+              unawaited(bridge.pause());
+              clock.flushMicrotasks();
+            case 'new peer intent':
+              sync.peer(
+                const PeerPlayState(
+                  position: Duration(seconds: 45),
+                  paused: true,
+                  setBy: 'peer',
+                ),
+              );
+              clock.flushMicrotasks();
+            case 'new source':
+              bridge.beginSourceLoad();
+              unawaited(target.load(second));
+              clock.flushMicrotasks();
+              unawaited(bridge.markSourceOpen(second.uri.toString()));
+              clock.flushMicrotasks();
+            case 'dispose':
+              unawaited(bridge.dispose());
+              clock.flushMicrotasks();
+          }
+          final published = sync.published.length;
+          clock.elapse(bridge.settleWindow);
+          expect(sync.published.length, published);
+          expect(clock.pendingTimers, isEmpty);
+        });
+      },
+    );
+  }
+
   for (final command in ['play', 'seek']) {
     test(
       '$command during buffering retains intent through READY callback',

@@ -45,6 +45,7 @@ class PlaybackSyncBridge {
   bool? _publishedPaused;
   bool _buffering = false;
   Timer? _bufferRecovery;
+  Timer? _deferredPause;
   bool _externalPlayPending = false;
   int? _pauseCorrectionSource;
   _PlayStartCatchUp? _playStartCatchUp;
@@ -155,6 +156,7 @@ class PlaybackSyncBridge {
         target.snapshot.media?.uri.toString() != source) {
       return;
     }
+    _cancelDeferredPause();
     _confirmed = source;
     // A heartbeat received during native loading may refer to the prior file.
     // Wait for fresh advancing room samples before changing decoder speed.
@@ -194,6 +196,7 @@ class PlaybackSyncBridge {
     }
     _stopRateCorrection();
     sync.lastAdvancingRoomState = null;
+    _cancelDeferredPause();
     _confirmed = source;
     if (sync.lastObservedRoomState?.setBy != null) {
       await markSourceOpen(source);
@@ -220,6 +223,7 @@ class PlaybackSyncBridge {
     // ExoPlayer's isPlaying is false while buffering even when playWhenReady
     // remains true. A heartbeat with that false flag would pause the room.
     if (state.buffering) {
+      _cancelDeferredPause();
       _stopRateCorrection(preserveWindow: true, waitForFreshHeartbeat: true);
       _buffering = true;
       _bufferRecovery?.cancel();
@@ -227,6 +231,9 @@ class PlaybackSyncBridge {
       return;
     }
     if (_applying != 0) return;
+    if (state.playing || state.connection != PlaybackConnection.ready) {
+      _cancelDeferredPause();
+    }
     if (!state.playing || state.connection != PlaybackConnection.ready) {
       _stopRateCorrection(
         preserveWindow: _buffering && _publishedPaused == false,
@@ -264,8 +271,37 @@ class PlaybackSyncBridge {
           drift <=
               (expected.paused ? Duration.zero : elapsed) +
                   const Duration(milliseconds: 500);
-      if (!matches) return;
+      if (!matches) {
+        if (!state.playing &&
+            state.connection == PlaybackConnection.ready &&
+            !expected.paused &&
+            _publishedPaused == false) {
+          final intent = _intent;
+          final source = _sourceGeneration;
+          final confirmed = _confirmed;
+          // A ready pause may be a delayed native echo. Recheck the live
+          // snapshot once this peer command's echo window has passed.
+          _deferredPause ??= Timer(settleWindow - elapsed, () {
+            _deferredPause = null;
+            final current = target.snapshot;
+            if (_current(intent, source) &&
+                _confirmed == confirmed &&
+                identical(_expected, expected) &&
+                _publishedPaused == false &&
+                current.connection == PlaybackConnection.ready &&
+                !current.buffering &&
+                !current.playing) {
+              // The timer establishes the deadline even if the wall clock
+              // changes; do not re-enter the old echo guard on this snapshot.
+              _expected = null;
+              _onPlayer(current);
+            }
+          });
+        }
+        return;
+      }
     }
+    _cancelDeferredPause();
     if (_playStartCatchUp != null &&
         (state.connection != PlaybackConnection.ready ||
             (state.duration > Duration.zero &&
@@ -577,6 +613,7 @@ class PlaybackSyncBridge {
   }
 
   void _acknowledge(PeerPlayState state) {
+    _cancelDeferredPause();
     _expected = state;
     _publishedPaused = state.paused;
     _expectedAt = DateTime.now();
@@ -777,6 +814,7 @@ class PlaybackSyncBridge {
   }
 
   int _nextIntent() {
+    _cancelDeferredPause();
     _stopRateCorrection();
     sync.lastAdvancingRoomState = null;
     _clearPlayStartCatchUp();
@@ -790,6 +828,11 @@ class PlaybackSyncBridge {
     _bufferRecovery?.cancel();
     _bufferRecovery = null;
     _buffering = false;
+  }
+
+  void _cancelDeferredPause() {
+    _deferredPause?.cancel();
+    _deferredPause = null;
   }
 
   Future<bool> _authorize() =>

@@ -17,10 +17,14 @@ import subprocess
 import threading
 import time
 from typing import Callable
+import xml.etree.ElementTree as ET
 
 from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, ARTIFACT_ROOT
 from tools.android_lifecycle_runtime.run import LifecycleRecording, recording_size
 from tools.android_native_ui.observer import NativeUiObserver
+from tools.billing_runtime.native_dialog import (
+    SETUP_PACKAGE, UnsafeDialog, image_size, select_google_sdk_setup_anr_close,
+)
 
 
 RUNTIME = "One dedicated API 35 AVD; one MainApp process; two real TLS clients/native decoders"
@@ -52,6 +56,31 @@ POSITION_FIELDS = {"runId", "pid", "phase", "readStage", "readIndex", "role",
                    "endedAtUtc", "elapsedMs", "positionMs", "error"}
 WIFI_READY_TIMEOUT = 30
 WIFI_READY_POLL_INTERVAL = 0.5
+SDK_ANR_SETTLE_TIMEOUT = 20
+SDK_ANR_RECOVERY_BUDGET = 60
+APP_COMPONENT = (rf"(?<![A-Za-z0-9_.]){re.escape(PACKAGE)}/"
+                 rf"(?:\.MainActivity|{re.escape(PACKAGE)}\.MainActivity)(?=\s|}}|$)")
+
+
+def app_window_focused(window: str) -> bool:
+    focuses = re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", window)
+    focused_apps = re.findall(r"(?m)^\s*mFocusedApp=([^\r\n]+)$", window)
+    return (len(focuses) == 1 and len(focused_apps) == 1
+            and re.search(APP_COMPONENT, focuses[0]) is not None
+            and re.search(APP_COMPONENT, focused_apps[0]) is not None
+            and re.search(r"Application Not Responding|Application Error:|AppErrorDialog",
+                          window, re.I) is None)
+
+
+def app_has_unobscured_focus(xml: str, window: str) -> bool:
+    if not app_window_focused(window):
+        return False
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return False
+    packages = {node.get("package") for node in root.iter("node")}
+    return packages == {PACKAGE}
 
 
 def parse_checkpoint(line: str, run_id: str) -> dict | None:
@@ -383,6 +412,8 @@ class Runner:
         self.acknowledgements: list[str] = []
         self.errors: list[str] = []
         self.admitted = False
+        self.sdk_setup_recovery_attempts = 0
+        self.sdk_setup_preflight_recovered = False
 
     def write(self, name: str, value: object) -> None:
         (self.output / name).write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
@@ -400,6 +431,109 @@ class Runner:
             # Optional offline indexing must not replace the original failure or
             # turn a successful native gate into a diagnostic parser failure.
             return {"status": "unavailable", "error": f"{type(error).__name__}: {error}"[:400]}
+
+    def recover_sdk_setup_anr(self, directory: Path, xml: str, window: str,
+                              raw_window: str) -> None:
+        recovery_deadline = time.monotonic() + SDK_ANR_RECOVERY_BUDGET
+
+        def time_left() -> float:
+            value = recovery_deadline - time.monotonic()
+            if value <= 0:
+                raise RuntimeFailure("SDK setup ANR recovery exceeded its single budget")
+            return value
+
+        if self.sdk_setup_recovery_attempts:
+            raise RuntimeFailure("a second SDK setup ANR cannot be recovered during one network run")
+        require_owned_avd(self.adb, self.avd_name)
+        try:
+            target = select_google_sdk_setup_anr_close(xml, window)
+        except UnsafeDialog as error:
+            raise RuntimeFailure("foreign foreground window obscures the native network capture") from error
+        anr_packages = set(re.findall(
+            r"Application Not Responding: ([A-Za-z0-9_.]+)", window))
+        anr_windows = set(re.findall(
+            r"Window\{([0-9a-f]+) u0 Application Not Responding: ([A-Za-z0-9_.]+)\}",
+            window))
+        if (anr_packages != {SETUP_PACKAGE}
+                or len(anr_windows) != 1
+                or re.search(r"Application Error:|AppErrorDialog|PermissionDialog", window, re.I)):
+            raise RuntimeFailure("another system dialog makes SDK setup ANR recovery ambiguous")
+        original_focus = re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", window)
+        original_app = re.findall(r"(?m)^\s*mFocusedApp=([^\r\n]+)$", window)
+        if (len(original_focus) != 1 or len(original_app) != 1
+                or re.search(APP_COMPONENT, original_app[0]) is None):
+            raise RuntimeFailure("SDK setup ANR focus is ambiguous")
+        raw_focus = re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", raw_window)
+        if not (app_window_focused(raw_window) or raw_focus == original_focus):
+            raise RuntimeFailure("foreground window changed before SDK setup ANR recovery")
+        (directory / "sdk-anr-original-screen.png").write_bytes((directory / "screen.png").read_bytes())
+        (directory / "sdk-anr-original-window.txt").write_bytes((directory / "window.txt").read_bytes())
+        (directory / "sdk-anr-original-window.txt.stderr").write_bytes(
+            (directory / "window.txt.stderr").read_bytes())
+        (directory / "sdk-anr-original-ui.xml").write_text(xml, encoding="utf-8")
+        (directory / "sdk-anr-original-observer-window.txt").write_text(window, encoding="utf-8")
+        events = self.adb.run("logcat", "-b", "events", "-d", "-v", "epoch",
+                              "am_anr:I", "*:S", timeout=min(5, time_left()), check=False)
+        (directory / "sdk-anr-events.txt").write_bytes(events.stdout)
+        (directory / "sdk-anr-events.txt.stderr").write_bytes(events.stderr)
+        if events.returncode:
+            raise RuntimeFailure("SDK setup ANR event evidence could not be retained")
+        fresh_xml, fresh_window = self.observer.observe(deadline=recovery_deadline)
+        (directory / "sdk-anr-confirmed-ui.xml").write_text(fresh_xml, encoding="utf-8")
+        (directory / "sdk-anr-confirmed-window.txt").write_text(fresh_window, encoding="utf-8")
+        try:
+            target = select_google_sdk_setup_anr_close(fresh_xml, fresh_window)
+        except UnsafeDialog as error:
+            raise RuntimeFailure("SDK setup ANR changed before its single close action") from error
+        if re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", fresh_window) != original_focus:
+            raise RuntimeFailure("SDK setup ANR window changed before its single close action")
+        if re.findall(r"(?m)^\s*mFocusedApp=([^\r\n]+)$", fresh_window) != original_app:
+            raise RuntimeFailure("underlying app changed before SDK setup ANR close")
+        if set(re.findall(
+                r"Window\{([0-9a-f]+) u0 Application Not Responding: ([A-Za-z0-9_.]+)\}",
+                fresh_window)) != anr_windows:
+            raise RuntimeFailure("SDK setup ANR window changed before its single close action")
+        if (set(re.findall(r"Application Not Responding: ([A-Za-z0-9_.]+)",
+                           fresh_window)) != {SETUP_PACKAGE}
+                or re.search(r"Application Error:|AppErrorDialog|PermissionDialog", fresh_window, re.I)):
+            raise RuntimeFailure("another system dialog appeared before SDK setup ANR close")
+        png = self.adb.screenshot(timeout=min(5, time_left()))
+        (directory / "sdk-anr-confirmed-screen.png").write_bytes(png)
+        width, height = image_size(png)
+        if target.bounds[2] > width or target.bounds[3] > height:
+            raise RuntimeFailure("SDK setup ANR close action lies outside the screen")
+        self.sdk_setup_recovery_attempts = 1
+        x, y = target.center
+        self.adb.run("shell", "input", "tap", str(x), str(y), timeout=min(5, time_left()))
+        deadline = min(recovery_deadline, time.monotonic() + SDK_ANR_SETTLE_TIMEOUT)
+        after_window = ""
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            result = self.adb.run("shell", "dumpsys", "window", "displays",
+                                  timeout=min(5, remaining))
+            after_window = result.stdout.decode("utf-8", errors="replace")
+            (directory / "sdk-anr-after-window.txt").write_text(after_window, encoding="utf-8")
+            if app_window_focused(after_window):
+                break
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+        if not app_window_focused(after_window):
+            raise RuntimeFailure("MainApp did not regain unobscured focus after SDK setup ANR close")
+        (directory / "window.txt").write_text(after_window, encoding="utf-8")
+        (directory / "window.txt.stderr").write_bytes(result.stderr)
+        (directory / "screen.png").write_bytes(self.adb.screenshot(timeout=min(5, time_left())))
+        after_xml, observer_window = self.observer.observe(deadline=recovery_deadline)
+        (directory / "ui.xml").write_text(after_xml, encoding="utf-8")
+        (directory / "observer-window.txt").write_text(observer_window, encoding="utf-8")
+        self.write("native-ui-observer.json", {
+            "installation": self.observer.installation,
+            "observations": self.observer.observations,
+        })
+        if not app_has_unobscured_focus(after_xml, observer_window):
+            raise RuntimeFailure("MainApp did not own the fresh native hierarchy after SDK setup ANR close")
+        self.event({"operation": "sdk-setup-anr-recovery", "phase": directory.name,
+                    "attempts": self.sdk_setup_recovery_attempts, "passed": True})
 
     def capture(self, phase: str) -> None:
         require_owned_avd(self.adb, self.avd_name)
@@ -433,6 +567,9 @@ class Runner:
                 "installation": self.observer.installation,
                 "observations": self.observer.observations,
             })
+            raw_window = (directory / "window.txt").read_text(encoding="utf-8")
+            if not (app_window_focused(raw_window) and app_has_unobscured_focus(xml, window)):
+                self.recover_sdk_setup_anr(directory, xml, window, raw_window)
         self.event({"operation": "native-observation", "phase": phase,
                     "radios": self.radios.read(), "directory": str(directory)})
 
@@ -609,6 +746,17 @@ class Runner:
                                    "serial": self.adb.serial, "avdName": self.avd_name,
                                    "apkSha256": hashlib.sha256(self.apk.read_bytes()).hexdigest()})
         try:
+            preparation_path = os.environ.get("NETWORK_SDK_SETUP_REPORT")
+            if preparation_path:
+                preparation = json.loads(Path(preparation_path).read_text(encoding="utf-8"))
+                device = preparation.get("devices", {}).get(self.adb.serial, {})
+                if (preparation.get("status") != "prepared"
+                        or device.get("status") not in {"not-needed", "recovered-once"}
+                        or device.get("before", {}).get("verifiedAvd") != self.avd_name):
+                    raise RuntimeFailure("task AVD SDK setup preparation receipt is invalid")
+                self.sdk_setup_preflight_recovered = device["status"] == "recovered-once"
+                self.event({"operation": "sdk-setup-preflight", "status": device["status"],
+                            "recoveryExercised": self.sdk_setup_preflight_recovered})
             self.radios.capture_initial()
             self.admitted = True
             if self.adb.run("shell", "pidof", PACKAGE, check=False).stdout.strip():
@@ -681,6 +829,10 @@ class Runner:
             self.write("gate.json", {"passed": not self.errors, "errors": self.errors,
                                      "runtime": RUNTIME, "completedPhases": list(PHASES[:self.phase_index]),
                                      "originalRadios": self.radios.initial,
+                                     "sdkSetupRecoveryExercised": (self.sdk_setup_preflight_recovered
+                                                                   or self.sdk_setup_recovery_attempts > 0),
+                                     "sdkSetupPreflightRecovered": self.sdk_setup_preflight_recovered,
+                                     "sdkSetupInRunRecoveryAttempts": self.sdk_setup_recovery_attempts,
                                      "nativePositionDiagnostics": position_diagnostics})
         return not self.errors
 

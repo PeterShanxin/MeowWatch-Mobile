@@ -18,6 +18,21 @@ cleanup() {
 trap cleanup EXIT
 trap 'exit 130' INT
 trap 'exit 143' TERM
+mkdir -p build/android-network-artifacts
+export NETWORK_SDK_SETUP_REPORT=build/android-network-artifacts/sdk-setup-preparation/result.json
+python3 - "$NETWORK_AVD_NAME" <<'PY'
+from pathlib import Path
+import sys
+
+from tools.android_multi_device.prepare_sdk_setup import prepare
+
+report = prepare("adb", {"emulator-5554": sys.argv[1]},
+                 Path("build/android-network-artifacts/sdk-setup-preparation"))
+print(f"SDK_SETUP_PREPARATION_{report['status'].upper()}: "
+      f"{report.get('reason', 'exact task AVD checked')}", flush=True)
+if report["status"] != "prepared":
+    raise SystemExit(1)
+PY
 bash tools/android_multi_device/start_fixture_server.sh \
   --fixture build/android-network-fixture/sync-fixture.mp4 --state "$state"
 started=1

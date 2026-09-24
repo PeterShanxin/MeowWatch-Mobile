@@ -22,6 +22,8 @@ on:
       - 'tools/android_native_ui/**'
       - 'tools/native_capture/**'
       - 'tools/android_multi_device/*fixture*'
+      - 'tools/android_multi_device/prepare_sdk_setup.py'
+      - 'tools/billing_runtime/native_dialog.py'
       - 'lib/**'
       - 'android/**'
       - 'pubspec.*'

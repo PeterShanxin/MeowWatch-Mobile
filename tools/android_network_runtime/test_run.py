@@ -12,13 +12,31 @@ from unittest.mock import patch
 
 from tools.android_network_runtime.run import (
     PACKAGE, PHASES, REQUIRED, Radios, Runner, RuntimeFailure,
-    default_wifi_network, native_position_diagnostics, parse_checkpoint, parse_radio,
+    app_has_unobscured_focus, default_wifi_network, native_position_diagnostics,
+    parse_checkpoint, parse_radio,
     require_owned_avd, validate_result,
 )
 
 
 RUN_ID = "network_123_1"
 AVD = "meowwatch_network_123_1"
+APP_WINDOW = (f"mCurrentFocus=Window{{abc u0 {PACKAGE}/.MainActivity}}\n"
+              f"mFocusedApp=ActivityRecord{{def u0 {PACKAGE}/.MainActivity t1}}\n")
+APP_XML = f'<hierarchy><node package="{PACKAGE}" /></hierarchy>'
+SETUP_PACKAGE = "com.google.android.googlesdksetup"
+ANR_WINDOW = (f"mCurrentFocus=Window{{6574fa u0 Application Not Responding: {SETUP_PACKAGE}}}\n"
+              f"mFocusedApp=ActivityRecord{{def u0 {PACKAGE}/.MainActivity t1}}\n"
+              f"Window{{6574fa u0 Application Not Responding: {SETUP_PACKAGE}}}\n")
+ANR_XML = (
+    '<hierarchy>'
+    f'<node package="android" visible-to-user="true" enabled="true"'
+    f' resource-id="android:id/alertTitle" class="android.widget.TextView"'
+    f' text="{SETUP_PACKAGE} isn\'t responding" />'
+    '<node package="android" visible-to-user="true" enabled="true"'
+    ' resource-id="android:id/aerr_close" class="android.widget.Button"'
+    ' clickable="true" text="Close app" bounds="[100,200][300,300]" />'
+    '</hierarchy>'
+)
 
 
 class FakeAdb:
@@ -36,6 +54,7 @@ class FakeAdb:
         self.connectivity_responses = []
         self.radios_at_connectivity = []
         self.connectivity_timeouts = []
+        self.window_responses = []
 
     def run(self, *args, **kwargs):
         self.calls.append(args)
@@ -57,6 +76,8 @@ class FakeAdb:
             self.radios_at_connectivity.append(self.radios.copy())
             self.connectivity_timeouts.append(kwargs.get("timeout"))
             value = self.connectivity_responses.pop(0) if self.connectivity_responses else b""
+        elif args == ("shell", "dumpsys", "window", "displays"):
+            value = self.window_responses.pop(0) if self.window_responses else APP_WINDOW.encode()
         elif args == ("shell", "pidof", PACKAGE):
             value = self.pid
         elif args == ("shell", "pm", "list", "packages", "--user", "0", PACKAGE):
@@ -71,8 +92,9 @@ class FakeAdb:
     def cleanup(self):
         pass
 
-    def screenshot(self):
-        return b"original native PNG"
+    def screenshot(self, *, timeout=25):
+        return (b"\x89PNG\r\n\x1a\n" + b"\0" * 4 + b"IHDR"
+                + (1080).to_bytes(4, "big") + (2400).to_bytes(4, "big"))
 
     def observe(self):
         raise AssertionError("the playing gate must not use idle-waiting UIAutomator")
@@ -83,14 +105,15 @@ class FakeObserver:
         self.installation = {"waitForIdle": False}
         self.observations = []
         self.owns_package = False
+        self.responses = []
 
     def install(self):
         self.owns_package = True
         return self.installation
 
-    def observe(self):
+    def observe(self, *, deadline=None):
         self.observations.append({"status": "success", "applicationPid": 456})
-        return "<hierarchy />", "owned application window"
+        return self.responses.pop(0) if self.responses else (APP_XML, APP_WINDOW)
 
     def cleanup(self):
         self.owns_package = False
@@ -532,6 +555,117 @@ class EvidenceTests(unittest.TestCase):
             self.assertTrue((runner.output / "observations/initial-ready/ui.xml").is_file())
             self.assertFalse(any(call[:3] == ("shell", "input", "tap") for call in runner.adb.calls))
 
+    def test_system_anr_is_never_credited_as_main_app_capture(self):
+        self.assertFalse(app_has_unobscured_focus(ANR_XML, ANR_WINDOW))
+        self.assertTrue(app_has_unobscured_focus(APP_XML, APP_WINDOW))
+        self.assertFalse(app_has_unobscured_focus(
+            APP_XML, APP_WINDOW.replace(PACKAGE, "evil." + PACKAGE)))
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.window_responses = [ANR_WINDOW.encode()]
+            runner.observer.responses = [(ANR_XML.replace(SETUP_PACKAGE, PACKAGE),
+                                          ANR_WINDOW.replace(SETUP_PACKAGE, PACKAGE))]
+            with self.assertRaisesRegex(RuntimeFailure, "foreign foreground window"):
+                runner.capture("initial-ready")
+            evidence = runner.output / "observations/initial-ready"
+            self.assertTrue((evidence / "screen.png").is_file())
+            self.assertIn("Application Not Responding", (evidence / "window.txt").read_text())
+            self.assertFalse(any(call[:3] == ("shell", "input", "tap") for call in runner.adb.calls))
+
+    def test_raw_foreign_window_cannot_inherit_observer_main_app_focus(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.window_responses = [APP_WINDOW.replace(PACKAGE, "com.other.app").encode()]
+            with self.assertRaisesRegex(RuntimeFailure, "foreign foreground window"):
+                runner.capture("initial-ready")
+            evidence = runner.output / "observations/initial-ready"
+            self.assertIn("com.other.app", (evidence / "window.txt").read_text())
+            self.assertEqual((evidence / "ui.xml").read_text(), APP_XML)
+            self.assertFalse(any(call[:3] == ("shell", "input", "tap") for call in runner.adb.calls))
+
+    def test_exact_sdk_anr_recovery_retains_original_and_recaptures_main_app(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.window_responses = [ANR_WINDOW.encode(), APP_WINDOW.encode()]
+            runner.observer.responses = [(ANR_XML, ANR_WINDOW), (ANR_XML, ANR_WINDOW),
+                                         (APP_XML, APP_WINDOW)]
+            runner.capture("initial-ready")
+            evidence = runner.output / "observations/initial-ready"
+            self.assertEqual((evidence / "sdk-anr-original-observer-window.txt").read_text(),
+                             ANR_WINDOW)
+            self.assertEqual((evidence / "sdk-anr-original-ui.xml").read_text(), ANR_XML)
+            self.assertTrue((evidence / "sdk-anr-original-screen.png").is_file())
+            self.assertTrue((evidence / "sdk-anr-confirmed-screen.png").is_file())
+            self.assertEqual((evidence / "window.txt").read_text(), APP_WINDOW)
+            self.assertEqual((evidence / "ui.xml").read_text(), APP_XML)
+            self.assertEqual(runner.sdk_setup_recovery_attempts, 1)
+            self.assertEqual([call for call in runner.adb.calls
+                              if call[:3] == ("shell", "input", "tap")],
+                             [("shell", "input", "tap", "200", "250")])
+
+    def test_changed_sdk_anr_window_refuses_close_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.window_responses = [ANR_WINDOW.encode()]
+            runner.observer.responses = [(ANR_XML, ANR_WINDOW),
+                                         (ANR_XML, ANR_WINDOW.replace("6574fa", "999999"))]
+            with self.assertRaisesRegex(RuntimeFailure, "window changed"):
+                runner.capture("initial-ready")
+            evidence = runner.output / "observations/initial-ready"
+            self.assertTrue((evidence / "sdk-anr-original-screen.png").is_file())
+            self.assertTrue((evidence / "sdk-anr-confirmed-window.txt").is_file())
+            self.assertFalse(any(call[:3] == ("shell", "input", "tap") for call in runner.adb.calls))
+
+    def test_new_ambiguous_dialog_refuses_close_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.window_responses = [ANR_WINDOW.encode()]
+            runner.observer.responses = [(ANR_XML, ANR_WINDOW),
+                                         (ANR_XML, ANR_WINDOW + "\nAppErrorDialog\n")]
+            with self.assertRaisesRegex(RuntimeFailure, "another system dialog appeared"):
+                runner.capture("initial-ready")
+            self.assertFalse(any(call[:3] == ("shell", "input", "tap") for call in runner.adb.calls))
+
+    def test_sdk_anr_over_lookalike_package_refuses_close_tap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            foreign_window = ANR_WINDOW.replace(PACKAGE, "evil." + PACKAGE)
+            runner.adb.window_responses = [foreign_window.encode()]
+            runner.observer.responses = [(ANR_XML, foreign_window)]
+            with self.assertRaisesRegex(RuntimeFailure, "focus is ambiguous"):
+                runner.capture("initial-ready")
+            self.assertFalse(any(call[:3] == ("shell", "input", "tap") for call in runner.adb.calls))
+
+    def test_failed_sdk_anr_close_consumes_single_attempt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.window_responses = [ANR_WINDOW.encode(), ANR_WINDOW.encode()]
+            runner.observer.responses = [(ANR_XML, ANR_WINDOW), (ANR_XML, ANR_WINDOW),
+                                         (ANR_XML, ANR_WINDOW)]
+            original_run = runner.adb.run
+            tap_attempts = []
+
+            def fail_tap(*args, **kwargs):
+                if args[:3] == ("shell", "input", "tap"):
+                    tap_attempts.append(args)
+                    raise RuntimeFailure("tap outcome unknown")
+                return original_run(*args, **kwargs)
+
+            with patch.object(runner.adb, "run", side_effect=fail_tap), \
+                    self.assertRaisesRegex(RuntimeFailure, "tap outcome unknown"):
+                runner.capture("initial-ready")
+            self.assertEqual(runner.sdk_setup_recovery_attempts, 1)
+            with self.assertRaisesRegex(RuntimeFailure, "second SDK setup ANR"):
+                runner.capture("offline-confirmed")
+            self.assertEqual(tap_attempts, [("shell", "input", "tap", "200", "250")])
+
     def test_network_only_capture_does_not_require_unmounted_app_hierarchy(self):
         with tempfile.TemporaryDirectory() as directory:
             runner = self.make_runner(Path(directory))
@@ -553,6 +687,37 @@ class EvidenceTests(unittest.TestCase):
                 self.assertFalse(runner.run())
             gate = json.loads((runner.output / "gate.json").read_text())
             self.assertIn("remove-owned-native-ui-observer: helper remains", gate["errors"])
+
+    def test_gate_reports_preflight_recovery_and_rejects_wrong_avd_receipt(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            report = root / "sdk-setup-result.json"
+            runner = self.make_runner(root)
+            report.write_text(json.dumps({"status": "prepared", "devices": {
+                "emulator-5554": {"status": "recovered-once", "before": {"verifiedAvd": AVD}}
+            }}))
+            with patch.dict(os.environ, {"NETWORK_SDK_SETUP_REPORT": str(report)}), \
+                    patch.object(runner, "capture"), \
+                    patch.object(runner, "start_processes", side_effect=RuntimeFailure("stop after preparation")), \
+                    patch("tools.android_network_runtime.run.ARTIFACT_ROOT", root / "storage"):
+                self.assertFalse(runner.run())
+            gate = json.loads((runner.output / "gate.json").read_text())
+            self.assertTrue(gate["sdkSetupRecoveryExercised"])
+            self.assertTrue(gate["sdkSetupPreflightRecovered"])
+            self.assertEqual(gate["sdkSetupInRunRecoveryAttempts"], 0)
+
+            report.write_text(json.dumps({"status": "prepared", "devices": {
+                "emulator-5554": {"status": "recovered-once", "before": {"verifiedAvd": "other-avd"}}
+            }}))
+            second_root = root / "second"
+            second_root.mkdir()
+            second = self.make_runner(second_root)
+            with patch.dict(os.environ, {"NETWORK_SDK_SETUP_REPORT": str(report)}), \
+                    patch.object(second, "capture"), \
+                    patch("tools.android_network_runtime.run.ARTIFACT_ROOT", root / "storage"):
+                self.assertFalse(second.run())
+            gate = json.loads((second.output / "gate.json").read_text())
+            self.assertIn("task AVD SDK setup preparation receipt is invalid", gate["errors"][0])
 
     def test_driver_failure_restores_radios_and_preserves_failure(self):
         with tempfile.TemporaryDirectory() as directory:

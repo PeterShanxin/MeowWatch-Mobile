@@ -56,6 +56,21 @@ The helper targets only its own package, checks the app PID and a fresh nonce,
 and is installed and removed by this run. Before app launch and after unmount,
 network-only observations retain raw screenshots/window state without claiming
 an app accessibility hierarchy. Helper installation/removal failures fail the gate.
+
+Every app-phase capture additionally requires exact MainActivity ownership in
+both raw and observer focused-window records, and an accessibility hierarchy
+containing only app nodes. A successful XML dump alone does not establish that
+the app is visible. Before installation, CI reuses the existing dedicated-AVD
+Google SDK setup preparation and retains its receipt. During a run, only the
+exact Google SDK Setup ANR over the app may receive one bounded Close app action;
+its identity and window are rechecked immediately before the tap. Original
+obscured captures, event logs and the fresh confirmation are preserved. The
+runner then requires new unobscured app window, screenshot and XML evidence.
+Another ANR, a changed or ambiguous dialog, a failed close, or a second required
+close fails the gate. This recovery never restarts playback or retries a failed
+acceptance phase. The gate explicitly reports preflight recovery and in-run
+attempts so emulator repair is not presented as a repair-free rehearsal.
+
 Four original screenrecord segments reuse the lifecycle recorder's full decoding
 and Android frame-clock checks through each last required observation. Recording
 gaps are explicit between assertion phases; this is not continuous whole-journey

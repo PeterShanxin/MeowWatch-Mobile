@@ -40,7 +40,16 @@ video-only landscape layout. `ff8a559` classifies the layout using height before
 keyboard reduction while retaining the resized body; the widget regression
 proves draft, focus and Send remain above the keyboard. The native two-device
 driver now requires the actual keyboard inset and visible focused composer.
-Fresh native recording is pending; earlier footage is not accepted as the final
+Fresh Together `36025427753` reaches the keyboard/composer bounds checks but
+fails the focused-field assertion before Send. The host subsequently times out
+waiting for that unsent message. `09d0c1d` fixes the remaining cause: an inserted
+typing-indicator Padding replaced the unkeyed composer Padding, disposing its
+text-field state. A stable composer key preserves focus/draft, and ChatStore
+excludes only the current assigned username's own typing echo. Independent
+review found no blocking issue. Peer typing insertion/removal and username
+reassignment regressions pass in hosted Check `36028137405`: 773 app, 87 Nearby
+and 14 platform tests, analysis, media contracts and secret audit. A fresh
+two-device recording is pending; earlier footage is not accepted as the final
 submission film.
 
 The same cohort fails normal lifecycle and focus interruption with observed
@@ -57,7 +66,11 @@ release lifecycle `36024427344` at `7cf42de` passes: real HOME, 43-to-46-second
 pause, no autoplay, explicit replay and 63-second history restoration in a new
 app process. Fullscreen `36024422678` passes on phone and tablet: same-process
 native advancement, system bars/orientation, reveal controls and Back behavior.
-Their original footage is queued for hosted extraction and visual review.
+Hosted review `36027358617` strictly decodes their six original segments. All
+six source hashes and 33 extracted PNG hashes match; selected original phone
+and tablet frames show immersive video with hidden controls/bars and returned
+Home with matching history. This sampled review does not claim complete motion
+acceptance of the final film.
 
 Focus `36024431409` still fails the former displayed-position check (40 to 45).
 Its pre-action snapshot precedes the native focus request by 5.502 seconds;

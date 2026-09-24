@@ -58,7 +58,12 @@ which includes active UiAutomation in `ACCESSIBILITY_ENABLED`.
 After the quiet screenshots, one native center tap precedes a fresh tree
 observation; `controlsVisibleAfterNativeTap` records the observed state without
 claiming that a later accessibility query could not also reveal controls. No
-tree is queried between the quiet capture and that tap. A bounded observation must show the real media timeline
+tree is queried between the quiet capture and that tap. This first capture after
+the helper is stopped has a single 30-second caller deadline, allowing its bounded
+20-second cold setup, four-second traversal, two-second transfer and ownership
+reads. The original 10-second caller deadline in tablet run `35958877057` expired
+as the helper returned its completed tree. Late results still fail, and no
+additional tap or sleep is used. A bounded observation must show the real media timeline
 advancing by at least two seconds before the runner taps Pause using that fresh
 hierarchy. Pause must then keep the position stable. The first system Back must return to the normal player with
 the same app PID, fixture and paused position. Both real system bars and the
@@ -68,37 +73,54 @@ No room, media or playback state is injected through a test channel.
 Three original recording segments cover normal playback, fullscreen, and the
 restored player/home. Each recorder is stopped and its ownership cleared **before**
 an orientation-changing action; the next segment uses the current rotated display
-dimensions, not the unrotated `wm size`. The reused recorder verifies full decoding
-and Android frame-clock coverage through its final observation. Rotation gaps are
-explicit and are not claimed as continuous footage. Original PNGs are uncropped
+dimensions, not the unrotated `wm size`. The first two moving-playback segments
+retain complete live-picture readiness, bounded post-roll, full decoding and
+Android frame-clock coverage through their required final observations. Rotation
+gaps are explicit and are not claimed as continuous footage. Original PNGs are uncropped
 and must exactly match the native display dimensions. UI XML, complete window
 dumps, screenshots, full logcat, media provenance and cleanup results are retained.
 Visible accessibility bounds are checked against the physical display; maintainers
 must still inspect the original images for visual clipping and overflow.
 
 Each segment dispatches its existing next operation once after the exact owned
-recorder PID/command is verified, then waits for a complete live picture and device
-clock within the original twenty-second launch deadline. These operations are
-normal Play, fullscreen Play, and the second Back to home. No additional Play,
-synthetic animation, input retry or recording timeout is added. The fullscreen
-paused/same-process/Insets proof remains before the second recorder and Play;
-the restored paused-player screenshot remains before the third recorder and Back.
+recorder PID/command is verified. The first two wait for a complete live picture
+and device clock within the original twenty-second launch deadline. The third
+dispatches the second Back to Home after ownership is verified, then obtains a
+fresh Home hierarchy, window state and uncropped PNG within that same deadline.
+Its same-app-PID, restored Insets and orientation checks remain mandatory. No
+additional Play, synthetic animation, input retry or recording timeout is added.
+The fullscreen paused/same-process/Insets proof remains before the second recorder
+and Play; the restored paused-player screenshot remains before the third recorder
+and Back.
 
 The dispatch's host/device clock is retained separately from media readiness.
 The callback is not proof that its button-tap instant appears in the MP4. The
-actual first video-frame time is retained, and finalized frame-clock coverage is
-required for the first successful post-action observation (`03-normal-playing`,
-`08-controls-idle-visual-review`, `15-normal-return-home`), together with the unchanged
-final observation/tail and complete-decode checks. No file is trimmed or padded.
+actual first video-frame time is retained. The first two segments require
+finalized frame-clock coverage for their first post-action and final observations
+(`03-normal-playing`, `08-controls-idle-visual-review`). The third is stopped
+after the fresh Home evidence and verifies the owned finalized device file,
+matching pulled bytes and SHA-256, full video decoding, unique native Winscope
+frame clock and a frame after the device clock read immediately before the one
+Back dispatch. That trigger clock is a lower bound, not the exact key-event time;
+the original frames still require visual review to establish the visible Back
+transition. Its short recording is not
+claimed to cover the later static Home observation or to provide continuous
+footage after the last encoded frame. No file is trimmed or padded.
 
 This order addresses the static-screen wait in phone run `35253732711`: its second
 recording encoded thirteen valid landscape frames but retained them in one MP4
 chunk until stop, while the driver waited for that chunk before sending Play.
-The first two segments now supply their intended playback during readiness. A
-short Home transition can still remain buffered or produce no later post-roll
-picture; the third segment must fail in that case. Native evidence is required
-to establish its behavior, and no extra UI motion or relaxed coverage substitutes
-for that evidence.
+The first two segments now supply their intended playback during readiness.
+Phone run `35958877057` showed the third segment's live file remained a 3,232-byte
+prefix for its full twenty-second readiness wait, then finalized to a fully
+decodable three-frame MP4 on owned stop. This finite Home path permits that native
+buffering but fails if finalization yields no post-trigger picture, invalid native
+frame clock, wrong owner, stale Home observation, decode error or file mismatch.
+`homeTransitionVisualReviewRequired=true` and
+`homeTransitionVisualReview.status=pending` remain in the automated report. A
+maintainer must inspect the original first and last video frames against the
+retained normal-player and Home PNGs and record that decision separately before
+claiming the video visibly shows the transition.
 
 The runner admits only the named `meowwatch_fullscreen_<phone|tablet>_*` API 35
 emulator before any install/removal. It never changes global orientation, display

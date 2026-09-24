@@ -208,6 +208,25 @@ class OwnershipTests(unittest.TestCase):
                     runner.recording_input(20, "tap", "50", "60")
             runner.adb.run.assert_called_once_with("shell", "input", "tap", "50", "60", timeout=0.5)
 
+    def test_finite_home_screenshot_finishing_after_original_deadline_is_not_accepted(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.runner(Path(directory))
+            runner.output.mkdir()
+            runner.last_window = window()
+            state = display_state(runner.last_window)
+            runner.adb.run = Mock(return_value=subprocess.CompletedProcess([], 0, b"window detail"))
+            clock = [10.0]
+            def late_png(*, timeout):
+                self.assertEqual(timeout, 10.0)
+                clock[0] = 20.0
+                return b"\x89PNG\r\n\x1a\n" + b"\0\0\0\rIHDR" + (1080).to_bytes(4, "big") + (2400).to_bytes(4, "big")
+            runner.adb.screenshot = Mock(side_effect=late_png)
+            with patch("tools.android_fullscreen_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
+                 self.assertRaises(ObserverIntegrityFailure):
+                runner.evidence("15-normal-return-home", state, "<hierarchy/>", deadline=20)
+            self.assertFalse((runner.output / "15-normal-return-home.png").exists())
+            self.assertFalse(runner.states)
+
     def test_three_segments_dispatch_only_existing_actions_and_preserve_paused_entry_proof(self):
         for changed_entry in (False, True):
             with self.subTest(changed_entry=changed_entry), tempfile.TemporaryDirectory() as directory:
@@ -251,7 +270,7 @@ class OwnershipTests(unittest.TestCase):
                         position = 0
                     return (full_xml if kwargs["fullscreen"] else normal_xml), state, Playback(position, 90, False)
                 runner.system_sample = Mock(side_effect=system_sample)
-                runner.evidence = Mock(side_effect=lambda phase, *_: events.append(phase))
+                runner.evidence = Mock(side_effect=lambda phase, *_, **__: events.append(phase))
                 def idle(_baseline):
                     runner.phase = "08-controls-idle-visual-review"
                     events.append(runner.phase)
@@ -276,8 +295,9 @@ class OwnershipTests(unittest.TestCase):
                 def make_recording(_adb, _output, index, _size):
                     recording = Mock()
                     recording.metadata = {"status": "not-started"}
-                    def start(*, startup_action):
+                    def start(*, startup_action, finite_transition):
                         self.assertIsNotNone(startup_action)
+                        self.assertEqual(finite_transition, index == 3)
                         events.append(f"owned-{index}")
                         in_startup[0] = True
                         try:
@@ -285,11 +305,13 @@ class OwnershipTests(unittest.TestCase):
                         finally:
                             in_startup[0] = False
                         events.append(f"ready-{index}")
-                        recording.metadata.update({"status": "recording", "startedAtMonotonic": index})
+                        recording.metadata.update({"status": "recording", "startedAtMonotonic": index,
+                                                   "readinessProbe": {"deadlineAtMonotonic": 20}})
                     recording.start.side_effect = start
                     recording.finish.side_effect = lambda **_: recording.metadata.update(
-                        {"status": "verified", "stopRequestedAtMonotonic": index + 0.5})
-                    recording.observe_startup_result.side_effect = lambda phase: first_observations.append(phase)
+                        {"status": "verified", "stopRequestedAtMonotonic": index + 0.5,
+                         "transitionVisualReview": {"status": "pending"} if index == 3 else None})
+                    recording.observe_startup_result.side_effect = lambda phase, **_: first_observations.append(phase)
                     return recording
                 process = Mock()
                 process.poll.return_value = None
@@ -307,6 +329,8 @@ class OwnershipTests(unittest.TestCase):
                             self.assertTrue(report["completed"])
                             self.assertTrue(report["controlsAutoHideVisualReviewRequired"])
                             self.assertEqual(report["controlsAutoHideReview"]["status"], "pending")
+                            self.assertTrue(report["homeTransitionVisualReviewRequired"])
+                            self.assertEqual(report["homeTransitionVisualReview"]["status"], "pending")
                             self.assertNotIn("controlsAutoHiddenDuringPlayback", report)
                             self.assertNotIn("controlsShownByNativeTap", report)
                     finally:
@@ -353,11 +377,34 @@ class OwnershipTests(unittest.TestCase):
             runner.observe = Mock(return_value=fullscreen_player(10, (100, 700, 180, 780)))
             runner.tap = Mock()
             clock = [0]
-            with patch("tools.android_lifecycle_runtime.run.time.sleep", side_effect=lambda _: clock.__setitem__(0, 11)), \
+            with patch("tools.android_lifecycle_runtime.run.time.sleep", side_effect=lambda _: clock.__setitem__(0, 31)), \
                     patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
                     self.assertRaisesRegex(RuntimeFailure, "has not advanced"):
                 runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
             runner.tap.assert_not_called()
+
+    def test_cold_observer_has_one_bounded_budget_and_late_advance_is_rejected(self):
+        for returned_at in (12, 31):
+            with self.subTest(returned_at=returned_at), tempfile.TemporaryDirectory() as directory:
+                runner = self.runner(Path(directory))
+                runner.output.mkdir()
+                full = display_state(window(width=2400, height=1080, rotation=1, bars=False))
+                runner.tap = Mock()
+                clock = [0]
+                def observe(*, deadline):
+                    self.assertEqual(deadline, 30)
+                    clock[0] = returned_at
+                    return fullscreen_player(12, (120, 700, 200, 780))
+                runner.observe = Mock(side_effect=observe)
+                with patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]), \
+                        patch("tools.android_lifecycle_runtime.run.time.sleep"):
+                    if returned_at < 30:
+                        self.assertEqual(runner.pause_after_fullscreen_advance(full, Playback(10, 90, False)), 2)
+                        runner.tap.assert_called_once()
+                    else:
+                        with self.assertRaisesRegex(RuntimeFailure, "deadline"):
+                            runner.pause_after_fullscreen_advance(full, Playback(10, 90, False))
+                        runner.tap.assert_not_called()
 
 
 class IdleVisualEvidenceTests(unittest.TestCase):

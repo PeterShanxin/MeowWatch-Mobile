@@ -276,21 +276,28 @@ class Runner(LifecycleRunner):
         self.require_observation_deadline(deadline)
         return xml
 
-    def evidence(self, phase: str, state: Display, xml: str) -> None:
+    def evidence(self, phase: str, state: Display, xml: str, *, deadline: float | None = None) -> None:
+        self.require_observation_deadline(deadline)
         self.output.joinpath(f"{phase}.window.txt").write_text(self.last_window, encoding="utf-8")
         self.output.joinpath(f"{phase}.xml").write_text(xml, encoding="utf-8")
-        detailed = self.adb.run("shell", "dumpsys", "window", "windows", timeout=10).stdout
+        detailed = self.adb.run("shell", "dumpsys", "window", "windows",
+                                timeout=remaining_timeout(deadline, 10)).stdout
+        self.require_observation_deadline(deadline)
         self.output.joinpath(f"{phase}.windows.txt").write_bytes(detailed)
-        png = self.adb.screenshot()
+        png = self.adb.screenshot(timeout=remaining_timeout(deadline, 25))
+        self.require_observation_deadline(deadline)
         self.output.joinpath(f"{phase}.png").write_bytes(png)
         if image_size(png) != (state.width, state.height):
             raise RuntimeFailure("original screenshot dimensions disagree with the current native display")
-        fresh_window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode()
+        fresh_window = self.adb.run("shell", "dumpsys", "window", "displays",
+                                    timeout=remaining_timeout(deadline, 10)).stdout.decode()
+        self.require_observation_deadline(deadline)
         self.output.joinpath(f"{phase}.after-screenshot.window.txt").write_text(fresh_window, encoding="utf-8")
         if display_state(fresh_window) != state:
             raise RuntimeFailure("system bars/orientation changed across the accepted native screenshot")
         self.states.append({"phase": phase, "observedAtMonotonic": time.monotonic(),
-                            "pid": self.pid(), **asdict(state)})
+                            "pid": self.pid(deadline=deadline), **asdict(state)})
+        self.require_observation_deadline(deadline)
 
     def system_sample(self, phase: str, baseline: Display, *, fullscreen: bool,
                       controls: bool = True, playing: bool | None = None) -> tuple[str, Display, Playback | None]:
@@ -307,7 +314,7 @@ class Runner(LifecycleRunner):
         return xml, state, player
 
     def start_recording(self, *, startup_action: Callable[[float], None] | None = None,
-                        action_name: str | None = None) -> None:
+                        action_name: str | None = None, finite_transition: bool = False) -> None:
         if self.recording is not None:
             raise RuntimeFailure("stop the owned recorder before starting another orientation segment")
         window = self.adb.run("shell", "dumpsys", "window", "displays", timeout=10).stdout.decode()
@@ -318,7 +325,7 @@ class Runner(LifecycleRunner):
         recording.metadata["displayAtStart"] = asdict(state)
         if action_name is not None:
             recording.metadata["startupActionName"] = action_name
-        recording.start(startup_action=startup_action)
+        recording.start(startup_action=startup_action, finite_transition=finite_transition)
         if len(self.recordings) > 1:
             recording.metadata["gapAfterPreviousStopSeconds"] = (
                 float(recording.metadata["startedAtMonotonic"])
@@ -417,7 +424,10 @@ class Runner(LifecycleRunner):
             if not state.playing or state.position_seconds - before.position_seconds < 2:
                 raise RuntimeFailure("explicit fullscreen Play has not advanced the native timeline by two seconds")
             return state
-        shown_xml, shown_playing = self.wait("09-controls-shown-and-native-advanced", advanced, timeout=10)
+        # The first query after force-stopping the observer includes cold setup
+        # (20s), bounded traversal (4s), result transfer (2s), and ownership reads.
+        # Native advancement remains mandatory; observer latency is not evidence.
+        shown_xml, shown_playing = self.wait("09-controls-shown-and-native-advanced", advanced, timeout=30)
         # Pause only from the fresh hierarchy that proves actual advancement.
         # Avoid a screenshot between observing and tapping this transient UI.
         self.tap(button(shown_xml, "Pause", "Pause together"))
@@ -487,7 +497,8 @@ class Runner(LifecycleRunner):
             raise RuntimeFailure("first system Back did not return to the normal player")
         require_same_paused_player(before_back, after_back, app_pid, self.pid())
         self.evidence("14-normal-player-restored", restored, xml)
-        self.start_recording(action_name="return-home", startup_action=lambda deadline:
+        self.start_recording(action_name="return-home", finite_transition=True,
+                             startup_action=lambda deadline:
                              self.recording_input(deadline, "keyevent", "KEYCODE_BACK"))
         def home(xml: str) -> Display:
             if len(exact(xml, "Start a room", clickable=True)) != 1 or exact(xml, "Enter full screen"):
@@ -496,12 +507,17 @@ class Runner(LifecycleRunner):
             require_transition(baseline, state, self.form_factor, fullscreen=False)
             require_visible_bounds(xml, state, fullscreen=False, controls=True)
             return state
-        home_xml, home_state = self.wait("15-normal-return-home", home, timeout=30)
-        self.evidence("15-normal-return-home", home_state, home_xml)
-        self.recording.observe_startup_result("15-normal-return-home")
-        if self.pid() != app_pid:
+        deadline = float(self.recording.metadata["readinessProbe"]["deadlineAtMonotonic"])
+        self.require_observation_deadline(deadline)
+        home_xml, home_state = self.wait("15-normal-return-home", home,
+                                         timeout=min(30, deadline - time.monotonic()))
+        self.require_observation_deadline(deadline)
+        self.evidence("15-normal-return-home", home_state, home_xml, deadline=deadline)
+        self.recording.observe_startup_result("15-normal-return-home", deadline=deadline)
+        if self.pid(deadline=deadline) != app_pid:
             raise RuntimeFailure("normal Back navigation replaced the app process")
-        self.finish_recording(required_phase="15-normal-return-home")
+        self.require_observation_deadline(deadline)
+        self.finish_recording()
         if self.logcat.poll() is not None:
             raise RuntimeFailure("raw logcat capture exited during fullscreen acceptance")
         if len(self.recordings) != 3 or any(row["status"] != "verified" for row in self.recordings):
@@ -514,6 +530,8 @@ class Runner(LifecycleRunner):
             "systemBarsHiddenByActualInsetsSources": True,
             "systemBarsAndOrientationRestored": True,
             "secondBackReturnsHome": True, "controlsAutoHideVisualReviewRequired": True,
+            "homeTransitionVisualReviewRequired": True,
+            "homeTransitionVisualReview": self.recordings[-1]["transitionVisualReview"],
             "controlsAutoHideReview": self.controls_auto_hide_review,
             "controlsVisibleAfterNativeTap": True,
             "nativeVisibleBoundsWithinPhysicalDisplay": True,
@@ -524,7 +542,8 @@ class Runner(LifecycleRunner):
             "boundary": "Dedicated API 35 emulator, normal release lib/main.dart; no physical device proof. "
                         "Rotation gaps are explicit, not continuous footage. PNGs remain uncropped. "
                         "Bounds checks do not replace visual review of original screenshots. "
-                        "Controls auto-hide remains pending original-image/video visual review.",
+                        "Controls auto-hide and the finite Home transition remain pending original-image/video "
+                        "visual review. The third video is not claimed to cover the static Home observation.",
         })
         return report
 

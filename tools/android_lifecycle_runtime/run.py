@@ -295,9 +295,12 @@ class LifecycleRecording:
                                "truncated": len(data) > MAX_CODEC_EVIDENCE_BYTES}
         return stdout if evidence["status"] == "collected" else None
 
-    def start(self, *, startup_action: Callable[[float], None] | None = None) -> None:
+    def start(self, *, startup_action: Callable[[float], None] | None = None,
+              finite_transition: bool = False) -> None:
         if self.process is not None or self.finished:
             raise RuntimeFailure("native recording cannot be started or its startup action repeated")
+        if finite_transition and startup_action is None:
+            raise RuntimeFailure("finite native transition requires one owned startup action")
         self.require_owned_path()
         if (re.fullmatch(r"emulator-[0-9]+", self.adb.serial) is None
                 or self.adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1"):
@@ -373,6 +376,15 @@ class LifecycleRecording:
                 finally:
                     action["finishedAtMonotonic"] = time.monotonic()
                 action["status"] = "completed"
+                if finite_transition:
+                    accepted_at = time.monotonic()
+                    if accepted_at >= deadline or self.process.poll() is not None:
+                        raise RuntimeFailure("finite native transition exceeded its original launch deadline")
+                    self.metadata.update({"status": "recording", "startedAtMonotonic": accepted_at,
+                                          "finiteTransition": True,
+                                          "readiness": "owned recorder and completed action; finalized frames required",
+                                          "measurementStart": "pre-dispatch device trigger clock; no live-picture claim"})
+                    return
                 self.metadata["measurementStart"] = "live picture and device clock after the startup action"
 
             def record_readiness_timeout(operation: str, error: subprocess.TimeoutExpired) -> None:
@@ -437,15 +449,24 @@ class LifecycleRecording:
             self.metadata.update({"status": "failed", "error": str(error)})
             raise
 
-    def observe_startup_result(self, phase: str) -> None:
+    def observe_startup_result(self, phase: str, *, deadline: float | None = None) -> None:
         if (self.metadata.get("startupAction", {}).get("status") != "completed"
-                or self.metadata["status"] != "recording"):
-            raise RuntimeFailure("recording startup result requires completed action and real media readiness")
+                or self.metadata["status"] != "recording"
+                or ("mediaReadyAtDeviceElapsedSeconds" not in self.metadata
+                    and not self.metadata.get("finiteTransition"))):
+            raise RuntimeFailure("recording startup result requires a completed action and active owned segment")
         if "firstPostActionObservation" in self.metadata:
             raise RuntimeFailure("the first recording startup observation cannot be replaced")
-        elapsed = recording_device_elapsed(self.adb.run("exec-out", "cat", "/proc/uptime", timeout=3).stdout)
+        if deadline is not None and time.monotonic() >= deadline:
+            raise RuntimeFailure("first post-action observation exceeded the original launch deadline")
+        elapsed = recording_device_elapsed(self.adb.run(
+            "exec-out", "cat", "/proc/uptime",
+            timeout=remaining_timeout(deadline, 3)).stdout)
+        observed_at = time.monotonic()
+        if deadline is not None and observed_at >= deadline:
+            raise RuntimeFailure("first post-action observation exceeded the original launch deadline")
         self.metadata["firstPostActionObservation"] = {
-            "phase": phase, "deviceElapsedSeconds": elapsed, "observedAtMonotonic": time.monotonic(),
+            "phase": phase, "deviceElapsedSeconds": elapsed, "observedAtMonotonic": observed_at,
             "source": "Android /proc/uptime after actual native observation and original screenshot",
         }
 
@@ -508,7 +529,8 @@ class LifecycleRecording:
             return
         self.finished = True
         post_roll_error: Exception | None = None
-        if required_phase is not None:
+        finite_transition = self.metadata.get("finiteTransition") is True
+        if required_phase is not None and not finite_transition:
             try:
                 self.post_roll(required_phase)
             except (RuntimeFailure, OSError, subprocess.TimeoutExpired) as error:
@@ -575,13 +597,26 @@ class LifecycleRecording:
                 duration = float(videos[0]["duration"])
             except (ValueError, TypeError, KeyError):
                 raise RuntimeFailure("native lifecycle recording dimensions or duration are invalid") from None
-            if "mediaReadyAtDeviceElapsedSeconds" not in self.metadata:
-                raise RuntimeFailure("native lifecycle recording never reached media readiness")
-            elapsed = (float(self.metadata["stopRequestedAtDeviceElapsedSeconds"])
-                       - float(self.metadata["mediaReadyAtDeviceElapsedSeconds"]))
-            self.metadata.update({"videoDurationSeconds": duration, "measuredSegmentSeconds": elapsed,
-                                  "measurementClock": "Android /proc/uptime elapsed seconds",
-                                  "hostSegmentSeconds": stopped - float(self.metadata["startedAtMonotonic"])})
+            if finite_transition:
+                action = self.metadata.get("startupAction")
+                if (not isinstance(action, dict) or action.get("status") != "completed"
+                        or "triggerDeviceElapsedSeconds" not in action):
+                    raise RuntimeFailure("finite native transition has no completed owned action")
+                elapsed = (float(self.metadata["stopRequestedAtDeviceElapsedSeconds"])
+                           - float(action["triggerDeviceElapsedSeconds"]))
+                if not math.isfinite(duration) or not 0 < duration <= 181 or not 0 < elapsed <= 180:
+                    raise RuntimeFailure("finite native transition has invalid video duration or device capture window")
+                self.metadata.update({"videoDurationSeconds": duration, "deviceCaptureWindowSeconds": elapsed,
+                                      "measurementClock": "Android /proc/uptime elapsed seconds",
+                                      "hostSegmentSeconds": stopped - float(self.metadata["startedAtMonotonic"])})
+            else:
+                if "mediaReadyAtDeviceElapsedSeconds" not in self.metadata:
+                    raise RuntimeFailure("native lifecycle recording never reached media readiness")
+                elapsed = (float(self.metadata["stopRequestedAtDeviceElapsedSeconds"])
+                           - float(self.metadata["mediaReadyAtDeviceElapsedSeconds"]))
+                self.metadata.update({"videoDurationSeconds": duration, "measuredSegmentSeconds": elapsed,
+                                      "measurementClock": "Android /proc/uptime elapsed seconds",
+                                      "hostSegmentSeconds": stopped - float(self.metadata["startedAtMonotonic"])})
             frame_clock_error: Exception | None = None
             try:
                 pts = [float(frame["pts_time"]) for frame in metadata["frames"] if frame["media_type"] == "video"]
@@ -596,7 +631,8 @@ class LifecycleRecording:
             except (RuntimeFailure, KeyError, TypeError, ValueError) as error:
                 frame_clock_error = error
                 self.metadata["frameClockError"] = str(error) if isinstance(error, RuntimeFailure) else type(error).__name__
-            validate_recording_duration(duration, elapsed, exited_early)
+            if not finite_transition:
+                validate_recording_duration(duration, elapsed, exited_early)
             decoded = subprocess.run(["ffmpeg", "-v", "error", "-xerror", "-i", str(self.output),
                                       "-map", "0:v:0", "-enc_time_base:v", "demux", "-fps_mode", "passthrough",
                                       "-f", "null", "-"], capture_output=True, check=False, timeout=60)
@@ -618,6 +654,32 @@ class LifecycleRecording:
                 raise RuntimeFailure("native lifecycle recording could not be decoded completely")
             if frame_clock_error is not None:
                 raise RuntimeFailure("native recording frame-clock evidence is unavailable or invalid") from frame_clock_error
+            if finite_transition:
+                action = self.metadata["startupAction"]
+                observation = self.metadata.get("firstPostActionObservation")
+                if required_phase is not None:
+                    raise RuntimeFailure("finite native transition cannot claim live post-roll coverage")
+                if (observation is None or observation.get("phase") != "15-normal-return-home"
+                        or float(observation["observedAtMonotonic"]) <= float(action["finishedAtMonotonic"])
+                        or float(observation["observedAtMonotonic"]) >=
+                        float(self.metadata["readinessProbe"]["deadlineAtMonotonic"])):
+                    raise RuntimeFailure("finite native transition is missing its fresh Home observation")
+                trigger = float(action["triggerDeviceElapsedSeconds"])
+                observed = float(observation["deviceElapsedSeconds"])
+                stopped_device = float(self.metadata["stopRequestedAtDeviceElapsedSeconds"])
+                if (not trigger < observed <= stopped_device or len(frame_clock) < 2
+                        or frame_clock[0] >= frame_clock[-1]
+                        or not any(trigger < frame <= stopped_device for frame in frame_clock)):
+                    raise RuntimeFailure("finite native transition lacks two frames and a post-trigger picture before owned stop")
+                observation["capturedWhileRecorderOwned"] = True
+                observation["coveredByFrameClock"] = frame_clock[0] <= observed <= frame_clock[-1]
+                self.metadata["transitionVisualReview"] = {
+                    "status": "pending", "required": True,
+                    "reason": "inspect original first and last video frames against retained player and Home PNGs",
+                    "continuousCoverageAfterLastFrame": False,
+                    "firstFrameDeviceElapsedSeconds": frame_clock[0],
+                    "lastFrameDeviceElapsedSeconds": frame_clock[-1],
+                }
             if "startupAction" in self.metadata:
                 trigger = float(self.metadata["startupAction"]["triggerDeviceElapsedSeconds"])
                 self.metadata["startupAction"].update({
@@ -627,11 +689,12 @@ class LifecycleRecording:
                 observation = self.metadata.get("firstPostActionObservation")
                 if observation is None:
                     raise RuntimeFailure("native recording is missing its first post-action observation")
-                observation["coveredByFrameClock"] = False
-                require_recorded_observation(frame_clock, float(observation["deviceElapsedSeconds"]),
-                                             float(self.metadata["stopRequestedAtDeviceElapsedSeconds"]))
-                observation["coveredByFrameClock"] = True
-            if required_phase is not None:
+                if not finite_transition:
+                    observation["coveredByFrameClock"] = False
+                    require_recorded_observation(frame_clock, float(observation["deviceElapsedSeconds"]),
+                                                 float(self.metadata["stopRequestedAtDeviceElapsedSeconds"]))
+                    observation["coveredByFrameClock"] = True
+            if required_phase is not None and not finite_transition:
                 required = self.metadata.get("requiredThroughDeviceElapsedSeconds")
                 if required is None:
                     raise RuntimeFailure("native recording final required device clock is unavailable")

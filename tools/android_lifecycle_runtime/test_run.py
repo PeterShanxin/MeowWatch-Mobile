@@ -898,6 +898,46 @@ class LifecycleRuntimeTests(unittest.TestCase):
             self.assertEqual(recording.metadata["firstPostActionObservation"]["phase"], "03-playing")
             self.assertEqual(recording.metadata["firstPostActionObservation"]["deviceElapsedSeconds"], 67)
 
+    def test_finite_transition_dispatches_once_after_ownership_without_waiting_for_live_picture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recording, process, action, events, now = self.startup_recording(
+                directory, produces_picture=False)
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
+                "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=now,
+            ):
+                recording.start(startup_action=action, finite_transition=True)
+                recording.observe_startup_result("15-normal-return-home",
+                                                 deadline=recording.metadata["readinessProbe"]["deadlineAtMonotonic"])
+                with self.assertRaisesRegex(RuntimeFailure, "cannot be replaced"):
+                    recording.observe_startup_result("later")
+            recording.reader.join(timeout=1)
+            self.assertEqual(events, ["ownership-query", "trigger-clock", "startup-action", "device-clock"])
+            self.assertEqual(recording.metadata["status"], "recording")
+            self.assertTrue(recording.metadata["finiteTransition"])
+            self.assertNotIn("mediaReadyAtDeviceElapsedSeconds", recording.metadata)
+            self.assertEqual(recording.metadata["readinessProbe"]["probeAttempts"], 0)
+            self.assertEqual(action.call_count, 1)
+
+    def test_finite_transition_requires_action_and_rejects_wrong_owner_before_input(self):
+        with tempfile.TemporaryDirectory() as directory:
+            recording, _, _, _, _ = self.startup_recording(directory)
+            with self.assertRaisesRegex(RuntimeFailure, "requires one owned startup action"):
+                recording.start(finite_transition=True)
+            self.assertIsNone(recording.process)
+        with tempfile.TemporaryDirectory() as directory:
+            wrong_remote = "/sdcard/other.mp4"
+            wrong_owner = ("/system/bin/screenrecord\x00--verbose\x00--size\x00432x960\x00"
+                           "--bit-rate\x002000000\x00--time-limit\x00180\x00" + wrong_remote + "\x00").encode()
+            recording, process, action, events, now = self.startup_recording(
+                directory, owner=wrong_owner)
+            with patch("tools.android_lifecycle_runtime.run.subprocess.Popen", return_value=process), patch(
+                "tools.android_lifecycle_runtime.run.time.monotonic", side_effect=now,
+            ), self.assertRaisesRegex(RuntimeFailure, "ownership changed"):
+                recording.start(startup_action=action, finite_transition=True)
+            recording.reader.join(timeout=1)
+            action.assert_not_called()
+            self.assertEqual(events, ["ownership-query"])
+
     def test_recorded_observation_must_be_covered_but_trigger_may_precede_first_frame(self):
         for trigger, observed, expected in ((9, 12, None), (11, 12, None),
                                              (9, 9.5, "does not cover"), (9, 20, "does not cover"),
@@ -946,6 +986,79 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 self.assertEqual(recording.metadata["status"], "failed" if expected else "verified")
                 if observed is not None:
                     self.assertEqual(recording.metadata["firstPostActionObservation"]["coveredByFrameClock"], expected is None)
+
+    def test_finite_transition_validates_finalized_frames_without_claiming_static_tail_coverage(self):
+        cases = (
+            ("valid", [10.5, 11.5], "15-normal-return-home", 110, None),
+            ("stale-phase", [10.5, 11.5], "14-normal-player-restored", 110, "fresh Home observation"),
+            ("late-home", [10.5, 11.5], "15-normal-return-home", 121, "fresh Home observation"),
+            ("pre-trigger-only", [9.0, 9.5], "15-normal-return-home", 110, "post-trigger picture"),
+            ("one-frame", [11.5], "15-normal-return-home", 110, "post-trigger picture"),
+        )
+        for name, times, phase, observed_at, expected in cases:
+            with self.subTest(name=name), tempfile.TemporaryDirectory() as directory:
+                adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+                recording = LifecycleRecording(adb, Path(directory), 3, (432, 960))
+                recording.output.parent.mkdir()
+                media = clock_media(times)
+                def command(*arguments, **_kwargs):
+                    receipt = device_file_response(arguments, recording.remote, media)
+                    if receipt is not None:
+                        return receipt
+                    if arguments == ("exec-out", "cat", "/proc/uptime"):
+                        return subprocess.CompletedProcess([], 0, b"13.00 10.00\n")
+                    if arguments == ("exec-out", "cat", "/proc/44/cmdline"):
+                        return subprocess.CompletedProcess([], 0, f"screenrecord\0{recording.remote}\0".encode())
+                    if arguments[0] == "pull":
+                        recording.output.write_bytes(media)
+                    return subprocess.CompletedProcess([], 0, b"", b"")
+                adb.run.side_effect = command
+                recording.process = Mock()
+                recording.process.poll.side_effect = [None, 0]
+                recording.process.wait.return_value = 0
+                recording.pid = "44"
+                recording.metadata.update({"status": "recording", "startedAtMonotonic": 100,
+                    "finiteTransition": True,
+                    "readinessProbe": {"deadlineAtMonotonic": 120},
+                    "startupAction": {"status": "completed", "triggerDeviceElapsedSeconds": 10,
+                                      "finishedAtMonotonic": 101},
+                    "firstPostActionObservation": {"phase": phase, "deviceElapsedSeconds": 12,
+                                                    "observedAtMonotonic": observed_at}})
+                probe = {"streams": [{"codec_type": "video", "width": 432, "height": 960,
+                                      "duration": "1.1"}],
+                         "frames": [{"media_type": "video", "pts_time": str(value - times[0])}
+                                    for value in times]}
+                with patch("tools.android_lifecycle_runtime.run.subprocess.run", side_effect=[
+                    subprocess.CompletedProcess([], 0, json.dumps(probe).encode(), b""),
+                    subprocess.CompletedProcess([], 0, b"", b""),
+                ]) as decode:
+                    if expected:
+                        with self.assertRaisesRegex(RuntimeFailure, expected):
+                            recording.finish()
+                    else:
+                        recording.finish()
+                self.assertEqual(decode.call_args_list[-1].args[0][0], "ffmpeg")
+                self.assertEqual(recording.output.read_bytes(), media)
+                self.assertTrue(recording.metadata["deviceFileMatchesPulledFile"])
+                self.assertEqual(recording.metadata["status"], "failed" if expected else "verified")
+                if not expected:
+                    self.assertFalse(recording.metadata["firstPostActionObservation"]["coveredByFrameClock"])
+                    self.assertEqual(recording.metadata["transitionVisualReview"]["status"], "pending")
+                    self.assertFalse(recording.metadata["transitionVisualReview"]["continuousCoverageAfterLastFrame"])
+
+    def test_finite_transition_does_not_signal_changed_recorder_owner(self):
+        with tempfile.TemporaryDirectory() as directory:
+            adb = Mock(remote_prefix="/sdcard/meowwatch-install-test/", remote_files=[])
+            adb.run.return_value = subprocess.CompletedProcess([], 0, b"screenrecord\0/sdcard/other.mp4\0")
+            recording = LifecycleRecording(adb, Path(directory), 3, (432, 960))
+            recording.process = Mock()
+            recording.process.poll.side_effect = [None, 0]
+            recording.pid = "44"
+            recording.metadata["finiteTransition"] = True
+            with self.assertRaisesRegex(RuntimeFailure, "ownership changed"):
+                recording.finish()
+            self.assertFalse(any(call.args[:2] == ("shell", "kill") for call in adb.run.call_args_list))
+            self.assertEqual(recording.metadata["status"], "failed")
 
     def test_recording_start_retries_only_bounded_readiness_timeouts(self):
         with tempfile.TemporaryDirectory() as directory:

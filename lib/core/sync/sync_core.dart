@@ -31,6 +31,8 @@ abstract class SyncCore {
 
   bool _disposed = false;
   SyncConnectionState? _lastConnectionState;
+  PeerPlayState? _lastObservedRoomState;
+  Stopwatch? _roomStateClock;
 
   Stream<SyncConnectionState> get connectionState => _connection.stream;
 
@@ -48,7 +50,14 @@ abstract class SyncCore {
   /// to a new watcher has `doSeek=false`, so nothing is emitted on [peerState]
   /// until a later pause or seek, and [PlaybackSyncBridge.markSourceOpen] must
   /// still land the room.
-  PeerPlayState? lastObservedRoomState;
+  PeerPlayState? get lastObservedRoomState => _lastObservedRoomState;
+  set lastObservedRoomState(PeerPlayState? state) {
+    _lastObservedRoomState = state;
+    _roomStateClock = state == null ? null : (Stopwatch()..start());
+  }
+
+  /// Monotonic age of the actual received heartbeat, including unapplied ones.
+  Duration? get lastObservedRoomStateAge => _roomStateClock?.elapsed;
 
   /// Files announced by peers (on join, on the roster, and on mid-session file
   /// changes). Drives the file-mismatch warning.

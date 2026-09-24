@@ -173,6 +173,116 @@ void main() {
   );
 
   test(
+    'startup correction uses a fresh room heartbeat instead of wall time',
+    () async {
+      await useDelayedPlayTarget();
+      sync.peer(remotePlay);
+      await until(() => target.commands.contains('play'));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      // The other decoder also stalled; it did not reach 46.2s just because
+      // 1.2s passed. Seeking to that stale projection would create new drift.
+      sync.lastObservedRoomState = const PeerPlayState(
+        position: Duration(milliseconds: 45150),
+        paused: false,
+        setBy: 'peer',
+      );
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 45100),
+        playing: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(target.commands.where((c) => c.startsWith('seek:')), [
+        'seek:45000',
+      ]);
+      expect(sync.changes, isEmpty);
+    },
+  );
+
+  test(
+    'startup seek buffering permits only one follow-up correction',
+    () async {
+      await useDelayedPlayTarget();
+      sync.peer(remotePlay);
+      await until(() => target.commands.contains('play'));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 45100),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+      );
+      final first = target.snapshot.position;
+      await until(() => sync.published.last.position >= first);
+      emitNative(target, playing: false, buffering: true);
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      sync.lastObservedRoomState = PeerPlayState(
+        position: first + const Duration(milliseconds: 1500),
+        paused: false,
+        setBy: 'peer',
+      );
+      emitNativePosition(
+        target,
+        first + const Duration(milliseconds: 100),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 3,
+      );
+      final second = target.snapshot.position;
+      await until(() => sync.published.last.position >= second);
+      // Another buffering cycle cannot cause a third automatic correction.
+      emitNative(target, playing: false, buffering: true);
+      sync.lastObservedRoomState = PeerPlayState(
+        position: second + const Duration(seconds: 2),
+        paused: false,
+        setBy: 'peer',
+      );
+      emitNativePosition(
+        target,
+        second + const Duration(milliseconds: 100),
+        playing: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(target.commands.where((c) => c.startsWith('seek:')).length, 3);
+      expect(sync.changes, isEmpty);
+      expect(errors, isEmpty);
+    },
+  );
+
+  test('peer pause cancels recovery after the first corrective seek', () async {
+    await useDelayedPlayTarget();
+    sync.peer(remotePlay);
+    await until(() => target.commands.contains('play'));
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    emitNativePosition(
+      target,
+      const Duration(milliseconds: 45100),
+      playing: true,
+    );
+    await until(
+      () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+    );
+    emitNative(target, playing: false, buffering: true);
+    sync.peer(
+      const PeerPlayState(
+        position: Duration(seconds: 12),
+        paused: true,
+        setBy: 'peer',
+      ),
+    );
+    await until(() => target.snapshot.position == const Duration(seconds: 12));
+    emitNativePosition(target, const Duration(seconds: 47), playing: true);
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(target.commands.where((c) => c.startsWith('seek:')).length, 3);
+    expect(sync.published.last.paused, isTrue);
+    expect(bridge.playRequested, isFalse);
+    expect(sync.changes, isEmpty);
+  });
+
+  test(
     'source opening into a playing room catches up after native startup',
     () async {
       await bridge.dispose();

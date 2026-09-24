@@ -31,7 +31,7 @@ Subscribe before connecting: all streams are broadcast. `SyncCore` exposes:
 | Surface | Purpose |
 |---|---|
 | `connectionState`, `lastConnectionState` | Connection transitions and snapshot |
-| `peerState`, `lastObservedRoomState` | Playback commands and newest observed room state |
+| `peerState`, `lastObservedRoomState`, `lastObservedRoomStateAge` | Playback commands, newest observed room state and its monotonic receive age |
 | `presence`, `initialRoster`, `peerFile` | Membership, initial room members, announced media |
 | `chat`, `activity` | Room messages and playback activity |
 | `updateLocalState`, `notifyLocalChange` | Heartbeat cache and explicit user change |
@@ -57,6 +57,18 @@ can instead call `beginSourceLoad()` and pass the returned generation to
 `markSourceOpen(uri, generation: ...)` only after accepting the load.
 `adoptOpenSource(uri)` handles a source already open before switching from
 Local to Together.
+
+After an accepted first Play, the bridge checks startup lag only once the native
+position advances beyond the accepted seek. It projects from a room heartbeat
+no older than two seconds, including heartbeats that did not issue a follow
+command; the original Play plus elapsed wall time can overshoot a peer that also
+buffered. A startup correction requires at least 750 ms of lag and never seeks
+to EOF. Since the corrective seek can itself buffer, the watch remains until
+native playback advances again, with at most two corrections in twelve seconds.
+Pause, explicit seek, connection loss, source replacement and disposal cancel
+this watch. Corrections update the ordinary heartbeat without publishing a new
+user seek. The existing one-directional four-second steady-state rewind policy
+is unchanged.
 
 All synchronized user controls go through `play()`, `pause()` and `seek()`.
 Player events update the cached heartbeat; they never infer or echo user

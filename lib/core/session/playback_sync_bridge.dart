@@ -354,37 +354,52 @@ class PlaybackSyncBridge {
   bool _maybeCatchUpPlayStart(PlaybackSnapshot state) {
     final watch = _playStartCatchUp;
     if (watch == null || !_current(watch.intent, watch.source)) return false;
+    if (watch.clock.elapsed > const Duration(seconds: 12)) {
+      _clearPlayStartCatchUp();
+      return false;
+    }
+    if (watch.pending) return true;
     if (!state.playing || state.buffering || _publishedPaused != false) {
       return false;
     }
     // A play() Future can finish before the decoder displays its first frame.
     // Require an advancing native position before comparing it to room time.
     if (state.position <=
-        watch.peer.position + const Duration(milliseconds: 80)) {
+        watch.resumePosition + const Duration(milliseconds: 80)) {
       return false;
     }
-    _clearPlayStartCatchUp();
     final projected = _projectPlayStart(watch, state.duration);
     if (projected == null ||
         projected - state.position < const Duration(milliseconds: 750)) {
+      _clearPlayStartCatchUp();
       return false;
     }
+    watch.pending = true;
     _background(
       _enqueue(() async {
-        if (!_current(watch.intent, watch.source) ||
-            _publishedPaused != false) {
+        if (!identical(_playStartCatchUp, watch) ||
+            !_current(watch.intent, watch.source) ||
+            _publishedPaused != false ||
+            watch.clock.elapsed > const Duration(seconds: 12)) {
+          if (identical(_playStartCatchUp, watch)) _clearPlayStartCatchUp();
           return;
         }
         final current = target.snapshot;
+        if (current.buffering) {
+          watch.pending = false;
+          return;
+        }
         final position = _projectPlayStart(watch, current.duration);
         if (position == null ||
             !current.playing ||
-            current.buffering ||
             position - current.position < const Duration(milliseconds: 750)) {
+          _clearPlayStartCatchUp();
           return;
         }
         _applying++;
         try {
+          watch.corrections++;
+          watch.resumePosition = position;
           await target.seek(position).timeout(commandTimeout);
           if (_current(watch.intent, watch.source) &&
               _publishedPaused == false) {
@@ -396,8 +411,17 @@ class PlaybackSyncBridge {
               ),
             );
           }
+        } catch (_) {
+          if (identical(_playStartCatchUp, watch)) _clearPlayStartCatchUp();
+          rethrow;
         } finally {
           _applying--;
+          watch.pending = false;
+          // Seeking can itself buffer. Recheck after real movement, but allow
+          // only one follow-up correction so a slow decoder cannot seek-loop.
+          if (watch.corrections >= 2 && identical(_playStartCatchUp, watch)) {
+            _clearPlayStartCatchUp();
+          }
         }
       }),
     );
@@ -405,7 +429,18 @@ class PlaybackSyncBridge {
   }
 
   Duration? _projectPlayStart(_PlayStartCatchUp watch, Duration duration) {
-    final projected = watch.peer.position + watch.clock.elapsed;
+    final room = sync.lastObservedRoomState;
+    final age = sync.lastObservedRoomStateAge;
+    // Room playback may also stall. A fresh heartbeat is a better anchor than
+    // assuming that the original Play kept advancing at wall-clock speed.
+    final Duration projected;
+    if (room != null && age != null && room.setBy != null) {
+      if (room.paused || age > const Duration(seconds: 2)) return null;
+      projected = room.position + age;
+    } else {
+      if (watch.clock.elapsed > const Duration(seconds: 2)) return null;
+      projected = watch.peer.position + watch.clock.elapsed;
+    }
     if (duration <= Duration.zero) return projected;
     // Avoid a corrective seek to EOF, which can restart or loop on some
     // players instead of completing the already-running playback.
@@ -550,10 +585,14 @@ class PlaybackSyncBridge {
 }
 
 class _PlayStartCatchUp {
-  _PlayStartCatchUp(this.peer, this.intent, this.source);
+  _PlayStartCatchUp(this.peer, this.intent, this.source)
+    : resumePosition = peer.position;
 
   final PeerPlayState peer;
   final int intent;
   final int source;
   final Stopwatch clock = Stopwatch()..start();
+  Duration resumePosition;
+  int corrections = 0;
+  bool pending = false;
 }

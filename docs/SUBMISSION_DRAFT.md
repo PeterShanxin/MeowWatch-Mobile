@@ -2,7 +2,7 @@
 
 > **Working draft; not ready to publish.** This is English project copy plus a
 > completion checklist. [STATUS.md](STATUS.md) is the source for current product
-> acceptance and remaining gates. The 118-second mixed-build Review Preview is
+> acceptance and remaining gates. The 104-second native submission candidate is
 > not the final submission film. No publication or submission is represented here.
 
 ## Project name and tagline
@@ -142,7 +142,7 @@ target changes consistent.
 ## Complete before publishing this draft
 
 1. Close the remaining product criteria in [STATUS.md](STATUS.md), including
-   native interruption and fullscreen acceptance, required physical Android and
+   required physical Android and
    trusted-LAN Nearby checks, and Cast receiver proof or a precise genuine
    blocker with the best working fallback. P0/P1/P2 define implementation order;
    they are not optional submission scope.
@@ -150,8 +150,10 @@ target changes consistent.
    chosen final build. Preserve the distinction between widget, emulator,
    physical-device and camera evidence.
 3. Finish a readable, smoothly recorded film strictly under two minutes. The
-   current **118-second Review Preview** combines `5137e58` Together footage with
-   `2fc38317` Local/purchase footage and still has sparse native motion. Its
+   current **104-second submission candidate** combines `9a4e29c` Together footage
+   with `f16b148` Local/fullscreen/purchase footage. These share the same app
+   implementation, with different test drivers and development/release runtimes.
+   Source-held frames are retained. Its
    [demo script](DEMO_SCRIPT.md) retains original-speed cuts, source hashes,
    runtime labels and Test Store/Restore boundaries. It is not a final-build
    rehearsal, one uninterrupted take or submission-ready footage.

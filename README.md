@@ -114,7 +114,7 @@ and independent phone/tablet journeys. The
 failures and hardware checks. Native recordings and screenshots are retained as
 GitHub Actions artifacts; an artifact from a failed job is development evidence.
 
-The [demo script and 118-second review preview](docs/DEMO_SCRIPT.md),
+The [demo script and 104-second submission candidate](docs/DEMO_SCRIPT.md),
 [English submission draft](docs/SUBMISSION_DRAFT.md), and
 [verified submission requirements](docs/SUBMISSION_REQUIREMENTS.md) track the
 remaining submission work. The local [showcase](tools/showcase/README.md) can

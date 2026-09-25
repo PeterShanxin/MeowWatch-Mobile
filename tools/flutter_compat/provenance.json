@@ -1,0 +1,14 @@
+{
+  "flutterVersion": "3.44.0",
+  "frameworkRevision": "559ffa3f75e7402d65a8def9c28389a9b2e6fe42",
+  "upstreamPr": "https://github.com/flutter/flutter/pull/190431",
+  "upstreamHead": "65e4783d8a1019029da88ee2435892ef638a9937",
+  "upstreamStateAtPreparation": "open, unmerged; 2026-09-17",
+  "patchSha256": "a6b442e1d0322b479b993128775be69d3ec781f8d490486c1047b1ce6edd0b10",
+  "officialOriginal": "https://github.com/flutter/flutter/blob/3.44.0/packages/flutter/lib/src/rendering/object.dart",
+  "upstreamRegression": "https://github.com/flutter/flutter/blob/65e4783d8a1019029da88ee2435892ef638a9937/packages/flutter/test/widgets/overlay_portal_test.dart#L3246",
+  "authorScope": "https://github.com/flutter/flutter/issues/189902#issuecomment-5561938282",
+  "patchScope": "14 added lines in _marksConflictsInMergeGroup; rebuild fragments when sibling conflict changes. Assertions and semantics remain enabled.",
+  "fixtureChanges": "Standalone imports; explicit semanticsEnabled: true (Flutter 3.44 default); comments/formatting adjusted; original widget tree, two toggle rounds, and expectations preserved.",
+  "acceptedLocalEvidence": "Root comparison: original Flutter 3.44 fixture failed semantics.dart:3008 !child.attached; isolated copied framework override with this patch passed the fixture. This does not establish the Android geometry assertion is fixed."
+}

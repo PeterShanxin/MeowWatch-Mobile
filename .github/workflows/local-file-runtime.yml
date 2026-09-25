@@ -1,0 +1,130 @@
+name: Android local-file relaunch runtime
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - ".github/workflows/local-file-runtime.yml"
+      - "android/**"
+      - "integration_test/local_file_relaunch_test.dart"
+      - "lib/app/**"
+      - "lib/core/media/**"
+      - "lib/core/playback/**"
+      - "lib/data/**"
+      - "lib/ui/home/**"
+      - "lib/ui/media/**"
+      - "lib/ui/room/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "test_driver/local_file_relaunch_driver.dart"
+      - "tools/android_multi_device/*fixture*"
+      - "tools/local_file_runtime/**"
+      - "tools/billing_runtime/native_dialog.py"
+      - "tools/native_capture/**"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/local-file-runtime.yml"
+      - "android/**"
+      - "integration_test/local_file_relaunch_test.dart"
+      - "lib/app/**"
+      - "lib/core/media/**"
+      - "lib/core/playback/**"
+      - "lib/data/**"
+      - "lib/ui/home/**"
+      - "lib/ui/media/**"
+      - "lib/ui/room/**"
+      - "pubspec.lock"
+      - "pubspec.yaml"
+      - "test_driver/local_file_relaunch_driver.dart"
+      - "tools/android_multi_device/*fixture*"
+      - "tools/local_file_runtime/**"
+      - "tools/billing_runtime/native_dialog.py"
+      - "tools/native_capture/**"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: local-file-runtime-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  saf-relaunch:
+    name: SAF retained URI access (API 35 x86_64)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 50
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Set up Flutter 3.44.0
+        uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: "3.44.0"
+          channel: stable
+          cache: true
+          pub-cache: true
+
+      - name: Resolve locked dependencies
+        run: flutter pub get --enforce-lockfile
+
+      - name: Check local-file runtime sources
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            integration_test/local_file_relaunch_test.dart \
+            test_driver/local_file_relaunch_driver.dart
+          flutter analyze \
+            integration_test/local_file_relaunch_test.dart \
+            test_driver/local_file_relaunch_driver.dart
+          python3 -m unittest tools.local_file_runtime.test_run
+          python3 -m tools.local_file_runtime.run --help
+
+      - name: Prepare reviewed CC0 media fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh \
+            --output build/local-file-runtime-fixture \
+            --seconds 30
+
+      - name: Build local-file relaunch APK
+        run: >-
+          flutter build apk --debug --no-pub
+          --target=integration_test/local_file_relaunch_test.dart
+
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+
+      - name: Run real DocumentsUI selection and retained-access relaunch
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: >-
+            python3 -m tools.local_file_runtime.run
+            --serial emulator-5554
+            --apk build/app/outputs/flutter-apk/app-debug.apk
+            --fixture build/local-file-runtime-fixture/sync-fixture.mp4
+
+      - name: Upload bounded local-file runtime evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: android-local-file-runtime-${{ github.run_attempt }}
+          path: build/local-file-runtime-artifacts/
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,736 @@
+#!/usr/bin/env python3
+"""Coordinate real Android focus loss with a MainApp Together integration journey."""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import json
+from pathlib import Path
+import re
+import secrets
+import signal
+import subprocess
+import threading
+import time
+
+from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, focused_component, install_output_succeeded
+from tools.android_interruption_runtime.run import (
+    HELPER, HELPER_APK, SERVICE, FOCUS_HEADER, LIFECYCLE_TAGS, lifecycle_events,
+    package_uid, probe_events, require_focus, require_foreground_history,
+    require_prompt_pause, require_resumed_baseline,
+    focus_stack,
+)
+from tools.android_lifecycle_runtime.run import playback
+from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver
+from tools.android_multi_device.device_readiness import MeasurementError
+from tools.android_multi_device.prepare_sdk_setup import LAUNCHER_HOME, Preparation
+
+
+HELD_STAGES = ("permanent-acquire", "permanent-release", "transient-acquire", "transient-release")
+STAGES = ("early-short-ready", "early-short-acquire", *HELD_STAGES)
+EARLY_AUTO_RELEASE_MS = 350
+EARLY_WINDOW_MS = 3000
+WARM_EXPIRY_MS = 15000
+AVD_NAME = re.compile(r"meowwatch_interruption_[0-9]+_[0-9]+")
+
+
+def require_warm_event(raw: str, nonce: str, uid: int, pid: int | None = None) -> dict:
+    rows = []
+    for line in raw.splitlines():
+        if nonce not in line:
+            continue
+        match = re.fullmatch(r"\s*\d+\.\d+\s+([0-9]+)\s+[0-9]+\s+I\s+MWFocusWarm\s*:\s*(\{.*\})", line)
+        if match is None:
+            raise RuntimeFailure("warm helper event has no Android log PID")
+        try:
+            row = json.loads(match[2])
+        except json.JSONDecodeError as error:
+            raise RuntimeFailure("warm helper event JSON is invalid") from error
+        if (not isinstance(row, dict)
+                or set(row) != {"protocol", "nonce", "event", "pid", "uid", "gain", "autoReleaseMs", "elapsedRealtimeMs"}
+                or type(row["protocol"]) is not int or row["protocol"] != 1
+                or row["nonce"] != nonce or row["event"] != "armed"
+                or row["pid"] != int(match[1]) or (pid is not None and row["pid"] != pid)
+                or row["uid"] != uid or row["gain"] != 2 or row["autoReleaseMs"] != EARLY_AUTO_RELEASE_MS
+                or type(row["elapsedRealtimeMs"]) is not int or row["elapsedRealtimeMs"] <= 0):
+            raise RuntimeFailure("warm helper identity, mode or device clock is invalid")
+        rows.append(row)
+    if len(rows) != 1:
+        raise RuntimeFailure("one live nonce-bound warm helper receipt is required")
+    return rows[0]
+
+
+def require_together_transient_interruption(before: str, after: str, *, app_uid: int,
+                                            app_pid: str, helper_uid: int,
+                                            helper_pid: int, grant: dict) -> dict:
+    """Tie the pre-focus app client to the granted helper and app's subsequent abandon."""
+    app_stack = require_focus(before, PACKAGE, app_uid)
+    helper_stack = focus_stack(after)
+    helper = {"package": HELPER, "uid": helper_uid, "gain": "GAIN_TRANSIENT", "loss": "none"}
+    if helper_stack != [helper] or grant.get("event") != "requested" or grant.get("result") != 1 \
+            or grant.get("gain") != 2 or grant.get("uid") != helper_uid or grant.get("pid") != helper_pid:
+        raise RuntimeFailure("Together transient helper is not the sole granted focus owner")
+
+    def clients(raw: str) -> list[str]:
+        section = raw.replace("\r\n", "\n").split(FOCUS_HEADER, 1)[1]
+        section = section.removeprefix("\n").split("\n\n", 1)[0]
+        found = []
+        for line in section.splitlines():
+            match = re.search(r" -- client: (\S+) -- gain: ", line)
+            if match is None:
+                raise RuntimeFailure("Android focus-owner client identity is missing")
+            found.append(match[1])
+        return found
+
+    app_client = clients(before)[-1]
+    helper_client = clients(after)[-1]
+
+    def history(raw: str) -> list[str]:
+        header = "Events log: focus commands as seen by MediaFocusControl\n"
+        normalized = raw.replace("\r\n", "\n")
+        if normalized.count(header) != 1:
+            raise RuntimeFailure("Android audio-focus command history is missing or ambiguous")
+        section = normalized.split(header, 1)[1].split("\nMulti Audio Focus enabled", 1)
+        if len(section) != 2:
+            raise RuntimeFailure("Android audio-focus command history is incomplete")
+        return [line for line in section[0].splitlines() if line]
+
+    earlier, later = history(before), history(after)
+    if not earlier or later[:len(earlier)] != earlier or len(later) != len(earlier) + 2:
+        raise RuntimeFailure("Android focus history does not isolate one helper request and app abandon")
+    request_pattern = (r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d{3} requestAudioFocus\(\) from uid/pid "
+                       r"([0-9]+)/([0-9]+) AA=(\S+) clientId=(\S+) callingPack=(\S+) "
+                       r"req=([0-9]+) flags=0x[0-9a-fA-F]+ sdk=[0-9]+")
+    abandon_pattern = (r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d{3} abandonAudioFocus\(\) from "
+                       r"uid/pid ([0-9]+)/([0-9]+) clientId=(\S+)")
+    old_request = re.fullmatch(request_pattern, earlier[-1])
+    helper_request = re.fullmatch(request_pattern, later[-2])
+    app_abandon = re.fullmatch(abandon_pattern, later[-1])
+    if (old_request is None or helper_request is None or app_abandon is None
+            or old_request.groups() != (str(app_uid), app_pid, "USAGE_MEDIA/CONTENT_TYPE_MOVIE",
+                                        app_client, PACKAGE, "1")
+            or helper_request.groups() != (str(helper_uid), str(helper_pid),
+                                           "USAGE_MEDIA/CONTENT_TYPE_SPEECH", helper_client, HELPER, "2")
+            or app_abandon.groups() != (str(app_uid), app_pid, app_client)):
+        raise RuntimeFailure("Android focus history did not show the exact owner yielding to transient helper")
+    return {"beforeFocusStack": app_stack, "afterFocusStack": helper_stack,
+            "appClient": app_client, "helperClient": helper_client,
+            "androidHistory": {"appRequest": earlier[-1], "helperRequest": later[-2],
+                               "appAbandon": later[-1]}}
+
+
+def await_boot_ready(adb: str, serial: str, avd_name: str, output: Path, *,
+                     clock=time.monotonic, sleep=time.sleep, budget_seconds: int = 60) -> dict:
+    """Observe cold provisioning before establishing the SDK preparation baseline."""
+    output.mkdir(parents=True, exist_ok=False)
+    deadline = clock() + budget_seconds
+    observer = Preparation(adb, output, deadline, clock=clock, sleep=sleep)
+    report = {"status": "failed", "budgetSeconds": budget_seconds, "observations": 0}
+    try:
+        while clock() < deadline:
+            index = report["observations"]
+            state = observer.snapshot(serial, avd_name, f"boot-readiness-{index:02}")
+            report["observations"] += 1
+            report["lastState"] = state
+            if clock() >= deadline:
+                raise RuntimeFailure("cold startup observation exceeded its deadline")
+            if state["verifiedAvd"] != avd_name or state["appInstalled"] is not False:
+                raise RuntimeFailure("cold startup observation lost task AVD or found MeowWatch installed")
+            provisioned = all(state[key] == "1" for key in
+                              ("bootCompleted", "provisioned", "userSetupComplete"))
+            if provisioned and state["eligible"] is True:
+                # The existing preparation owns exact system ANR recovery.
+                report["status"] = "eligible-system-anr"
+                return report
+            if (provisioned and state["resolvedHome"] == LAUNCHER_HOME
+                    and state["homeFocused"] is True and state["anrWindow"] is None):
+                report["status"] = "home-ready"
+                return report
+            sleep(min(2, max(0, deadline - clock())))
+        raise RuntimeFailure(f"task AVD did not finish cold provisioning and Home startup within {budget_seconds} seconds")
+    except (MeasurementError, RuntimeFailure, OSError) as error:
+        report["reason"] = str(error)
+        raise
+    finally:
+        (output / "result.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
+
+
+def require_prelaunch_home(preparation: dict, fresh: dict, serial: str, avd_name: str) -> dict:
+    """Admit only the prepared, unchanged Home after a fresh observation."""
+    devices = preparation.get("devices")
+    entry = devices.get(serial) if isinstance(devices, dict) else None
+    if preparation.get("status") != "prepared" or not isinstance(entry, dict):
+        raise RuntimeFailure("task AVD SDK preparation did not complete")
+    baseline = entry.get("after") if entry.get("status") == "recovered-once" else entry.get("before")
+    if entry.get("status") not in ("recovered-once", "not-needed") or not isinstance(baseline, dict):
+        raise RuntimeFailure("task AVD has no accepted SDK preparation snapshot")
+    if (not isinstance(fresh, dict) or baseline.get("verifiedAvd") != avd_name
+            or fresh.get("verifiedAvd") != avd_name
+            or baseline.get("homeFocused") is not True or fresh.get("homeFocused") is not True
+            or baseline.get("anrWindow") is not None or fresh.get("anrWindow") is not None
+            or baseline.get("anrEvents") != fresh.get("anrEvents")
+            or baseline.get("resolvedHome") != fresh.get("resolvedHome")
+            or fresh.get("bootCompleted") != "1" or fresh.get("provisioned") != "1"
+            or fresh.get("userSetupComplete") != "1" or fresh.get("appInstalled") is not False):
+        raise RuntimeFailure("task AVD Home, provisioning or ANR history changed before installation")
+    return {"avdName": avd_name, "serial": serial, "resolvedHome": fresh["resolvedHome"],
+            "anrEventCount": len(fresh["anrEvents"]), "freshHomeFocused": True}
+
+
+def validate_journey(value: object, stages: list[dict]) -> dict:
+    if not isinstance(value, dict) or not isinstance(value.get("togetherFocus"), dict):
+        raise RuntimeFailure("integration driver has no Together focus report")
+    journey = value["togetherFocus"]
+    if (journey.get("result") != "passed" or journey.get("peerCompletedTlsHello") is not True
+            or len(stages) != len(STAGES) or [item["stage"] for item in stages] != list(STAGES)):
+        raise RuntimeFailure("native stages or real TLS peer were not completed")
+    early = journey.get("earlyShort")
+    if (not isinstance(early, dict) or early.get("testSidePauseDuringInterruption") is not False
+            or early.get("ready") != stages[0] or early.get("acquire") != stages[1]):
+        raise RuntimeFailure("early short focus case is missing matching native receipts")
+    ready, acquire = stages[:2]
+    request, release = acquire.get("request"), acquire.get("release")
+    marker = ready.get("deviceElapsedRealtimeMs")
+    warm = ready.get("warmHelper")
+    if (type(marker) is not int or not isinstance(request, dict) or not isinstance(release, dict)
+            or not isinstance(warm, dict) or warm.get("event") != "armed"
+            or type(warm.get("elapsedRealtimeMs")) is not int
+            or not warm["elapsedRealtimeMs"] <= marker < warm["elapsedRealtimeMs"] + WARM_EXPIRY_MS
+            or warm.get("uid") != ready.get("helperUid") or warm.get("pid") != ready.get("helperPid")
+            or warm.get("nonce") != ready.get("warmNonce")
+            or request.get("uid") != warm.get("uid") or request.get("pid") != warm.get("pid")
+            or request.get("nonce") != warm.get("nonce") or release.get("nonce") != warm.get("nonce")
+            or acquire.get("warmHelperPid") != warm.get("pid")
+            or ready.get("helperOwnedFocusBeforePeerPlay") is not False
+            or ready.get("appForegroundBeforePeerPlay") is not True
+            or acquire.get("appOwnedFocusAfterPeerPlay") is not True
+            or ready.get("appPid") != acquire.get("appPid")
+            or type(request.get("requestStartedElapsedRealtimeMs")) is not int
+            or type(request.get("elapsedRealtimeMs")) is not int
+            or type(release.get("elapsedRealtimeMs")) is not int
+            or not marker <= request["requestStartedElapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
+                    < release["elapsedRealtimeMs"] < marker + EARLY_WINDOW_MS
+            or request["requestStartedElapsedRealtimeMs"] >= warm["elapsedRealtimeMs"] + WARM_EXPIRY_MS
+            or not 200 <= release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] <= 500
+            or request.get("gain") != 2 or release.get("gain") != 2
+            or request.get("event") != "requested" or release.get("event") != "released"
+            or request.get("result") != 1 or release.get("result") != 1
+            or acquire.get("autoReleaseMs") != EARLY_AUTO_RELEASE_MS
+            or acquire.get("fromPrePeerPlayMarkerToReleaseMs") != release["elapsedRealtimeMs"] - marker
+            or acquire.get("limitMs") != EARLY_WINDOW_MS
+            or acquire.get("nativeUi", {}).get("playing") is not False):
+        raise RuntimeFailure("early short focus has no exact bounded device-clock proof")
+    early_before, early_paused, early_released, early_replay = (
+        early.get(key) for key in ("before", "paused", "afterRelease", "explicitReplay"))
+    if any(not isinstance(row, dict) for row in (early_before, early_paused, early_released, early_replay)):
+        raise RuntimeFailure("early short focus snapshots are incomplete")
+    for row in (early_before, early_paused, early_released, early_replay):
+        if (row.get("nativeReady") is not True or row.get("nativeError") is not None
+                or type(row.get("nativePositionMs")) is not int or row["nativePositionMs"] < 0
+                or type(row.get("nativeDurationMs")) is not int or row["nativeDurationMs"] < 170000
+                or type(row.get("peerPositionMs")) is not int):
+            raise RuntimeFailure("early native decoder or peer position evidence is invalid")
+    if (early.get("tlsPeerPlay") is not True or early.get("peerName") != early_before.get("peerSetter")
+            or early_before.get("nativePlaying") is not True or early_before.get("peerPaused") is not False
+            or any(row.get("nativePlaying") is not False or row.get("peerPaused") is not True
+                   for row in (early_paused, early_released))
+            or early_replay.get("nativePlaying") is not True or early_replay.get("peerPaused") is not False
+            or early_replay["nativePositionMs"] <= early_released["nativePositionMs"] + 500
+            or abs(early_released["nativePositionMs"] - early_paused["nativePositionMs"]) > 1500):
+        raise RuntimeFailure("early TLS peer Play, focus pause or explicit replay failed")
+    early_monitor = early.get("noAutoplayMonitor")
+    if (not isinstance(early_monitor, dict) or early_monitor.get("sawNativePause") is not True
+            or early_monitor.get("sawRoomPause") is not True
+            or early_monitor.get("forbiddenNativePlayEvents") != []
+            or early_monitor.get("forbiddenRoomPlayEvents") != []
+            or type(early_monitor.get("monitoredMs")) is not int or early_monitor["monitoredMs"] < 4000):
+        raise RuntimeFailure("early native playback was not continuously monitored after its first pause")
+    cases = journey.get("cases")
+    if not isinstance(cases, list) or len(cases) != 2:
+        raise RuntimeFailure("both focus modes need complete Together snapshots")
+    for mode, case in zip(("permanent", "transient"), cases):
+        if not isinstance(case, dict) or case.get("mode") != mode or case.get("testSidePauseDuringInterruption") is not False:
+            raise RuntimeFailure("focus case identity or no-test-pause policy is missing")
+        settled = case.get("settledPlaying")
+        if (not isinstance(settled, dict) or type(settled.get("continuousPlayingMs")) is not int
+                or settled["continuousPlayingMs"] < 4000
+                or type(settled.get("nativeAdvanceMs")) is not int
+                or settled["nativeAdvanceMs"] < 2000
+                or settled.get("peerUnpausedThroughout") is not True):
+            raise RuntimeFailure("focus request did not follow settled room playback")
+        monitor = case.get("noAutoplayMonitor")
+        if (not isinstance(monitor, dict) or type(monitor.get("monitoredMs")) is not int
+                or monitor["monitoredMs"] < 8000
+                or type(monitor.get("nativeEvents")) is not int
+                or type(monitor.get("roomEvents")) is not int or monitor["roomEvents"] < 1
+                or monitor.get("forbiddenPlayEvents") != []):
+            raise RuntimeFailure("continuous native/peer no-autoplay monitoring failed")
+        if (case.get("acquire") != stages[list(STAGES).index(f"{mode}-acquire")]
+                or case.get("release") != stages[list(STAGES).index(f"{mode}-release")]):
+            raise RuntimeFailure("Dart did not receive the exact native stage receipts")
+        snapshots = [case.get(key) for key in ("before", "paused", "held", "afterRelease", "explicitReplay")]
+        if any(not isinstance(row, dict) for row in snapshots):
+            raise RuntimeFailure("native player snapshots are incomplete")
+        before, paused, held, released, replay = snapshots
+        for row in snapshots:
+            if (row.get("nativeReady") is not True or row.get("nativeError") is not None
+                    or type(row.get("nativePositionMs")) is not int or row["nativePositionMs"] < 0
+                    or type(row.get("nativeDurationMs")) is not int or row["nativeDurationMs"] < 170000
+                    or type(row.get("peerPositionMs")) is not int):
+                raise RuntimeFailure("native decoder or peer position evidence is invalid")
+        if (before.get("nativePlaying") is not True or before.get("peerPaused") is not False
+                or any(row.get("nativePlaying") is not False or row.get("peerPaused") is not True
+                       for row in (paused, held, released))
+                or replay.get("nativePlaying") is not True or replay.get("peerPaused") is not False
+                or replay["nativePositionMs"] <= released["nativePositionMs"] + 500
+                or abs(held["nativePositionMs"] - paused["nativePositionMs"]) > 1500
+                or abs(released["nativePositionMs"] - held["nativePositionMs"]) > 1500):
+            raise RuntimeFailure("focus pause, no-autoplay or explicit replay did not hold")
+    return journey
+
+
+class FocusSession:
+    def __init__(self, adb: Adb, avd_name: str, output: Path, helper_apk: Path, observer_apk: Path):
+        self.adb, self.avd_name, self.output = adb, avd_name, output
+        self.helper_apk = helper_apk
+        self.observer = NativeUiObserver(adb, observer_apk)
+        self.helper_owned = False
+        self.helper_uid: int | None = None
+        self.app_uid: int | None = None
+        self.app_pid: str | None = None
+        self.nonce: str | None = None
+        self.gain = 1
+        self.helper_pid: int | None = None
+        self.events: list[dict] = []
+        self.lifecycle_baseline: list[str] | None = None
+        self.completed: list[dict] = []
+        self.failure_diagnostics: dict | None = None
+
+    def prepare(self) -> dict:
+        if (not AVD_NAME.fullmatch(self.avd_name) or not re.fullmatch(r"emulator-[0-9]+", self.adb.serial)):
+            raise RuntimeFailure("an explicitly named Together focus AVD is required")
+        names = [line.strip() for line in self.adb.run("emu", "avd", "name").stdout.decode().splitlines()
+                 if line.strip() and line.strip() != "OK"]
+        if names != [self.avd_name]:
+            raise RuntimeFailure("connected AVD does not match the task name")
+        for key, expected in (("ro.kernel.qemu", b"1"), ("ro.build.version.sdk", b"35"),
+                              ("ro.product.cpu.abi", b"x86_64")):
+            if self.adb.run("shell", "getprop", key).stdout.strip() != expected:
+                raise RuntimeFailure("Together focus requires its dedicated API 35 x86_64 emulator")
+        if not self.helper_apk.is_file():
+            raise RuntimeFailure("independent focus helper APK is missing")
+        if self.adb.run("shell", "pm", "path", HELPER, check=False).stdout.strip():
+            raise RuntimeFailure("refusing to replace a pre-existing focus helper")
+        self.helper_owned = True
+        installed = self.adb.run("install", "--no-incremental", "-t", str(self.helper_apk), timeout=60)
+        if not install_output_succeeded(installed.stdout.decode()):
+            raise RuntimeFailure("focus helper installation was not confirmed")
+        self.helper_uid = package_uid(self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", HELPER).stdout.decode(), HELPER)
+        observer = self.observer.install()
+        return {"serial": self.adb.serial, "avdName": self.avd_name,
+                "model": self.adb.run("shell", "getprop", "ro.product.model").stdout.decode().strip(),
+                "api": 35, "abi": "x86_64", "physicalDevice": False,
+                "helperApkSha256": hashlib.sha256(self.helper_apk.read_bytes()).hexdigest(),
+                "observer": observer}
+
+    def raw(self, stage: str, name: str, *command: str) -> str:
+        result = self.adb.run(*command, timeout=20).stdout.decode("utf-8", errors="replace")
+        (self.output / f"{stage}-{name}.txt").write_text(result, encoding="utf-8")
+        return result
+
+    def capture_failure_diagnostics(self, stage: str) -> dict:
+        """Retain exact system failure evidence without mutating or retrying the AVD."""
+        commands = {
+            "window": ("shell", "dumpsys", "window", "displays"),
+            "anr-events": ("logcat", "-b", "events", "-d", "-v", "epoch", "am_anr:I", "am_crash:I", "*:S"),
+            "lifecycle-events": ("logcat", "-b", "events", "-d", "-v", "epoch",
+                                 *(tag + ":I" for tag in LIFECYCLE_TAGS), "*:S"),
+            "launcher-process": ("shell", "ps", "-A", "-o", "PID,UID,NAME"),
+            "home-resolution": ("shell", "cmd", "package", "resolve-activity", "--brief",
+                                "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"),
+        }
+        report = {"stage": stage, "appPid": self.app_pid, "commands": {}}
+        for name, command in commands.items():
+            path = self.output / f"{stage}-failure-{name}.txt"
+            try:
+                result = self.adb.run(*command, timeout=4, check=False)
+                raw = result.stdout.decode("utf-8", errors="replace")
+                path.write_text(raw, encoding="utf-8")
+                report["commands"][name] = {"exitCode": result.returncode, "path": path.name,
+                                            "stderr": result.stderr.decode("utf-8", errors="replace")}
+            except (OSError, subprocess.TimeoutExpired, RuntimeFailure) as error:
+                report["commands"][name] = {"error": type(error).__name__}
+        self.failure_diagnostics = report
+        (self.output / f"{stage}-failure-diagnostics.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        return report
+
+    def foreground(self, stage: str) -> None:
+        pid = self.adb.run("shell", "pidof", PACKAGE).stdout.decode().strip()
+        if not re.fullmatch(r"[0-9]+", pid) or (self.app_pid is not None and pid != self.app_pid):
+            raise RuntimeFailure("Together app process is absent or changed")
+        self.app_pid = pid
+        focused_component(self.raw(stage, "window", "shell", "dumpsys", "window", "displays"))
+        history = lifecycle_events(self.raw(stage, "lifecycle", "logcat", "-b", "events", "-d", "-v", "epoch",
+                                            *(tag + ":I" for tag in LIFECYCLE_TAGS), "*:S"))
+        if self.lifecycle_baseline is None:
+            require_resumed_baseline(history, pid)
+            self.lifecycle_baseline = history
+        else:
+            require_foreground_history(self.lifecycle_baseline, history)
+
+    def _events(self, stage: str) -> list[dict]:
+        raw = self.raw(stage, "helper-events", "logcat", "-d", "-v", "epoch", "MWFocusProbe:I", "*:S")
+        return probe_events(raw, self.nonce, self.helper_uid, self.helper_pid, gain=self.gain)
+
+    def _warm(self, stage: str) -> dict:
+        result = self.raw(stage, "warm-command", "shell", "am", "start-foreground-service", "--user", "0",
+                          "-n", SERVICE, "-a", "warm", "--es", "nonce", self.nonce,
+                          "--es", "mode", "transient", "--ei", "autoReleaseMs", str(EARLY_AUTO_RELEASE_MS))
+        if "Starting service:" not in result or "Error" in result or "Exception" in result:
+            raise RuntimeFailure("Android rejected the no-focus warm helper command")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            raw = self.raw(stage, "warm-events", "logcat", "-d", "-v", "epoch", "MWFocusWarm:I", "*:S")
+            if self.nonce not in raw:
+                time.sleep(0.2)
+                continue
+            event = require_warm_event(raw, self.nonce, self.helper_uid)
+            actual = self.adb.run("shell", "pidof", HELPER).stdout.decode().strip()
+            if actual != str(event["pid"]):
+                raise RuntimeFailure("warm helper is not the current owned process")
+            self.helper_pid = int(actual)
+            return event
+        raise RuntimeFailure("nonce-bound no-focus warm helper event was not observed")
+
+    def _command(self, stage: str, action: str, *, early_short: bool = False,
+                 timing: dict | None = None) -> dict:
+        command = "startservice" if early_short or action == "release" else "start-foreground-service"
+        mode = ("--es", "mode", "transient") if self.gain == 2 and action == "acquire" else ()
+        auto_release = ("--ei", "autoReleaseMs", str(EARLY_AUTO_RELEASE_MS)) if early_short else ()
+        require_warm = ("--ez", "requireWarm", "true") if early_short else ()
+        launched_at = time.monotonic_ns()
+        try:
+            result = self.raw(stage, "command", "shell", "am", command, "--user", "0", "-n", SERVICE,
+                              "-a", action, "--es", "nonce", self.nonce, *mode, *auto_release, *require_warm)
+        finally:
+            if timing is not None:
+                timing["serviceLaunchMs"] = (time.monotonic_ns() - launched_at) // 1_000_000
+        if "Starting service:" not in result or "Error" in result or "Exception" in result:
+            raise RuntimeFailure("Android rejected the native focus helper command")
+        deadline = time.monotonic() + 15
+        polling_at = time.monotonic_ns()
+        expected = ["requested", "released"] if early_short or action == "release" else ["requested"]
+        while time.monotonic() < deadline:
+            events = self._events(stage)
+            if [row["event"] for row in events] == expected:
+                if timing is not None:
+                    timing["eventPollMs"] = (time.monotonic_ns() - polling_at) // 1_000_000
+                self.events = events
+                if action == "acquire" and not early_short:
+                    actual = self.adb.run("shell", "pidof", HELPER).stdout.decode().strip()
+                    if actual != str(events[0]["pid"]):
+                        raise RuntimeFailure("focus grant is not from the current helper process")
+                    self.helper_pid = int(actual)
+                return events[-1]
+            time.sleep(0.2)
+        raise RuntimeFailure("nonce-bound focus event was not observed")
+
+    def stage(self, stage: str) -> dict:
+        if stage != STAGES[len(self.completed)]:
+            raise RuntimeFailure("focus stages must be issued once and in order")
+        if stage == "early-short-ready":
+            self.foreground(stage)
+            self.app_uid = package_uid(self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", PACKAGE).stdout.decode(), PACKAGE)
+            self.gain = 2
+            self.nonce = secrets.token_hex(16)
+            self.helper_pid = None
+            self.events = []
+            warm = self._warm(stage)
+            stack = focus_stack(self.raw(stage, "warm-focus-stack", "shell", "dumpsys", "audio"))
+            if any(row["package"] == HELPER for row in stack) or self._events(stage):
+                raise RuntimeFailure("warm helper requested audio focus before peer Play")
+            self.foreground(stage + "-after-warm")
+            uptime = self.adb.run("shell", "cat", "/proc/uptime").stdout.decode().strip()
+            match = re.fullmatch(r"([0-9]+)\.([0-9]{2}) [0-9]+\.[0-9]{2}", uptime)
+            if match is None:
+                raise RuntimeFailure("device monotonic uptime marker is invalid")
+            marker = int(match[1]) * 1000 + int(match[2]) * 10
+            if not warm["elapsedRealtimeMs"] <= marker < warm["elapsedRealtimeMs"] + WARM_EXPIRY_MS:
+                raise RuntimeFailure("warm helper expired before the pre-Play marker")
+            row = {"stage": stage, "completed": True, "deviceElapsedRealtimeMs": marker,
+                   "appPid": self.app_pid, "appUid": self.app_uid,
+                   "warmHelper": warm, "warmNonce": self.nonce,
+                   "helperUid": self.helper_uid, "helperPid": self.helper_pid,
+                   "helperOwnedFocusBeforePeerPlay": False,
+                   "appForegroundBeforePeerPlay": True}
+            self.completed.append(row)
+            return row
+        if stage == "early-short-acquire":
+            ready = self.completed[0]
+            self.gain = 2
+            self.events = []
+            timing = {"clock": "host monotonic; diagnostic durations only"}
+            try:
+                focus_started = time.monotonic_ns()
+                try:
+                    audio_before = self.raw(stage, "app-focus", "shell", "dumpsys", "audio")
+                finally:
+                    timing["appFocusDumpMs"] = (time.monotonic_ns() - focus_started) // 1_000_000
+                require_focus(audio_before, PACKAGE, self.app_uid)
+                release = self._command(stage, "acquire", early_short=True, timing=timing)
+            finally:
+                (self.output / f"{stage}-host-timing.json").write_text(
+                    json.dumps(timing, indent=2) + "\n", encoding="utf-8")
+            request = self.events[0]
+            start = ready["deviceElapsedRealtimeMs"]
+            if (request["requestStartedElapsedRealtimeMs"] < start
+                    or request["requestStartedElapsedRealtimeMs"] >= ready["warmHelper"]["elapsedRealtimeMs"] + WARM_EXPIRY_MS
+                    or request["pid"] != self.helper_pid or request["nonce"] != self.nonce
+                    or release["elapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
+                    or release["elapsedRealtimeMs"] - start >= EARLY_WINDOW_MS
+                    or not 200 <= release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] <= 500):
+                raise RuntimeFailure("short focus grant and auto-release did not fit the measured early window")
+            xml, window = self.observer.observe()
+            (self.output / f"{stage}.xml").write_text(xml, encoding="utf-8")
+            (self.output / f"{stage}-observer-window.txt").write_text(window, encoding="utf-8")
+            (self.output / f"{stage}.png").write_bytes(self.adb.screenshot())
+            native = playback(xml, expected_duration_seconds=180)
+            if native.playing:
+                raise RuntimeFailure("Together UI still advertises playing after brief transient focus release")
+            audio = self.raw(stage, "focus-stack", "shell", "dumpsys", "audio")
+            if any(row["package"] == HELPER for row in focus_stack(audio)):
+                raise RuntimeFailure("auto-released helper still owns audio focus")
+            self.foreground(stage + "-after")
+            row = {"stage": stage, "completed": True, "request": request, "release": release,
+                   "autoReleaseMs": EARLY_AUTO_RELEASE_MS,
+                   "fromPrePeerPlayMarkerToReleaseMs": release["elapsedRealtimeMs"] - start,
+                   "limitMs": EARLY_WINDOW_MS, "appPid": self.app_pid,
+                   "warmHelperPid": self.helper_pid, "hostTiming": timing,
+                   "appOwnedFocusAfterPeerPlay": True,
+                   "nativeUi": {"playing": native.playing, "positionSeconds": native.position_seconds,
+                                "durationSeconds": native.duration_seconds,
+                                "xmlSha256": hashlib.sha256(xml.encode()).hexdigest(),
+                                "capture": self.observer.observations[-1]}}
+            self.completed.append(row)
+            return row
+        mode, action = stage.split("-")
+        self.gain = 1 if mode == "permanent" else 2
+        self.foreground(stage + "-before")
+        if action == "acquire":
+            self.app_uid = package_uid(self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", PACKAGE).stdout.decode(), PACKAGE)
+            app_focus = self.raw(stage, "app-focus", "shell", "dumpsys", "audio")
+            require_focus(app_focus, PACKAGE, self.app_uid)
+            self.nonce = secrets.token_hex(16)
+            self.helper_pid = None
+            self.events = []
+        event = self._command(stage, action)
+        xml, window = self.observer.observe()
+        (self.output / f"{stage}.xml").write_text(xml, encoding="utf-8")
+        (self.output / f"{stage}-observer-window.txt").write_text(window, encoding="utf-8")
+        (self.output / f"{stage}.png").write_bytes(self.adb.screenshot())
+        native = playback(xml, expected_duration_seconds=180)
+        if native.playing:
+            raise RuntimeFailure("Together native UI did not show paused playback after focus action")
+        capture = self.observer.observations[-1]
+        timing = require_prompt_pause(event, capture, xml, self.app_pid) if action == "acquire" else None
+        audio = self.raw(stage, "focus-stack", "shell", "dumpsys", "audio")
+        interruption = None
+        if action == "acquire":
+            if self.gain == 2:
+                interruption = require_together_transient_interruption(
+                    app_focus, audio, app_uid=self.app_uid, app_pid=self.app_pid,
+                    helper_uid=self.helper_uid, helper_pid=self.helper_pid, grant=event)
+                stack = interruption["afterFocusStack"]
+            else:
+                stack = require_focus(audio, HELPER, self.helper_uid)
+        else:
+            stack = focus_stack(audio)
+            if any(row["package"] == HELPER for row in stack):
+                raise RuntimeFailure("focus helper remained in the stack after release")
+        self.foreground(stage + "-after")
+        row = {"stage": stage, "completed": True, "focusStack": stack, "event": event,
+               "nativeUi": {"positionSeconds": native.position_seconds, "durationSeconds": native.duration_seconds,
+                            "playing": native.playing, "xmlSha256": hashlib.sha256(xml.encode()).hexdigest(),
+                            "capture": capture}, "appPid": self.app_pid,
+               "pauseTiming": timing}
+        if interruption is not None:
+            row["interruptionEvidence"] = interruption
+        self.completed.append(row)
+        if action == "release":
+            self.adb.run("shell", "am", "force-stop", HELPER)
+        return row
+
+    def cleanup(self) -> None:
+        if self.helper_owned or self.observer.owns_package:
+            names = [line.strip() for line in self.adb.run("emu", "avd", "name").stdout.decode().splitlines()
+                     if line.strip() and line.strip() != "OK"]
+            if names != [self.avd_name]:
+                raise RuntimeFailure("emulator identity changed; refusing helper cleanup")
+        errors = []
+        if self.helper_owned:
+            try:
+                self.adb.run("shell", "am", "force-stop", HELPER)
+            except Exception as error:
+                errors.append(f"focus helper stop: {error}")
+            try:
+                result = self.adb.run("uninstall", HELPER, timeout=60)
+                if result.stdout.strip() != b"Success":
+                    raise RuntimeFailure("task focus helper removal was not confirmed")
+                self.helper_owned = False
+            except Exception as error:
+                errors.append(f"focus helper uninstall: {error}")
+        try:
+            self.observer.cleanup()
+        except Exception as error:
+            errors.append(f"native UI observer cleanup: {error}")
+        if errors:
+            raise RuntimeFailure("; ".join(errors))
+
+
+class StageServer(ThreadingHTTPServer):
+    daemon_threads = True
+    allow_reuse_address = False
+
+    def __init__(self, session: FocusSession, port: int):
+        super().__init__(("127.0.0.1", port), StageHandler)
+        self.session = session
+        self.lock = threading.Lock()
+        self.failed: str | None = None
+        self.diagnostic_error: str | None = None
+
+
+class StageHandler(BaseHTTPRequestHandler):
+    server: StageServer
+
+    def do_POST(self) -> None:
+        stage = self.path.removeprefix("/")
+        length = self.headers.get("Content-Length", "")
+        if stage not in STAGES or not length.isdecimal() or int(length) > 128:
+            return self._reply(400, {"error": "invalid stage request"})
+        try:
+            payload = json.loads(self.rfile.read(int(length)))
+        except (ValueError, UnicodeDecodeError):
+            return self._reply(400, {"error": "invalid stage body"})
+        if payload != {"stage": stage}:
+            return self._reply(400, {"error": "stage body mismatch"})
+        with self.server.lock:
+            if self.server.failed is not None:
+                return self._reply(409, {"error": self.server.failed})
+            try:
+                row = self.server.session.stage(stage)
+            except Exception as error:
+                self.server.failed = f"{type(error).__name__}: {error}"
+                try:
+                    self.server.session.capture_failure_diagnostics(stage)
+                except Exception as diagnostic_error:
+                    self.server.diagnostic_error = type(diagnostic_error).__name__
+                return self._reply(500, {"error": self.server.failed})
+        self._reply(200, row)
+
+    def _reply(self, status: int, body: dict) -> None:
+        data = json.dumps(body).encode("utf-8")
+        self.send_response(status)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def log_message(self, format: str, *args: object) -> None:
+        pass
+
+
+def main(argv=None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--serial", required=True)
+    parser.add_argument("--avd-name", required=True)
+    parser.add_argument("--apk", type=Path, required=True)
+    parser.add_argument("--helper-apk", type=Path, default=HELPER_APK)
+    parser.add_argument("--observer-apk", type=Path, default=DEFAULT_APK)
+    parser.add_argument("--output", type=Path, default=Path("build/android-together-focus-artifacts"))
+    parser.add_argument("--port", type=int, default=18867)
+    args = parser.parse_args(argv)
+    if not args.apk.is_file() or not 1024 <= args.port <= 65535:
+        parser.error("prebuilt integration APK and valid bridge port are required")
+    args.output.mkdir(parents=True, exist_ok=True)
+    if any(args.output.iterdir()):
+        parser.error("evidence directory must start empty")
+    adb = Adb(args.serial, "together-focus-" + secrets.token_hex(6))
+    session = FocusSession(adb, args.avd_name, args.output, args.helper_apk, args.observer_apk)
+    summary = {"passed": False, "runtimeBoundary": "MainApp production services in integration APK; "
+               "independent same-process TLS peer; one Android native decoder", "stages": []}
+    server = None
+    process = None
+    def expired(_signal, _frame):
+        raise RuntimeFailure("Together focus gate received termination signal")
+    signal.signal(signal.SIGTERM, expired)
+    try:
+        summary["device"] = session.prepare()
+        summary["apkSha256"] = hashlib.sha256(args.apk.read_bytes()).hexdigest()
+        installed = adb.run("install", "--no-incremental", "-t", str(args.apk), timeout=120)
+        if not install_output_succeeded(installed.stdout.decode()):
+            raise RuntimeFailure("integration APK installation was not confirmed")
+        if adb.run("shell", "pm", "clear", PACKAGE).stdout.strip() != b"Success":
+            raise RuntimeFailure("clean app data was not confirmed")
+        server = StageServer(session, args.port)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        command = ["flutter", "drive", "--no-pub", "-d", args.serial,
+                   "--driver=tools/android_together_focus_runtime/driver.dart",
+                   "--target=integration_test/together_focus_journey_test.dart",
+                   f"--use-application-binary={args.apk}", "--timeout=540"]
+        with (args.output / "flutter-drive.log").open("w", encoding="utf-8") as log:
+            process = subprocess.Popen(command, stdout=log, stderr=subprocess.STDOUT, text=True)
+            try:
+                code = process.wait(timeout=580)
+            except subprocess.TimeoutExpired:
+                process.terminate()
+                code = process.wait(timeout=15)
+                raise RuntimeFailure("Together focus Flutter drive exceeded deadline")
+        summary["driveExitCode"] = code
+        if code != 0:
+            if server.failed:
+                summary["stageFailure"] = server.failed
+            raise RuntimeFailure("Together focus integration journey failed")
+        report = json.loads((args.output / "journey.json").read_text(encoding="utf-8"))
+        summary["journey"] = validate_journey(report, session.completed)
+        if server.failed:
+            raise RuntimeFailure(server.failed)
+        summary["passed"] = True
+    except Exception as error:
+        summary["error"] = f"{type(error).__name__}: {error}"
+        if session.app_pid:
+            try:
+                (args.output / "failure.png").write_bytes(adb.screenshot())
+            except Exception:
+                pass
+    finally:
+        if process is not None and process.poll() is None:
+            process.terminate()
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait(timeout=10)
+        if server is not None:
+            server.shutdown()
+            server.server_close()
+        try:
+            session.cleanup()
+        except Exception as error:
+            summary["cleanupError"] = str(error)
+            summary["passed"] = False
+        summary["stages"] = session.completed
+        summary["stageFailureDiagnostics"] = session.failure_diagnostics
+        if server is not None and server.diagnostic_error is not None:
+            summary["stageDiagnosticError"] = server.diagnostic_error
+        summary["nativeUiObservations"] = session.observer.observations
+        (args.output / "run.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
+    print("ANDROID_TOGETHER_FOCUS_" + ("PASS" if summary["passed"] else "FAIL"))
+    return 0 if summary["passed"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

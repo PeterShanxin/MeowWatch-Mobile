@@ -1,0 +1,71 @@
+import 'package:flutter/foundation.dart';
+
+import '../media/media_item.dart';
+
+enum PlaybackConnection { idle, loading, ready, disconnected, failed }
+
+@immutable
+class PlaybackSnapshot {
+  const PlaybackSnapshot({
+    this.media,
+    this.position = Duration.zero,
+    this.duration = Duration.zero,
+    this.playing = false,
+    this.buffering = false,
+    this.connection = PlaybackConnection.idle,
+    this.error,
+  });
+
+  final MediaItem? media;
+  final Duration position;
+  final Duration duration;
+  final bool playing;
+  final bool buffering;
+  final PlaybackConnection connection;
+  final String? error;
+  bool get ready => connection == PlaybackConnection.ready;
+}
+
+/// Every target publishes one coherent snapshot, preventing mismatched position
+/// and play-state samples from separate asynchronous streams.
+abstract class PlaybackTarget extends ChangeNotifier {
+  String get id;
+  String get label;
+  PlaybackSnapshot get snapshot;
+
+  /// The transport intent can remain playing while a decoder buffers.
+  bool get playRequested => snapshot.playing;
+
+  /// Whether receiver-side controls can intentionally change playback.
+  ///
+  /// Phone playback is controlled through the app, while targets such as
+  /// Cast can also be controlled by the receiver or another sender.
+  bool get acceptsExternalPlaybackChanges => false;
+
+  /// Whether reopening a failed network source creates a paused local decoder.
+  /// Receiver targets must not be reloaded by a phone's connection recovery.
+  bool get canReloadAfterConnectionLoss => false;
+
+  Stream<PlaybackSnapshot> get states;
+  Future<void> load(MediaItem media, {Duration position = Duration.zero});
+  Future<void> play();
+  Future<void> pause();
+  Future<void> seek(Duration position);
+  Future<void> close();
+}
+
+/// Optional local decoder capability. External targets keep their own clocks.
+abstract interface class PlaybackRateTarget {
+  Future<void> setPlaybackRate(double rate);
+}
+
+/// A room holds this policy until its bridge is disposed. Distinct owners keep
+/// an old room's teardown from disabling a replacement room's policy.
+abstract interface class PlaybackInterruptionTarget {
+  /// Native focus losses for the current decoder while explicit resume is held.
+  /// Separate from playback snapshots so buffering cannot hide an interruption.
+  Stream<int> get focusInterruptions;
+
+  Future<void> requireExplicitResume(Object owner);
+  Future<void> releaseExplicitResume(Object owner);
+}

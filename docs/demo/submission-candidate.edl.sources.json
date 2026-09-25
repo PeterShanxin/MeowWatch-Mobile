@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "artifact": "production-phone-tablet-1-compact-capture",
+      "run": "36037966143",
+      "commit": "9a3fc050f2ecf95b51a5f4fc6dae9ed0940ffc8c"
+    },
+    {
+      "artifact": "android-native-lifecycle-1",
+      "run": "36037410201",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
+    },
+    {
+      "artifact": "android-fullscreen-phone-1",
+      "run": "36037410044",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
+    },
+    {
+      "artifact": "production-purchase-1",
+      "run": "36037410075",
+      "commit": "6e4604189161ffb2bff9339d5484adec0f0cecd3"
+    }
+  ]
+}

@@ -1,0 +1,10 @@
+include: package:flutter_lints/flutter.yaml
+
+# Standalone packages resolve and analyze their own dev dependencies in the
+# required Nearby package contracts CI job.
+analyzer:
+  exclude:
+    - packages/**
+    # Pinned upstream Dart source; Android policy changes have hosted native
+    # unit tests, and the application checks exercise the integration.
+    - third_party/**

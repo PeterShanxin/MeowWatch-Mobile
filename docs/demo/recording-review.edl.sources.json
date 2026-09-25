@@ -1,0 +1,10 @@
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "run": "36007244001",
+      "artifact": "production-phone-tablet-1-compact-capture-profile",
+      "commit": "c53fc6a6ca1ff87fe0fe0772b664ea9b4d8abcb5"
+    }
+  ]
+}

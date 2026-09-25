@@ -1,0 +1,195 @@
+name: Check
+
+on:
+  workflow_dispatch:
+    inputs:
+      repository_audit_only:
+        description: 'Run only the hosted secret scan; skip repeated build/test jobs'
+        type: boolean
+        default: false
+      native_observer_only:
+        description: 'Compile the independent Android observer and retain compiler diagnostics without building Flutter'
+        type: boolean
+        default: false
+      submission_edit:
+        description: 'Optional checked-in EDL path: render only the review film and secret audit on hosted CI'
+        type: string
+        default: ''
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
+    name: Analyze and test
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - run: dart format --output=none --set-exit-if-changed lib test integration_test test_driver tools/native_capture tools/flutter_compat
+      - run: flutter analyze --no-pub
+      - run: python3 tools/ci/nearby_test_interface.py
+      - run: flutter test --no-pub --reporter expanded
+
+  nearby:
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
+    name: Nearby package contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+      - run: python3 tools/ci/nearby_test_interface.py
+      - name: Verify pure Dart TLS transport
+        working-directory: packages/nearby_bridge
+        run: |
+          dart pub get --enforce-lockfile
+          dart format --output=none --set-exit-if-changed lib test
+          dart analyze --fatal-infos
+          dart test --reporter expanded
+      - name: Verify protected storage and discovery contracts
+        working-directory: packages/nearby_platform
+        run: |
+          flutter pub get --enforce-lockfile
+          dart format --output=none --set-exit-if-changed lib test
+          flutter analyze --no-pub
+          flutter test --no-pub --reporter expanded
+      - name: Verify native billing automation
+        run: |
+          python3 -m unittest discover -s tools/billing_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/hosting_purchase -p 'test_*.py'
+          python3 -m unittest discover -s tools/nearby_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/android_multi_device -p 'test_*.py'
+          python3 -m unittest discover -s tools/local_file_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/android_install -p 'test_*.py'
+          python3 -m unittest discover -s tools/app_journey -p 'test_*.py'
+          python3 -m unittest discover -s tools/production_together -p 'test_*.py'
+          python3 -m unittest discover -s tools/flutter_compat -p 'test_*.py'
+          python3 -m unittest discover -s tools/android_lifecycle_runtime -p 'test_*.py'
+          python3 -m unittest tools.android_native_ui.test_observer
+          python3 -m unittest discover -s tools/production_purchase_runtime -p 'test_*.py'
+          python3 -m unittest discover -s tools/incoming_media_runtime -p 'test_*.py'
+          bash tools/android_runtime/test_playback_smoke.sh
+          bash tools/android_multi_device/test_record_two_devices.sh
+
+  demo:
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
+    name: Submission media contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Install native video tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+      - name: Verify pinned footage and render a labeled synthetic smoke clip
+        run: |
+          python3 -m unittest tools.submission_demo.test_compose -v
+          python3 -m unittest tools.submission_demo.test_fetch_sources -v
+          python3 -m unittest tools.android_multi_device.test_compose_side_by_side -v
+
+  secrets:
+    uses: ./.github/workflows/repository-audit.yml
+
+  native-observer:
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit }}
+    name: Native observer SDK compile
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest tools.android_native_ui.test_observer
+      - name: Compile independent observer against Android SDK
+        run: python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+      - name: Retain compiler and packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: native-observer-build
+          path: |
+            build/android-native-ui/build.json
+            build/android-native-ui/*.log
+          if-no-files-found: error
+          retention-days: 14
+
+  native-player:
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
+    name: Android player interruption policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build normal Android app with the pinned player
+        run: flutter build apk --debug --target-platform android-x64
+      - name: Test native focus policy and upstream player contracts
+        working-directory: android
+        run: |
+          : "${JAVA_HOME_21_X64:?Java 21 is required for Robolectric Android SDK 36}"
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
+          cat > "$RUNNER_TEMP/meowwatch-player-tests.gradle" <<'GRADLE'
+          allprojects {
+            tasks.withType(Test).configureEach {
+              maxParallelForks = 1
+              jvmArgs = jvmArgs.findAll { !it.startsWith('-Xmx') }
+              maxHeapSize = '2g'
+            }
+          }
+          GRADLE
+          ./gradlew :video_player_android:testDebugUnitTest --no-daemon --max-workers=1 \
+            -Dorg.gradle.jvmargs="-Xmx2G -XX:MaxMetaspaceSize=1G" \
+            --init-script "$RUNNER_TEMP/meowwatch-player-tests.gradle"
+      - name: Retain native player test results
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: native-player-tests
+          path: |
+            build/video_player_android/test-results/
+            build/video_player_android/reports/tests/
+          if-no-files-found: warn
+          retention-days: 14
+
+  film:
+    if: ${{ inputs.submission_edit != '' && !inputs.repository_audit_only }}
+    permissions:
+      contents: read
+      actions: read
+    uses: ./.github/workflows/submission-film.yml
+    with:
+      edit: ${{ inputs.submission_edit }}

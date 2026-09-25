@@ -1,0 +1,303 @@
+{
+  "selectedDirection": "A / Balanced",
+  "renderer": {
+    "sharp": "0.35.4",
+    "libvips": "8.18.6"
+  },
+  "palette": {
+    "navy": "#102A43",
+    "cream": "#FFF5DF",
+    "blue": "#5BA8F5"
+  },
+  "adaptive": {
+    "canvasDp": 108,
+    "safeCircleDiameterDp": 66,
+    "actualRadiusDp": 32.681,
+    "allVisiblePixelsInsideSafeCircle": true
+  },
+  "icoSizes": [
+    16,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256
+  ],
+  "inputs": [
+    {
+      "file": "assets/brand/meowwatch.svg",
+      "sha256": "8374bfeb92588422cd039f3096e4c051011413c0b3ed1811fa900c48f7b7ea31"
+    },
+    {
+      "file": "assets/brand/meowwatch-small.svg",
+      "sha256": "48371a6ac84a357b27911a5922d026b669915110654f0f86536a08f548ec315b"
+    },
+    {
+      "file": "assets/brand/options/geometric.svg",
+      "sha256": "a20167e3c0d8b2bb97db7183ea2bfdcee61b6d950f96200742ef0448d9b986d5"
+    },
+    {
+      "file": "assets/brand/options/compact.svg",
+      "sha256": "cd56732f4f5c94b8ae64fa9fc661277fd10a755efd0e853da5940f93fd8c519d"
+    },
+    {
+      "file": "tools/generate_brand.cjs",
+      "sha256": "ba38c5610f208d6a612b02a4e9efc3e2e990cf1b93e64a404c756260151362d1"
+    }
+  ],
+  "exports": [
+    {
+      "file": "android/app/src/main/res/drawable/ic_launcher_foreground.xml",
+      "bytes": 1598,
+      "sha256": "9c17aac8e55930db53f6039b89a244958021914d86a4402136b4278a7ac150ec"
+    },
+    {
+      "file": "android/app/src/main/res/drawable/ic_launcher_monochrome.xml",
+      "bytes": 1598,
+      "sha256": "f19e375b5e60876d83cd8ba72a0b4a1856646803af73ffd31527174deada4d6c"
+    },
+    {
+      "file": "android/app/src/main/res/mipmap-anydpi-v26/ic_launcher.xml",
+      "bytes": 268,
+      "sha256": "5f3b1ed2282af327c78539428c3398a99a7e9a09051c2ae2cf7aa27068201319"
+    },
+    {
+      "file": "android/app/src/main/res/mipmap-anydpi-v33/ic_launcher.xml",
+      "bytes": 338,
+      "sha256": "dc913c48d2d43bf019fafd18db6ce4f647f0c000ed649d3f43ab9084789964d5"
+    },
+    {
+      "file": "android/app/src/main/res/mipmap-hdpi/ic_launcher.png",
+      "bytes": 2617,
+      "sha256": "cd8021ea60f61e006876795cdb2be3615699d9f4b1101f7e8e571da636b331e2",
+      "width": 72,
+      "height": 72,
+      "hasAlpha": true
+    },
+    {
+      "file": "android/app/src/main/res/mipmap-mdpi/ic_launcher.png",
+      "bytes": 1742,
+      "sha256": "2d2245b8bd37cfad9efc0b488e9f9f31f15d34087826a3e524bfee8cbb86fc3c",
+      "width": 48,
+      "height": 48,
+      "hasAlpha": true
+    },
+    {
+      "file": "android/app/src/main/res/mipmap-xhdpi/ic_launcher.png",
+      "bytes": 3482,
+      "sha256": "6dbb744f42d9d06843707f6f5dbc7fad9986667c83dd97bab195386a2c2439ba",
+      "width": 96,
+      "height": 96,
+      "hasAlpha": true
+    },
+    {
+      "file": "android/app/src/main/res/mipmap-xxhdpi/ic_launcher.png",
+      "bytes": 5323,
+      "sha256": "138959eaf5c2047e1f27d5ee34cabce6abf2575c26d83fc204f2908a1558fed9",
+      "width": 144,
+      "height": 144,
+      "hasAlpha": true
+    },
+    {
+      "file": "android/app/src/main/res/mipmap-xxxhdpi/ic_launcher.png",
+      "bytes": 7484,
+      "sha256": "e4f694812d2d6863656cd2f374d5ab29fbc81cc6d38381077bd11f2b0921092c",
+      "width": 192,
+      "height": 192,
+      "hasAlpha": true
+    },
+    {
+      "file": "android/app/src/main/res/values/icon_colors.xml",
+      "bytes": 121,
+      "sha256": "e170c7be909d3178c6db95ceb313c6564a28c05db49801a3daa9ac163728dff7"
+    },
+    {
+      "file": "assets/brand/android/background-432.png",
+      "bytes": 3933,
+      "sha256": "5dd035153e84b477acdbdc7394341aa314c73f31269fc12270c04d826e4127e3",
+      "width": 432,
+      "height": 432,
+      "hasAlpha": false
+    },
+    {
+      "file": "assets/brand/android/background.svg",
+      "bytes": 156,
+      "sha256": "9eaa235629a54c2f22e46203b54411f3df6ef294a108d916c99895acb53c4dcd"
+    },
+    {
+      "file": "assets/brand/android/foreground-432.png",
+      "bytes": 9968,
+      "sha256": "ef9c4e3de990fefb5d2b9119d57d8d8f0f78c6aae85608a98a85388ab8cd1b3f",
+      "width": 432,
+      "height": 432,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/android/foreground.svg",
+      "bytes": 1031,
+      "sha256": "01ff1aa2ab91d930c336fe5cc3cf530067e9cb04d9a762b4cd0626214dbf1326"
+    },
+    {
+      "file": "assets/brand/android/monochrome.svg",
+      "bytes": 1031,
+      "sha256": "968a7a8350346116b51ea17ab1f7894963b268d74d7295d7bd95da39e7650c42"
+    },
+    {
+      "file": "assets/brand/icon-options.png",
+      "bytes": 182391,
+      "sha256": "69a39738fa7d6991dd0dc3782ba6760050aef7d366f1e7f3f99fb136eb4ea117",
+      "width": 1440,
+      "height": 900,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/icon-size-checks.png",
+      "bytes": 58006,
+      "sha256": "505ca6066bc600695e2235cbd430da8ea46d5aea172106bcf0efdfd90e3f36f6",
+      "width": 1200,
+      "height": 440,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/meowwatch-1024.png",
+      "bytes": 52625,
+      "sha256": "417397dd8ef504cb53287f84b67ee6d3ff15ec7a27dc990dde77d82f36234e4f",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false
+    },
+    {
+      "file": "assets/brand/meowwatch-256.png",
+      "bytes": 8825,
+      "sha256": "8e7f77ac410477b5c869cdf2e38264e23bf5bcec11e06933157036ba487f2a3e",
+      "width": 256,
+      "height": 256,
+      "hasAlpha": false
+    },
+    {
+      "file": "assets/brand/meowwatch-512.png",
+      "bytes": 20942,
+      "sha256": "303e62684659a11516835962ec4f7e4b01bd4e9030137290b6e677c5da8787ef",
+      "width": 512,
+      "height": 512,
+      "hasAlpha": false
+    },
+    {
+      "file": "assets/brand/meowwatch-desktop-1024.png",
+      "bytes": 67514,
+      "sha256": "ae5e8a8107f73f3bbb2e7a9729fcbd5bc698b2d8a677800824a9f9503d74491a",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/meowwatch-desktop.svg",
+      "bytes": 1039,
+      "sha256": "f82a6448a2a8dbb592d7176b9134f841aad7fe78699b9a2de4c90e04dd233e5b"
+    },
+    {
+      "file": "assets/brand/meowwatch-monochrome-1024.png",
+      "bytes": 30352,
+      "sha256": "a3b72f6a225731591eaefc06aad3c6d42d2943c627292a7084f49f80cc66f6ad",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/meowwatch-monochrome.svg",
+      "bytes": 981,
+      "sha256": "78ed695c6118791067bf0c2dcb8019f80f1f4306717d71b084fd97a4ee32ac5c"
+    },
+    {
+      "file": "assets/brand/meowwatch-small-32.png",
+      "bytes": 1074,
+      "sha256": "659c4a7ce05b34a32a8642ace50e3dcd00747df1dc24b8876705cd9d08383bad",
+      "width": 32,
+      "height": 32,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/meowwatch-small-monochrome.svg",
+      "bytes": 553,
+      "sha256": "ece7d659302ba9803fc46d065345f04745b667c68365142e3ba15c4e8cca9ea4"
+    },
+    {
+      "file": "assets/brand/meowwatch.ico",
+      "bytes": 21825,
+      "sha256": "210ac56f4685ad699f1ef822d4d1f46d42b606c9dbfc594c88a3aa21dd6c7caa"
+    },
+    {
+      "file": "assets/brand/options/compact-1024.png",
+      "bytes": 52006,
+      "sha256": "b07d89972fba3067da0704c1194eae1c2be6042553521e92fde4fc1d42e106b4",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false
+    },
+    {
+      "file": "assets/brand/options/geometric-1024.png",
+      "bytes": 48595,
+      "sha256": "28bcbffef62d8527ffef428eceebfd9d5b1cf9b5d5956a0833b1cbaa44f2b086",
+      "width": 1024,
+      "height": 1024,
+      "hasAlpha": false
+    },
+    {
+      "file": "assets/brand/png/meowwatch-128.png",
+      "bytes": 4776,
+      "sha256": "ea4bb8c6a5616d05e6459bdb50ade990697bebad28393034d7bbb206884b74b5",
+      "width": 128,
+      "height": 128,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/png/meowwatch-16.png",
+      "bytes": 545,
+      "sha256": "c10379b892fdc08875d793278d476fe9937a9a28a94b6ef35aca084b3973a723",
+      "width": 16,
+      "height": 16,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/png/meowwatch-24.png",
+      "bytes": 795,
+      "sha256": "96a9ce976e7c98930b3f7b22d118144e4d906c5d112cb8e155556a65587d1fe8",
+      "width": 24,
+      "height": 24,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/png/meowwatch-256.png",
+      "bytes": 10450,
+      "sha256": "8c3cacc32a0af51bee6c72eab86a61212eb12fdbb0302eb26cc4978e385f2ecb",
+      "width": 256,
+      "height": 256,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/png/meowwatch-32.png",
+      "bytes": 1074,
+      "sha256": "659c4a7ce05b34a32a8642ace50e3dcd00747df1dc24b8876705cd9d08383bad",
+      "width": 32,
+      "height": 32,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/png/meowwatch-48.png",
+      "bytes": 1742,
+      "sha256": "2d2245b8bd37cfad9efc0b488e9f9f31f15d34087826a3e524bfee8cbb86fc3c",
+      "width": 48,
+      "height": 48,
+      "hasAlpha": true
+    },
+    {
+      "file": "assets/brand/png/meowwatch-64.png",
+      "bytes": 2325,
+      "sha256": "67b5d9ccd591ddabb343073714ec1da9150fb0e0d624469c21f5d37695a3589d",
+      "width": 64,
+      "height": 64,
+      "hasAlpha": true
+    }
+  ]
+}

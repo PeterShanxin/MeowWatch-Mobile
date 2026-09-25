@@ -1,0 +1,947 @@
+#!/usr/bin/env python3
+"""Own one API 35 AVD radio interruption and retain native recovery evidence."""
+
+from __future__ import annotations
+
+import argparse
+from collections import deque
+import hashlib
+import json
+import os
+from pathlib import Path
+import queue
+import re
+import secrets
+import signal
+import subprocess
+import threading
+import time
+from typing import Callable
+import xml.etree.ElementTree as ET
+
+from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, ARTIFACT_ROOT
+from tools.android_lifecycle_runtime.run import LifecycleRecording, recording_size
+from tools.android_native_ui.observer import NativeUiObserver
+from tools.android_network_runtime.fixture_proof import release_owned_server, validate_spans
+from tools.billing_runtime.native_dialog import (
+    SETUP_PACKAGE, UnsafeDialog, image_size, select_google_sdk_setup_anr_close,
+)
+
+
+RUNTIME = "One dedicated API 35 AVD; one MainApp process; two real TLS clients/native decoders"
+PHASES = ("app-ready", "players-ready", "initial-ready", "offline-confirmed",
+          "reconnected-confirmed", "recovery-confirmed", "teardown-complete")
+FAILURE_PHASES = PHASES[:3] + ("offline-unreachable",) + PHASES[3:]
+NATIVE_CAPTURE_PHASES = ("initial-ready", "offline-confirmed",
+                         "reconnected-confirmed", "recovery-confirmed")
+ACK_PHASES = {"bootstrap-observed", "recording-ready", "network-disabled",
+              "offline-proof-accepted",
+              "network-restored", "controls-ready", "evidence-complete"}
+REQUIRED = {
+    "initial_real_tls_native_playback_and_consumed_host",
+    "physical_avd_network_unreachable_and_visible_auto_pause",
+    "same_room_media_validated_decoders_quota_and_no_autoplay",
+    "explicit_production_play_pause_seek_and_real_peer_sync",
+}
+FAILURE_REQUIRED = REQUIRED | {"original_native_guest_decoder_failed_during_radio_outage"}
+RUN_ID = re.compile(r"[A-Za-z0-9_-]{1,80}")
+AVD_NAME = re.compile(r"meowwatch_network_[A-Za-z0-9_]{1,80}")
+MARKER = "NETWORK_CHECKPOINT "
+POSITION_MARKER = "NETWORK_NATIVE_POSITION "
+POSITION_RECORD_LIMIT = 4096
+POSITION_PHASES = {
+    "initial": ("baseline", "advancing"),
+    "explicit-play-after-reconnect": ("baseline", "advancing"),
+    "offline": ("paused",),
+    "reconnected-without-autoplay": ("paused",),
+    "explicit-pause-after-reconnect": ("paused",),
+    "explicit-seek-after-reconnect": ("paused",),
+}
+POSITION_FIELDS = {"runId", "pid", "phase", "readStage", "readIndex", "role",
+                   "controllerId", "startedAtUtc", "timeoutMs", "status", "event",
+                   "endedAtUtc", "elapsedMs", "positionMs", "error"}
+WIFI_READY_TIMEOUT = 30
+WIFI_READY_POLL_INTERVAL = 0.5
+SDK_ANR_SETTLE_TIMEOUT = 20
+SDK_ANR_RECOVERY_BUDGET = 60
+APP_COMPONENT = (rf"(?<![A-Za-z0-9_.]){re.escape(PACKAGE)}/"
+                 rf"(?:\.MainActivity|{re.escape(PACKAGE)}\.MainActivity)(?=\s|}}|$)")
+
+
+def app_window_focused(window: str) -> bool:
+    focuses = re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", window)
+    focused_apps = re.findall(r"(?m)^\s*mFocusedApp=([^\r\n]+)$", window)
+    return (len(focuses) == 1 and len(focused_apps) == 1
+            and re.search(APP_COMPONENT, focuses[0]) is not None
+            and re.search(APP_COMPONENT, focused_apps[0]) is not None
+            and re.search(r"Application Not Responding|Application Error:|AppErrorDialog",
+                          window, re.I) is None)
+
+
+def app_has_unobscured_focus(xml: str, window: str) -> bool:
+    if not app_window_focused(window):
+        return False
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return False
+    packages = {node.get("package") for node in root.iter("node")}
+    return packages == {PACKAGE}
+
+
+def parse_checkpoint(line: str, run_id: str) -> dict | None:
+    if MARKER not in line:
+        return None
+    try:
+        value = json.loads(line.split(MARKER, 1)[1].strip())
+    except (TypeError, ValueError) as error:
+        raise RuntimeFailure("malformed network checkpoint") from error
+    if not isinstance(value, dict) or value.get("runId") != run_id:
+        raise RuntimeFailure("network checkpoint belongs to another run")
+    if value.get("phase") not in FAILURE_PHASES or type(value.get("pid")) is not int or value["pid"] <= 0:
+        raise RuntimeFailure("invalid network checkpoint phase or Android PID")
+    return value
+
+
+def native_position_diagnostics(path: Path, run_id: str, app_pid: int | None) -> dict:
+    """Index existing logs only; these records never grant acceptance credit."""
+    evidence = {"runId": run_id, "applicationPid": app_pid, "source": path.name,
+                "recordLimit": POSITION_RECORD_LIMIT, "records": [],
+                "acceptedRecords": 0, "droppedRecords": 0, "rejectedRecords": 0,
+                "rejectionSamples": [], "pendingReadsInRetainedTail": [],
+                "unpairedEndsInRetainedTail": []}
+    if not path.is_file() or app_pid is None:
+        return {**evidence, "status": "unavailable",
+                "reason": "raw logcat or checkpoint-verified app PID is unavailable"}
+    records: deque[dict] = deque(maxlen=POSITION_RECORD_LIMIT)
+    with path.open(encoding="utf-8", errors="replace") as log:
+        for line_number, line in enumerate(log, 1):
+            if POSITION_MARKER not in line:
+                continue
+            try:
+                payload = line.split(POSITION_MARKER, 1)[1].strip()
+                if len(payload) > 4096:
+                    raise ValueError("oversized position record")
+                value = json.loads(payload)
+                if not isinstance(value, dict) or value.get("runId") != run_id:
+                    raise ValueError("position record belongs to another run")
+                if type(value.get("pid")) is not int or value["pid"] != app_pid:
+                    raise ValueError("position record PID was not admitted by a checkpoint")
+                phase = value.get("phase")
+                if (set(value) - POSITION_FIELDS or value.get("role") not in ("host", "guest")
+                        or not isinstance(phase, str) or phase not in POSITION_PHASES
+                        or value.get("readStage") not in POSITION_PHASES[phase]
+                        or type(value.get("readIndex")) is not int or not 1 <= value["readIndex"] <= 1000000
+                        or (value.get("controllerId") is not None
+                            and (type(value["controllerId"]) is not int
+                                 or not -1 <= value["controllerId"] < 2**63))
+                        or type(value.get("timeoutMs")) is not int or value["timeoutMs"] != 5000
+                        or ("error" in value and (not isinstance(value["error"], str)
+                                                 or len(value["error"]) > 400))):
+                    raise ValueError("invalid position read identity or timeout")
+                if value.get("event") == "start":
+                    if value.get("status") != "pending":
+                        raise ValueError("invalid position start status")
+                elif value.get("event") == "end":
+                    if (value.get("status") not in ("success", "timeout", "error")
+                            or type(value.get("elapsedMs")) is not int or not 0 <= value["elapsedMs"] < 2**63
+                            or (value["status"] == "success"
+                                and type(value.get("positionMs")) is not int)):
+                        raise ValueError("invalid position completion")
+                else:
+                    raise ValueError("invalid position event")
+                timestamps = ("startedAtUtc", "endedAtUtc") if value["event"] == "end" else ("startedAtUtc",)
+                if any(not isinstance(value.get(key), str) or not 1 <= len(value[key]) <= 40
+                       for key in timestamps):
+                    raise ValueError("missing position timestamp")
+                records.append({"logcatLine": line_number, **value})
+                evidence["acceptedRecords"] += 1
+            except (TypeError, ValueError) as error:
+                evidence["rejectedRecords"] += 1
+                if len(evidence["rejectionSamples"]) < 20:
+                    evidence["rejectionSamples"].append({"logcatLine": line_number,
+                                                         "reason": str(error)[:160]})
+    # A start without an end is an interrupted observation, never an inferred
+    # native timeout. Raw logcat remains authoritative beyond this bounded tail.
+    pending = {}
+    unpaired_ends = []
+    for record in records:
+        key = tuple(record.get(field) for field in (
+            "phase", "readIndex", "role", "controllerId", "readStage", "startedAtUtc"))
+        if record["event"] == "start":
+            pending[key] = record
+        elif pending.pop(key, None) is None:
+            unpaired_ends.append(record)
+    return {**evidence, "status": "indexed", "records": list(records),
+            "droppedRecords": evidence["acceptedRecords"] - len(records),
+            "pendingReadsInRetainedTail": list(pending.values()),
+            "unpairedEndsInRetainedTail": unpaired_ends}
+
+
+def require_owned_avd(adb: Adb, avd_name: str) -> None:
+    if re.fullmatch(r"emulator-[0-9]+", adb.serial) is None or not AVD_NAME.fullmatch(avd_name):
+        raise RuntimeFailure("an explicitly named task AVD and emulator serial are required")
+    name = adb.run("emu", "avd", "name").stdout.decode("utf-8").splitlines()
+    name = [line.strip() for line in name if line.strip() and line.strip() != "OK"]
+    if name != [avd_name]:
+        raise RuntimeFailure("connected AVD is not the named network test AVD")
+    if adb.run("shell", "getprop", "ro.kernel.qemu").stdout.strip() != b"1":
+        raise RuntimeFailure("refusing radio changes on a physical Android device")
+    if adb.run("shell", "getprop", "ro.build.version.sdk").stdout.strip() != b"35":
+        raise RuntimeFailure("network acceptance requires API 35")
+
+
+def parse_radio(value: bytes) -> bool:
+    if value.strip() not in (b"0", b"1"):
+        raise RuntimeFailure("initial Android radio setting is ambiguous; no mutation permitted")
+    return value.strip() == b"1"
+
+
+def default_wifi_network(connectivity: str) -> tuple[int | None, str]:
+    """Match the active default ID to one connected Wi-Fi agent, not a request."""
+    defaults = re.findall(r"^Active default network: ([0-9]+)[ \t]*$", connectivity, re.MULTILINE)
+    if len(defaults) != 1:
+        return None, "active default network is missing or ambiguous"
+    network_id = int(defaults[0])
+    sections = re.split(r"^Current Networks:[ \t]*$", connectivity, flags=re.MULTILINE)
+    if len(sections) != 2:
+        return None, "current networks section is missing or ambiguous"
+    agents = []
+    for line in sections[1].splitlines()[1:]:
+        if line and not line[0].isspace():
+            break
+        if line.startswith("  NetworkAgentInfo{"):
+            agents.append(line)
+    matches = [line for line in agents if re.match(
+        rf"^  NetworkAgentInfo\{{network\{{{network_id}\}}\s", line)]
+    if len(matches) != 1:
+        return None, f"default network {network_id} has no unique current agent"
+    agent = matches[0]
+    if not re.search(r"\bni\{WIFI CONNECTED(?:\s|\})", agent):
+        return None, f"default network {network_id} is not connected Wi-Fi"
+    if not re.search(r"\bnc\{\[ Transports: WIFI\s", agent):
+        return None, f"default network {network_id} lacks Wi-Fi transport"
+    return network_id, "connected default Wi-Fi"
+
+
+class Radios:
+    """Restore both original settings even if disable only partially succeeds."""
+
+    def __init__(self, adb: Adb, avd_name: str, record: Callable[[dict], None]):
+        self.adb, self.avd_name, self.record = adb, avd_name, record
+        self.initial: dict[str, bool] | None = None
+        self.changed = False
+
+    def read(self, timeout: float = 10) -> dict[str, bool]:
+        deadline = time.monotonic() + timeout
+        result = {}
+        for name, key in (("wifi", "wifi_on"), ("data", "mobile_data")):
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeFailure("Android radio observation exceeded its original deadline")
+            result[name] = parse_radio(self.adb.run(
+                "shell", "settings", "get", "global", key, timeout=remaining).stdout)
+        return result
+
+    def capture_initial(self) -> None:
+        require_owned_avd(self.adb, self.avd_name)
+        self.initial = self.read()
+        if not any(self.initial.values()):
+            raise RuntimeFailure("initial AVD must have an enabled network radio")
+        self.record({"operation": "initial-radios", "state": self.initial})
+
+    def _apply(self, desired: dict[str, bool], operation: str) -> None:
+        require_owned_avd(self.adb, self.avd_name)
+        failures: list[str] = []
+        for name in ("wifi", "data"):
+            try:
+                result = self.adb.run(
+                    "shell", "svc", name, "enable" if desired[name] else "disable", timeout=10)
+                # svc may report a framework failure on stderr with exit 0.
+                # Preserve that response even when the later state read fails.
+                self.record({"operation": "radio-command", "phase": operation,
+                             "radio": name, "enabled": desired[name],
+                             "exitCode": result.returncode,
+                             "stdout": result.stdout[:2048].decode("utf-8", errors="replace"),
+                             "stderr": result.stderr[:2048].decode("utf-8", errors="replace")})
+            except (OSError, RuntimeFailure, subprocess.TimeoutExpired) as error:
+                failures.append(f"{name}: {error}")
+        actual = None
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            actual = self.read(timeout=max(0, deadline - time.monotonic()))
+            if actual == desired:
+                break
+            time.sleep(0.2)
+        self.record({"operation": operation, "requested": desired, "actual": actual,
+                     "commandErrors": failures})
+        if failures or actual != desired:
+            raise RuntimeFailure(f"Android radio {operation} failed; original state must be restored")
+
+    def disable(self) -> None:
+        if self.initial is None:
+            raise RuntimeFailure("original radio state has not been captured")
+        self.changed = True
+        self._apply({"wifi": False, "data": False}, "disable")
+
+    def _wait_for_default_wifi(self) -> None:
+        deadline = time.monotonic() + WIFI_READY_TIMEOUT
+        previous_id = None
+        consecutive = 0
+        reason = "no connectivity observation"
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            try:
+                result = self.adb.run("shell", "dumpsys", "connectivity",
+                                      timeout=min(5, remaining), check=False)
+                network_id, reason = default_wifi_network(
+                    result.stdout.decode("utf-8", errors="replace")) if result.returncode == 0 else (
+                        None, f"dumpsys connectivity exited {result.returncode}")
+                self.record({"operation": "wifi-default-observation",
+                             "networkId": network_id, "reason": reason,
+                             "stdoutBytes": len(result.stdout),
+                             "stdoutSha256": hashlib.sha256(result.stdout).hexdigest(),
+                             "stderrBytes": len(result.stderr),
+                             "stderrSha256": hashlib.sha256(result.stderr).hexdigest()})
+            except (OSError, RuntimeFailure, subprocess.TimeoutExpired) as error:
+                network_id = None
+                reason = f"dumpsys connectivity failed: {type(error).__name__}: {error}"
+                self.record({"operation": "wifi-default-observation",
+                             "networkId": None, "reason": reason[:400]})
+            if network_id is not None:
+                consecutive = consecutive + 1 if network_id == previous_id else 1
+                previous_id = network_id
+                if consecutive == 2:
+                    self.record({"operation": "wifi-default-ready", "networkId": network_id,
+                                 "observations": consecutive})
+                    return
+            else:
+                previous_id = None
+                consecutive = 0
+            remaining = deadline - time.monotonic()
+            if remaining > 0:
+                time.sleep(min(WIFI_READY_POLL_INTERVAL, remaining))
+        raise RuntimeFailure(f"stable default Wi-Fi not observed within {WIFI_READY_TIMEOUT}s: {reason}")
+
+    def restore(self, *, stable_primary: bool = False) -> None:
+        if not self.changed or self.initial is None:
+            return
+        if not stable_primary or self.initial != {"wifi": True, "data": True}:
+            self._apply(self.initial, "restore")
+            return
+        readiness_error = None
+        try:
+            self._apply({"wifi": True, "data": False}, "restore-wifi-first")
+            self._wait_for_default_wifi()
+        except Exception as error:
+            readiness_error = error
+        try:
+            self._apply(self.initial, "restore")
+        except Exception as error:
+            if readiness_error is not None:
+                raise RuntimeFailure(
+                    f"Wi-Fi recovery failed: {readiness_error}; original radio restore failed: {error}") from error
+            raise
+        if readiness_error is not None:
+            self.record({"operation": "wifi-default-ready", "passed": False,
+                         "reason": f"{type(readiness_error).__name__}: {readiness_error}"[:400]})
+            raise readiness_error
+
+
+def validate_result(result: dict, run_id: str, build_mode: str = "debug", variant: str = "normal") -> None:
+    if result.get("runId") != run_id or result.get("passed") is not True:
+        raise RuntimeFailure("the integration test did not report a successful owned run")
+    if result.get("buildMode") != build_mode:
+        raise RuntimeFailure("actual Dart build mode does not match the requested comparison")
+    if result.get("variant") != variant:
+        raise RuntimeFailure("actual Dart network variant does not match the requested gate")
+    if result.get("nativeObservationPhases") != list(NATIVE_CAPTURE_PHASES):
+        raise RuntimeFailure("all four ordered native UI captures must be acknowledged")
+    billing = result.get("billingSetup")
+    expected_billing = ({"status": "success", "errorCode": None, "configured": True, "isPlus": False}
+                        if build_mode == "debug" else
+                        {"status": "unavailable", "errorCode": "missing_public_sdk_key",
+                         "configured": False, "isPlus": False})
+    if billing != expected_billing:
+        raise RuntimeFailure("real free billing setup does not match the build mode")
+    required = FAILURE_REQUIRED if variant == "decoder_failure" else REQUIRED
+    if set(result.get("verified", [])) != required or result.get("teardownErrors") != []:
+        raise RuntimeFailure("required recovery assertions or test teardown are incomplete")
+    if variant == "decoder_failure":
+        observations = result.get("observations", [])
+        decoder_rows = [item for item in observations if isinstance(item, dict)
+                        and item.get("phase") == "decoder-continuity"]
+        validated = [item for item in decoder_rows if item.get("validated") is True]
+        final = [item for item in decoder_rows if "validated" not in item]
+        decoders = {item.get("role"): item for item in validated}
+        final_decoders = {item.get("role"): item for item in final}
+        injection = [item for item in observations if isinstance(item, dict)
+                     and item.get("phase") == "offline-decoder-failure"]
+        # The journey retains a verified recovery snapshot and a final teardown
+        # snapshot for each decoder. Keep both: a later replacement or extra
+        # failure must not be hidden by selecting only the verified rows.
+        if (len(injection) != 1 or len(decoder_rows) != 4
+                or len(validated) != 2 or len(final) != 2
+                or set(decoders) != {"host", "guest"}
+                or set(final_decoders) != {"host", "guest"}
+                or any(final_decoders[role] != {
+                    key: value for key, value in decoders[role].items()
+                    if key not in {"validated", "rebuiltFailedDecoder"}}
+                    or observations.index(final_decoders[role]) <= observations.index(decoders[role])
+                    for role in ("host", "guest"))
+                or not injection[0].get("nativeError")
+                or injection[0].get("controlledCacheMiss") is not True
+                or injection[0].get("seekMs") != 85000
+                or decoders.get("guest", {}).get("rebuiltFailedDecoder") is not True
+                or decoders.get("host", {}).get("rebuiltFailedDecoder") is not False):
+            raise RuntimeFailure("original guest native failure and one paused rebuild are required")
+    probes = {item.get("phase"): item for item in result.get("observations", [])
+              if isinstance(item, dict) and str(item.get("phase", "")).startswith("probe-")}
+    if any(probes.get(phase, {}).get("reachable") is not reachable for phase, reachable in (
+            ("probe-healthy", True), ("probe-offline", False), ("probe-restored", True))):
+        raise RuntimeFailure("successful, unreachable, and restored real socket probes are required")
+    healthy = probes["probe-healthy"]
+    for phase in ("probe-offline", "probe-restored"):
+        if (probes[phase].get("address") != healthy.get("resolvedAddress")
+                or probes[phase].get("port") != healthy.get("port")):
+            raise RuntimeFailure("network probes must target the same resolved server and port")
+    if not healthy.get("resolvedAddress") or type(healthy.get("port")) is not int:
+        raise RuntimeFailure("the live endpoint is missing from socket evidence")
+
+
+def stop_owned_process(process: subprocess.Popen | None) -> None:
+    if process is None or process.poll() is not None:
+        return
+    # All spawned groups belong to this runner; never select by executable name.
+    os.killpg(process.pid, signal.SIGINT)
+    try:
+        process.wait(timeout=15)
+    except subprocess.TimeoutExpired:
+        os.killpg(process.pid, signal.SIGTERM)
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait(timeout=5)
+
+
+class Runner:
+    def __init__(self, serial: str, avd_name: str, apk: Path, run_id: str, output: Path, *, build_mode: str = "debug", variant: str = "normal"):
+        if not RUN_ID.fullmatch(run_id):
+            raise RuntimeFailure("invalid network run ID")
+        if build_mode not in {"debug", "profile"}:
+            raise RuntimeFailure("network comparison requires debug or profile mode")
+        if variant not in {"normal", "decoder_failure"}:
+            raise RuntimeFailure("invalid native network variant")
+        self.build_mode = build_mode
+        self.variant = variant
+        self.fixture_byte_proof: dict | None = None
+        self.fixture_release_receipt: dict | None = None
+        self.offline_proof_at: float | None = None
+        self.adb = Adb(serial, run_id)
+        self.observer = NativeUiObserver(self.adb)
+        self.avd_name, self.apk, self.run_id = avd_name, apk.resolve(strict=True), run_id
+        self.output = output
+        self.events: list[dict] = []
+        self.recordings: list[dict] = []
+        self.radios = Radios(self.adb, avd_name, self.event)
+        self.recording: LifecycleRecording | None = None
+        self.process: subprocess.Popen | None = None
+        self.logcat: subprocess.Popen | None = None
+        self.readers: list[threading.Thread] = []
+        self.checkpoints: queue.Queue[dict | Exception] = queue.Queue()
+        self.phase_index = 0
+        self.android_pid: int | None = None
+        self.acknowledgements: list[str] = []
+        self.errors: list[str] = []
+        self.admitted = False
+        self.sdk_setup_recovery_attempts = 0
+        self.sdk_setup_preflight_recovered = False
+
+    @property
+    def phases(self) -> tuple[str, ...]:
+        return FAILURE_PHASES if self.variant == "decoder_failure" else PHASES
+
+    def write(self, name: str, value: object) -> None:
+        (self.output / name).write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
+
+    def event(self, value: dict) -> None:
+        self.events.append({"atMonotonic": time.monotonic(), **value})
+        self.write("events.json", self.events)
+
+    def write_position_diagnostics(self) -> dict:
+        try:
+            value = native_position_diagnostics(self.output / "logcat.txt", self.run_id, self.android_pid)
+            self.write("native-position-reads.json", value)
+            return {key: value[key] for key in ("status", "acceptedRecords", "rejectedRecords", "droppedRecords")}
+        except Exception as error:
+            # Optional offline indexing must not replace the original failure or
+            # turn a successful native gate into a diagnostic parser failure.
+            return {"status": "unavailable", "error": f"{type(error).__name__}: {error}"[:400]}
+
+    def recover_sdk_setup_anr(self, directory: Path, xml: str, window: str,
+                              raw_window: str) -> None:
+        recovery_deadline = time.monotonic() + SDK_ANR_RECOVERY_BUDGET
+
+        def time_left() -> float:
+            value = recovery_deadline - time.monotonic()
+            if value <= 0:
+                raise RuntimeFailure("SDK setup ANR recovery exceeded its single budget")
+            return value
+
+        if self.sdk_setup_recovery_attempts:
+            raise RuntimeFailure("a second SDK setup ANR cannot be recovered during one network run")
+        require_owned_avd(self.adb, self.avd_name)
+        try:
+            target = select_google_sdk_setup_anr_close(xml, window)
+        except UnsafeDialog as error:
+            raise RuntimeFailure("foreign foreground window obscures the native network capture") from error
+        anr_packages = set(re.findall(
+            r"Application Not Responding: ([A-Za-z0-9_.]+)", window))
+        anr_windows = set(re.findall(
+            r"Window\{([0-9a-f]+) u0 Application Not Responding: ([A-Za-z0-9_.]+)\}",
+            window))
+        if (anr_packages != {SETUP_PACKAGE}
+                or len(anr_windows) != 1
+                or re.search(r"Application Error:|AppErrorDialog|PermissionDialog", window, re.I)):
+            raise RuntimeFailure("another system dialog makes SDK setup ANR recovery ambiguous")
+        original_focus = re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", window)
+        original_app = re.findall(r"(?m)^\s*mFocusedApp=([^\r\n]+)$", window)
+        if (len(original_focus) != 1 or len(original_app) != 1
+                or re.search(APP_COMPONENT, original_app[0]) is None):
+            raise RuntimeFailure("SDK setup ANR focus is ambiguous")
+        raw_focus = re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", raw_window)
+        if not (app_window_focused(raw_window) or raw_focus == original_focus):
+            raise RuntimeFailure("foreground window changed before SDK setup ANR recovery")
+        (directory / "sdk-anr-original-screen.png").write_bytes((directory / "screen.png").read_bytes())
+        (directory / "sdk-anr-original-window.txt").write_bytes((directory / "window.txt").read_bytes())
+        (directory / "sdk-anr-original-window.txt.stderr").write_bytes(
+            (directory / "window.txt.stderr").read_bytes())
+        (directory / "sdk-anr-original-ui.xml").write_text(xml, encoding="utf-8")
+        (directory / "sdk-anr-original-observer-window.txt").write_text(window, encoding="utf-8")
+        events = self.adb.run("logcat", "-b", "events", "-d", "-v", "epoch",
+                              "am_anr:I", "*:S", timeout=min(5, time_left()), check=False)
+        (directory / "sdk-anr-events.txt").write_bytes(events.stdout)
+        (directory / "sdk-anr-events.txt.stderr").write_bytes(events.stderr)
+        if events.returncode:
+            raise RuntimeFailure("SDK setup ANR event evidence could not be retained")
+        fresh_xml, fresh_window = self.observer.observe(deadline=recovery_deadline)
+        (directory / "sdk-anr-confirmed-ui.xml").write_text(fresh_xml, encoding="utf-8")
+        (directory / "sdk-anr-confirmed-window.txt").write_text(fresh_window, encoding="utf-8")
+        try:
+            target = select_google_sdk_setup_anr_close(fresh_xml, fresh_window)
+        except UnsafeDialog as error:
+            raise RuntimeFailure("SDK setup ANR changed before its single close action") from error
+        if re.findall(r"(?m)^\s*mCurrentFocus=([^\r\n]+)$", fresh_window) != original_focus:
+            raise RuntimeFailure("SDK setup ANR window changed before its single close action")
+        if re.findall(r"(?m)^\s*mFocusedApp=([^\r\n]+)$", fresh_window) != original_app:
+            raise RuntimeFailure("underlying app changed before SDK setup ANR close")
+        if set(re.findall(
+                r"Window\{([0-9a-f]+) u0 Application Not Responding: ([A-Za-z0-9_.]+)\}",
+                fresh_window)) != anr_windows:
+            raise RuntimeFailure("SDK setup ANR window changed before its single close action")
+        if (set(re.findall(r"Application Not Responding: ([A-Za-z0-9_.]+)",
+                           fresh_window)) != {SETUP_PACKAGE}
+                or re.search(r"Application Error:|AppErrorDialog|PermissionDialog", fresh_window, re.I)):
+            raise RuntimeFailure("another system dialog appeared before SDK setup ANR close")
+        png = self.adb.screenshot(timeout=min(5, time_left()))
+        (directory / "sdk-anr-confirmed-screen.png").write_bytes(png)
+        width, height = image_size(png)
+        if target.bounds[2] > width or target.bounds[3] > height:
+            raise RuntimeFailure("SDK setup ANR close action lies outside the screen")
+        self.sdk_setup_recovery_attempts = 1
+        x, y = target.center
+        self.adb.run("shell", "input", "tap", str(x), str(y), timeout=min(5, time_left()))
+        deadline = min(recovery_deadline, time.monotonic() + SDK_ANR_SETTLE_TIMEOUT)
+        after_window = ""
+        while time.monotonic() < deadline:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            result = self.adb.run("shell", "dumpsys", "window", "displays",
+                                  timeout=min(5, remaining))
+            after_window = result.stdout.decode("utf-8", errors="replace")
+            (directory / "sdk-anr-after-window.txt").write_text(after_window, encoding="utf-8")
+            if app_window_focused(after_window):
+                break
+            time.sleep(min(0.5, max(0, deadline - time.monotonic())))
+        if not app_window_focused(after_window):
+            raise RuntimeFailure("MainApp did not regain unobscured focus after SDK setup ANR close")
+        (directory / "window.txt").write_text(after_window, encoding="utf-8")
+        (directory / "window.txt.stderr").write_bytes(result.stderr)
+        (directory / "screen.png").write_bytes(self.adb.screenshot(timeout=min(5, time_left())))
+        after_xml, observer_window = self.observer.observe(deadline=recovery_deadline)
+        (directory / "ui.xml").write_text(after_xml, encoding="utf-8")
+        (directory / "observer-window.txt").write_text(observer_window, encoding="utf-8")
+        self.write("native-ui-observer.json", {
+            "installation": self.observer.installation,
+            "observations": self.observer.observations,
+        })
+        if not app_has_unobscured_focus(after_xml, observer_window):
+            raise RuntimeFailure("MainApp did not own the fresh native hierarchy after SDK setup ANR close")
+        self.event({"operation": "sdk-setup-anr-recovery", "phase": directory.name,
+                    "attempts": self.sdk_setup_recovery_attempts, "passed": True})
+
+    def capture(self, phase: str) -> None:
+        require_owned_avd(self.adb, self.avd_name)
+        directory = self.output / "observations" / phase
+        directory.mkdir(parents=True, exist_ok=True)
+        commands = {
+            "connectivity.txt": ("shell", "dumpsys", "connectivity"),
+            "wifi.txt": ("shell", "dumpsys", "wifi"),
+            "data.txt": ("shell", "dumpsys", "telephony.registry"),
+            "addresses.txt": ("shell", "ip", "address", "show"),
+            "routes.txt": ("shell", "ip", "route", "show", "table", "all"),
+            "radios.txt": ("shell", "settings", "list", "global"),
+            "window.txt": ("shell", "dumpsys", "window", "displays"),
+        }
+        for filename, command in commands.items():
+            result = self.adb.run(*command, timeout=10, check=False)
+            (directory / filename).write_bytes(result.stdout)
+            (directory / f"{filename}.stderr").write_bytes(result.stderr)
+            if result.returncode:
+                raise RuntimeFailure(f"native {phase} evidence command failed: {filename}")
+        (directory / "screen.png").write_bytes(self.adb.screenshot())
+        # Before launch and after test unmount, network restoration has no
+        # application hierarchy to inspect. Acceptance phases must use fresh
+        # native accessibility snapshots without waiting for a moving timeline
+        # to become idle, and without pausing playback to aid the observer.
+        if phase not in {"initial-network", "finally-restored"}:
+            xml, window = self.observer.observe()
+            (directory / "ui.xml").write_text(xml, encoding="utf-8")
+            (directory / "observer-window.txt").write_text(window, encoding="utf-8")
+            self.write("native-ui-observer.json", {
+                "installation": self.observer.installation,
+                "observations": self.observer.observations,
+            })
+            raw_window = (directory / "window.txt").read_text(encoding="utf-8")
+            if not (app_window_focused(raw_window) and app_has_unobscured_focus(xml, window)):
+                self.recover_sdk_setup_anr(directory, xml, window, raw_window)
+        self.event({"operation": "native-observation", "phase": phase,
+                    "radios": self.radios.read(), "directory": str(directory)})
+
+    def ack(self, phase: str) -> None:
+        if phase not in ACK_PHASES:
+            raise RuntimeFailure("invalid network acknowledgement phase")
+        require_owned_avd(self.adb, self.avd_name)
+        current = self.adb.run("shell", "pidof", PACKAGE).stdout.strip()
+        if current != str(self.android_pid).encode("ascii"):
+            raise RuntimeFailure("MainApp process changed while the network test was active")
+        path = f"files/network-{self.run_id}-{phase}"
+        if path in self.acknowledgements:
+            raise RuntimeFailure("duplicate network acknowledgement")
+        pending = f"{path}.{secrets.token_hex(8)}.pending"
+        self.acknowledgements.extend((pending, path))
+        # Both interpolated fields are fixed phases or validated run IDs. The
+        # acknowledgement is local app-owned test data, reachable without IP.
+        # Publish only after the write closes: Dart reads as soon as the final
+        # path exists. Direct redirection exposes an empty/partial file first.
+        payload = f"{self.run_id}:{phase}"
+        command = (f"test ! -e '{path}' && printf '%s' '{payload}' > '{pending}'"
+                   f" && mv '{pending}' '{path}'")
+        self.adb.run("shell", "run-as", PACKAGE, "sh", "-c", f'"{command}"')
+        readback = self.adb.run("shell", "run-as", PACKAGE, "cat", path).stdout
+        if readback != payload.encode("ascii"):
+            raise RuntimeFailure("network acknowledgement readback does not match")
+        self.event({"operation": "acknowledgement", "phase": phase,
+                    "publication": "atomic-rename", "readbackVerified": True})
+
+    def stop_test_app(self) -> None:
+        require_owned_avd(self.adb, self.avd_name)
+        current = self.adb.run("shell", "pidof", PACKAGE, check=False).stdout.strip()
+        if current and current != str(self.android_pid).encode("ascii"):
+            raise RuntimeFailure("refusing to stop a replacement MeowWatch process")
+        self.adb.run("shell", "am", "force-stop", PACKAGE)
+
+    def remove_ack(self, path: str) -> None:
+        require_owned_avd(self.adb, self.avd_name)
+        # flutter drive uninstalls its integration APK when it exits. A
+        # successful package query establishes that its sandbox is already gone;
+        # a failed query or an installed app's failed rm must still fail cleanup.
+        installed = self.adb.run("shell", "pm", "list", "packages", "--user", "0", PACKAGE)
+        packages = installed.stdout.decode("utf-8").splitlines()
+        if installed.stderr.strip() or any(
+                re.fullmatch(r"package:[A-Za-z0-9_.]+", line) is None for line in packages):
+            raise RuntimeFailure("cannot establish whether the integration app is still installed")
+        if f"package:{PACKAGE}" not in packages:
+            self.event({"operation": "remove-ack", "path": path,
+                        "status": "app-already-uninstalled", "packageQuery": packages})
+            return
+        self.adb.run("shell", "run-as", PACKAGE, "rm", "-f", path)
+
+    def remove_device_evidence(self) -> None:
+        if self.admitted:
+            require_owned_avd(self.adb, self.avd_name)
+        self.adb.cleanup()
+
+    def remove_observer(self) -> None:
+        if self.observer.owns_package:
+            require_owned_avd(self.adb, self.avd_name)
+        self.observer.cleanup()
+
+    def start_recording(self) -> None:
+        size = recording_size(self.adb.run("shell", "wm", "size").stdout.decode("utf-8"))
+        recording = LifecycleRecording(self.adb, self.output, len(self.recordings) + 1, size)
+        self.recording = recording
+        self.recordings.append(recording.metadata)
+        recording.start()
+
+    def finish_recording(self, phase: str | None = None) -> None:
+        if self.recording is not None:
+            recording = self.recording
+            self.recording = None
+            try:
+                recording.finish(required_phase=phase)
+            finally:
+                self.write("recordings.json", self.recordings)
+
+    def observe_checkpoint(self, value: dict) -> None:
+        phase = value["phase"]
+        failed_teardown = phase == "teardown-complete" and value.get("passed") is False
+        if not failed_teardown and (self.phase_index >= len(self.phases) or phase != self.phases[self.phase_index]):
+            raise RuntimeFailure(f"duplicate or out-of-order checkpoint: {phase}")
+        current = self.adb.run("shell", "pidof", PACKAGE).stdout.strip()
+        if current != str(value["pid"]).encode("ascii"):
+            raise RuntimeFailure("checkpoint PID is not the current MainApp process")
+        if self.android_pid is not None and value["pid"] != self.android_pid:
+            raise RuntimeFailure("MainApp restarted; this is a same-process network gate")
+        self.android_pid = value["pid"]
+        self.event({"operation": "checkpoint", **value})
+        if failed_teardown:
+            # finally runs after any app assertion failure. Retain that first
+            # failure without crediting phases the test never reached.
+            failure = value.get("failure")
+            if isinstance(failure, dict) and failure.get("stage") and failure.get("message"):
+                raise RuntimeFailure(f"integration failed during {failure['stage']}: {failure['message']}")
+            previous = self.phases[self.phase_index - 1] if self.phase_index else "startup"
+            raise RuntimeFailure(f"integration test failed after {previous}; see flutter-drive.log and result.json")
+        self.phase_index += 1
+        if phase == "app-ready":
+            self.capture(phase)
+            self.ack("bootstrap-observed")
+        elif phase == "players-ready":
+            self.start_recording()
+            self.ack("recording-ready")
+        elif phase == "initial-ready":
+            self.capture(phase)
+            self.finish_recording(phase)
+            self.start_recording()
+            self.radios.disable()
+            self.capture("radios-disabled")
+            self.ack("network-disabled")
+        elif phase == "offline-unreachable":
+            if self.radios.read() != {"wifi": False, "data": False}:
+                raise RuntimeFailure("radios changed before the offline socket proof")
+            boundary = time.monotonic()
+            proof = json.loads(Path("build/android-network-fixture/failure-proof.json")
+                               .read_text(encoding="utf-8"))
+            # Server and runner share this host clock. Revalidate the complete
+            # receipt at the later failure checkpoint to catch delayed writes.
+            self.fixture_byte_proof = validate_spans(
+                Path("build/android-network-fixture-server/http-server.log"), proof, boundary)
+            self.offline_proof_at = boundary
+            self.write("fixture-byte-proof.json", self.fixture_byte_proof)
+            self.ack("offline-proof-accepted")
+        elif phase == "offline-confirmed":
+            self.capture(phase)
+            if self.radios.read() != {"wifi": False, "data": False}:
+                raise RuntimeFailure("radios changed before the offline observation")
+            if self.variant == "decoder_failure":
+                if self.offline_proof_at is None:
+                    raise RuntimeFailure("native failed-decoder variant lacks the offline socket boundary")
+                proof = json.loads(Path("build/android-network-fixture/failure-proof.json")
+                                   .read_text(encoding="utf-8"))
+                self.fixture_byte_proof = validate_spans(
+                    Path("build/android-network-fixture-server/http-server.log"),
+                    proof, self.offline_proof_at)
+                self.write("fixture-byte-proof.json", self.fixture_byte_proof)
+                self.fixture_release_receipt = release_owned_server(
+                    Path("build/android-network-fixture-server/server.env"),
+                    Path("build/android-network-fixture-server/http-server.log"), proof)
+                self.write("fixture-cap-release.json", self.fixture_release_receipt)
+            self.finish_recording(phase)
+            self.start_recording()
+            self.radios.restore(stable_primary=True)
+            self.capture("radios-restored")
+            self.ack("network-restored")
+        elif phase == "reconnected-confirmed":
+            self.capture(phase)
+            self.finish_recording(phase)
+            self.start_recording()
+            self.ack("controls-ready")
+        elif phase == "recovery-confirmed":
+            self.capture(phase)
+            self.finish_recording(phase)
+            self.ack("evidence-complete")
+        elif value.get("passed") is not True:
+            raise RuntimeFailure("integration teardown did not complete successfully")
+
+    def start_processes(self) -> None:
+        def reader(process: subprocess.Popen, filename: str, checkpoints: bool) -> None:
+            assert process.stdout is not None
+            with (self.output / filename).open("w", encoding="utf-8") as log:
+                for line in process.stdout:
+                    log.write(line)
+                    log.flush()
+                    if checkpoints:
+                        try:
+                            value = parse_checkpoint(line, self.run_id)
+                            if value is not None:
+                                self.checkpoints.put(value)
+                        except RuntimeFailure as error:
+                            self.checkpoints.put(error)
+
+        # Do not clear any shared log buffer. A fresh dedicated AVD plus the
+        # run-ID/PID checks establish the evidence boundary.
+        self.logcat = subprocess.Popen(self.adb.prefix + ["logcat", "-v", "threadtime", "-T", "1"],
+                                       stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                       encoding="utf-8", errors="replace", start_new_session=True)
+        thread = threading.Thread(target=reader, args=(self.logcat, "logcat.txt", True), daemon=True)
+        self.readers.append(thread)
+        thread.start()
+        environment = dict(os.environ, NETWORK_RUN_ID=self.run_id)
+        command = ["flutter", "drive", f"--{self.build_mode}", "--no-pub", "--driver=test_driver/network_interruption_driver.dart",
+                   "--target=integration_test/network_interruption_test.dart",
+                   f"--use-application-binary={self.apk}", "--host-vmservice-port=39107",
+                   "-d", self.adb.serial]
+        self.write("command.json", command)
+        self.process = subprocess.Popen(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                        text=True, encoding="utf-8", errors="replace", env=environment,
+                                        start_new_session=True)
+        thread = threading.Thread(target=reader, args=(self.process, "flutter-drive.log", False), daemon=True)
+        self.readers.append(thread)
+        thread.start()
+
+    def run(self) -> bool:
+        self.output.mkdir(parents=True, exist_ok=False)
+        self.write("runtime.json", {"runtime": RUNTIME, "runId": self.run_id,
+                                   "requestedBuildMode": self.build_mode,
+                                   "requestedVariant": self.variant,
+                                   "serial": self.adb.serial, "avdName": self.avd_name,
+                                   "apkSha256": hashlib.sha256(self.apk.read_bytes()).hexdigest()})
+        try:
+            preparation_path = os.environ.get("NETWORK_SDK_SETUP_REPORT")
+            if preparation_path:
+                preparation = json.loads(Path(preparation_path).read_text(encoding="utf-8"))
+                device = preparation.get("devices", {}).get(self.adb.serial, {})
+                if (preparation.get("status") != "prepared"
+                        or device.get("status") not in {"not-needed", "recovered-once"}
+                        or device.get("before", {}).get("verifiedAvd") != self.avd_name):
+                    raise RuntimeFailure("task AVD SDK setup preparation receipt is invalid")
+                self.sdk_setup_preflight_recovered = device["status"] == "recovered-once"
+                self.event({"operation": "sdk-setup-preflight", "status": device["status"],
+                            "recoveryExercised": self.sdk_setup_preflight_recovered})
+            self.radios.capture_initial()
+            self.admitted = True
+            if self.adb.run("shell", "pidof", PACKAGE, check=False).stdout.strip():
+                raise RuntimeFailure("dedicated AVD unexpectedly already has a running MeowWatch process")
+            ARTIFACT_ROOT.mkdir(parents=True, exist_ok=True)
+            self.adb.prepare_storage()
+            self.write("native-ui-observer-installation.json", self.observer.install())
+            self.capture("initial-network")
+            self.start_processes()
+            deadline = time.monotonic() + 600
+            while time.monotonic() < deadline:
+                try:
+                    checkpoint = self.checkpoints.get(timeout=0.2)
+                except queue.Empty:
+                    checkpoint = None
+                if isinstance(checkpoint, Exception):
+                    raise checkpoint
+                if checkpoint is not None:
+                    self.observe_checkpoint(checkpoint)
+                assert self.process is not None and self.logcat is not None
+                if self.process.poll() is not None:
+                    if self.process.returncode != 0:
+                        raise RuntimeFailure(f"flutter drive failed with exit {self.process.returncode}")
+                    if self.phase_index != len(self.phases):
+                        raise RuntimeFailure("flutter drive exited before every owned checkpoint completed")
+                    break
+                if self.logcat.poll() is not None:
+                    raise RuntimeFailure("native logcat capture exited during the acceptance run")
+            else:
+                raise RuntimeFailure("network runtime exceeded its original 600-second deadline")
+            result = json.loads((self.output / "result.json").read_text(encoding="utf-8"))
+            validate_result(result, self.run_id, self.build_mode, self.variant)
+            if self.variant == "decoder_failure" and (
+                    self.fixture_byte_proof is None or self.fixture_release_receipt is None):
+                raise RuntimeFailure("native failed-decoder variant lacks byte and cap release proof")
+            if len(self.recordings) != 4 or any(item["status"] != "verified" for item in self.recordings):
+                raise RuntimeFailure("four complete native recording phases are required")
+        except Exception as error:
+            self.errors.append(f"{type(error).__name__}: {error}")
+        finally:
+            def cleanup(name: str, action: Callable[[], object]) -> None:
+                try:
+                    action()
+                    self.event({"operation": "cleanup", "name": name, "passed": True})
+                except Exception as error:
+                    self.errors.append(f"{name}: {error}")
+                    self.event({"operation": "cleanup", "name": name, "passed": False, "error": str(error)})
+            # Restore before stopping the driver so even a failed test can run
+            # its own app/TLS/decoder teardown with the original network state.
+            cleanup("restore-original-radios", self.radios.restore)
+            if self.admitted:
+                cleanup("final-network-evidence", lambda: self.capture("finally-restored"))
+            cleanup("finish-native-recording", self.finish_recording)
+            cleanup("stop-owned-driver", lambda: stop_owned_process(self.process))
+            cleanup("stop-owned-logcat", lambda: stop_owned_process(self.logcat))
+            for thread in self.readers:
+                thread.join(timeout=5)
+                if thread.is_alive():
+                    self.errors.append("owned evidence reader did not stop")
+            position_diagnostics = self.write_position_diagnostics()
+            cleanup("remove-owned-native-ui-observer", self.remove_observer)
+            if self.android_pid is not None:
+                cleanup("force-stop-owned-test-app", self.stop_test_app)
+                for path in self.acknowledgements:
+                    cleanup("remove-owned-ack", lambda path=path: self.remove_ack(path))
+            cleanup("remove-owned-device-evidence", self.remove_device_evidence)
+            self.write("recordings.json", self.recordings)
+            self.write("native-ui-observer.json", {
+                "installation": self.observer.installation,
+                "observations": self.observer.observations,
+                "removed": not self.observer.owns_package,
+            })
+            self.write("gate.json", {"passed": not self.errors, "errors": self.errors,
+                                     "runtime": RUNTIME, "completedPhases": list(self.phases[:self.phase_index]),
+                                     "originalRadios": self.radios.initial,
+                                     "sdkSetupRecoveryExercised": (self.sdk_setup_preflight_recovered
+                                                                   or self.sdk_setup_recovery_attempts > 0),
+                                     "sdkSetupPreflightRecovered": self.sdk_setup_preflight_recovered,
+                                     "sdkSetupInRunRecoveryAttempts": self.sdk_setup_recovery_attempts,
+                                     "nativePositionDiagnostics": position_diagnostics,
+                                     "fixtureByteProof": self.fixture_byte_proof,
+                                     "fixtureCapRelease": self.fixture_release_receipt})
+        return not self.errors
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--serial", required=True)
+    parser.add_argument("--avd-name", required=True)
+    parser.add_argument("--run-id", required=True)
+    parser.add_argument("--apk", type=Path, required=True)
+    parser.add_argument("--build-mode", choices=("debug", "profile"), default="debug")
+    parser.add_argument("--variant", choices=("normal", "decoder_failure"), default="normal")
+    args = parser.parse_args()
+    if os.name != "posix":
+        parser.error("this dedicated CI AVD runner requires POSIX process-group ownership")
+    def interrupted(signum: int, _frame: object) -> None:
+        raise RuntimeFailure(f"runner interrupted by signal {signum}")
+    signal.signal(signal.SIGTERM, interrupted)
+    signal.signal(signal.SIGINT, interrupted)
+    try:
+        runner = Runner(args.serial, args.avd_name, args.apk, args.run_id,
+                        Path("build/android-network-artifacts") / args.run_id,
+                        build_mode=args.build_mode, variant=args.variant)
+        return 0 if runner.run() else 1
+    except (RuntimeFailure, OSError, ValueError) as error:
+        print(str(error), flush=True)
+        return 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

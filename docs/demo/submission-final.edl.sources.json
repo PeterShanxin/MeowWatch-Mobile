@@ -1,0 +1,20 @@
+{
+  "schema_version": 1,
+  "artifacts": [
+    {
+      "artifact": "production-phone-tablet-1-compact-capture",
+      "run": "36101169078",
+      "commit": "5f5dd7fbe44a23640eb250fb0cf869afe0850ff2"
+    },
+    {
+      "artifact": "android-native-lifecycle-2",
+      "run": "36103033022",
+      "commit": "67d0206d87a0c69329d9ed6e42dfe0275756ce2f"
+    },
+    {
+      "artifact": "production-purchase-1",
+      "run": "36103033131",
+      "commit": "67d0206d87a0c69329d9ed6e42dfe0275756ce2f"
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+name: External room ordinary Android guest
+
+on:
+  workflow_dispatch:
+    inputs:
+      room_code:
+        description: Disposable public Syncplay room code (3-36 ASCII characters)
+        required: true
+        type: string
+  push:
+    branches: [test/external-room-rehearsal]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: external-room-rehearsal-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  ordinary-guest:
+    name: One normal APK versus a manually operated desktop peer (API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    env:
+      PHONE_ACCEPTANCE_AVD_NAME: meowwatch_lifecycle_${{ github.run_id }}_${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Validate disposable room and publish manual protocol
+        env:
+          INPUT_ROOM_CODE: ${{ inputs.room_code }}
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = push ]; then
+            room_code="mw-cloud-${GITHUB_RUN_ID}"
+          else
+            room_code="$INPUT_ROOM_CODE"
+          fi
+          prefix="$(python3 -m tools.external_room_rehearsal.run --room "$room_code" --print-token)"
+          echo "ROOM_CODE=$room_code" >> "$GITHUB_ENV"
+          {
+            echo '### Ordinary external room rehearsal'
+            echo "Room: \`$room_code\` on \`syncplay.pl:8995\`"
+            echo 'Media: https://storage.googleapis.com/exoplayer-test-media-0/BigBuckBunny_320x180.mp4 (Big Buck Bunny, roughly 10 minutes)'
+            echo "Chat prefix: \`$prefix\`"
+            echo 'Join and load media in the ordinary Windows app. Respond only after the action is visible there.'
+            echo 'Cloud READY → desktop DESKTOP_READY.'
+            echo 'Cloud CLOUD_PLAY / CLOUD_PAUSE / CLOUD_SEEK (about three minutes) → desktop SAW_CLOUD_PLAY / SAW_CLOUD_PAUSE / SAW_CLOUD_SEEK.'
+            echo 'Cloud READY_DESKTOP_PLAY → desktop Play then DESKTOP_PLAY; await SAW_DESKTOP_PLAY.'
+            echo 'Desktop Pause then DESKTOP_PAUSE; await SAW_DESKTOP_PAUSE.'
+            echo 'Desktop seek to about five minutes then DESKTOP_SEEK; await SAW_DESKTOP_SEEK.'
+            echo 'Every chat word above is prefixed by the displayed chat prefix, with no spaces. The run is bounded to 20 minutes.'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Check external room runner contracts
+        run: python3 -m unittest tools.external_room_rehearsal.test_run -v
+      - name: Build ordinary application and independent UI observer
+        run: |
+          flutter build apk --debug --target-platform android-x64 --target lib/main.dart
+          python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+      - name: Enable hosted KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Rehearse against the manually operated Windows peer
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: ${{ env.PHONE_ACCEPTANCE_AVD_NAME }}
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          pre-emulator-launch-script: python3 -m tools.android_lifecycle_runtime.prepare_avd
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: >-
+            timeout --signal=TERM --kill-after=10s 21m
+            python3 -m tools.external_room_rehearsal.run
+            --serial emulator-5554
+            --avd "$PHONE_ACCEPTANCE_AVD_NAME"
+            --apk build/app/outputs/flutter-apk/app-debug.apk
+            --observer-apk build/android-native-ui/native-ui-observer.apk
+            --room "$ROOM_CODE"
+            --output build/external-room-rehearsal/evidence
+      - name: Upload original UI receipts and result
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4 # v5.0.0
+        with:
+          name: external-room-rehearsal-${{ github.run_attempt }}
+          path: |
+            build/external-room-rehearsal/evidence/
+            build/android-phone-acceptance-avd/
+            build/android-native-ui/build.json
+            build/android-native-ui/manifest.log
+            build/android-native-ui/verify.log
+          if-no-files-found: warn
+          retention-days: 14

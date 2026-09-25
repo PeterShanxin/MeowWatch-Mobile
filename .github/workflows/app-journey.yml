@@ -1,0 +1,107 @@
+name: Android product journey
+run-name: Android product journey (${{ inputs.semantics_candidate && 'unmerged semantics candidate' || 'baseline' }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      semantics_candidate:
+        description: 'Diagnose with the unmerged pinned Flutter semantics patch in a copied SDK'
+        type: boolean
+        required: false
+        default: false
+  pull_request:
+    paths:
+      - 'tools/native_capture/**'
+      - '.github/workflows/app-journey.yml'
+      - 'lib/**'
+      - 'android/**'
+      - 'assets/**'
+      - 'pubspec.*'
+      - 'third_party/video_player_android/**'
+      - 'integration_test/app_journey_test.dart'
+      - 'test_driver/app_journey_driver.dart'
+      - 'tools/app_journey/**'
+      - 'tools/android_multi_device/*fixture*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-journey-${{ github.ref }}-${{ inputs.semantics_candidate && 'semantics-candidate' || 'baseline' }}
+  cancel-in-progress: true
+
+jobs:
+  journey:
+    name: Clean-install five viewports (${{ inputs.semantics_candidate && 'UNMERGED CANDIDATE' || 'baseline' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - name: Prepare isolated unmerged semantics candidate SDK
+        if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
+        env:
+          CANDIDATE_SDK: ${{ runner.temp }}/meowwatch-semantics-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          mkdir -p build/flutter-compat
+          cp tools/flutter_compat/provenance.json build/flutter-compat/upstream-source.json
+          echo '## Unmerged Flutter semantics diagnostic candidate' >> "$GITHUB_STEP_SUMMARY"
+          echo 'Copied SDK only; this run does not establish adoption or a geometry fix.' >> "$GITHUB_STEP_SUMMARY"
+          python3 -m unittest discover -s tools/flutter_compat -p 'test_*.py'
+          python3 tools/flutter_compat/prepare.py --source-sdk "$FLUTTER_ROOT" --output-sdk "$CANDIDATE_SDK" --report build/flutter-compat/preparation.json
+          echo "FLUTTER_ROOT=$CANDIDATE_SDK" >> "$GITHUB_ENV"
+          echo "$CANDIDATE_SDK/bin" >> "$GITHUB_PATH"
+          echo "$CANDIDATE_SDK/bin/cache/dart-sdk/bin" >> "$GITHUB_PATH"
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify candidate against the upstream semantics regression
+        if: github.event_name == 'workflow_dispatch' && inputs.semantics_candidate
+        run: |
+          set -o pipefail
+          flutter test --reporter expanded tools/flutter_compat/overlay_sibling_conflict_test.dart tools/flutter_compat/sibling_conflict_semantics_contract_test.dart 2>&1 | tee build/flutter-compat/upstream-regression.log
+      - name: Check native preflight guards
+        run: |
+          python3 -m unittest discover -s tools/app_journey -p 'test_*.py'
+          bash -n tools/app_journey/run.sh
+      - name: Prepare licensed media fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh
+      - name: Build production-app journey APK
+        run: >-
+          flutter build apk --debug --target=integration_test/app_journey_test.dart
+          --dart-define=APP_JOURNEY_VIDEO_URL=http://10.0.2.2:18765/sync-fixture.mp4
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Record clean product journeys on Android
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/app_journey/ci.sh
+      - name: Upload actual product screenshots and recordings
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: android-product-journey-${{ github.run_attempt }}${{ inputs.semantics_candidate && '-semantics-candidate' || '' }}
+          path: |
+            build/app-journey-artifacts/
+            build/app-journey-runner/
+            build/app-journey-fixture-server/
+            build/flutter-compat/
+          retention-days: 14

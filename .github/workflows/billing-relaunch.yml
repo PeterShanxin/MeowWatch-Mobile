@@ -1,0 +1,84 @@
+name: RevenueCat process relaunch and expiration
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/billing-relaunch.yml'
+      - 'integration_test/billing_smoke_test.dart'
+      - 'test_driver/billing_smoke_driver.dart'
+      - 'tools/billing_runtime/**'
+      - 'lib/core/billing/**'
+      - 'android/**'
+      - 'pubspec.*'
+      - 'third_party/video_player_android/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: billing-relaunch-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  relaunch:
+    name: Test Store same-customer relaunch and real expiration (API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 65
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify relaunch and expiration gate contracts
+        run: |
+          dart format --output=none --set-exit-if-changed \
+            integration_test/billing_smoke_test.dart \
+            test_driver/billing_smoke_driver.dart
+          flutter analyze \
+            integration_test/billing_smoke_test.dart \
+            test_driver/billing_smoke_driver.dart
+          python3 -m unittest discover -s tools/billing_runtime -p 'test_*.py'
+          python3 tools/billing_runtime/run_relaunch_journey.py --help
+      - name: Build real Test Store matrix APK
+        run: >-
+          flutter build apk --debug --no-pub
+          --target=integration_test/billing_smoke_test.dart
+          --dart-define=REVENUECAT_TEST_MODE=matrix
+          --dart-define=REVENUECAT_API_KEY=test_gjKDzmyNmHmuDfibegUnKQKTpRh
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Purchase, relaunch, wait for real expiration and restore inactive
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        env:
+          REVENUECAT_TEST_STORE_KEY: test_gjKDzmyNmHmuDfibegUnKQKTpRh
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          cores: 2
+          ram-size: 4096M
+          disable-animations: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: >-
+            python3 tools/billing_runtime/run_relaunch_journey.py
+            --serial emulator-5554
+            --matrix-apk build/app/outputs/flutter-apk/app-debug.apk
+      - name: Retain hashed customer and exact process evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: revenuecat-relaunch-${{ github.run_attempt }}
+          path: |
+            build/billing-relaunch-artifacts/
+            build/billing-runtime-artifacts/
+          retention-days: 14

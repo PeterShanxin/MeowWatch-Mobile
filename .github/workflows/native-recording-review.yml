@@ -1,0 +1,109 @@
+name: Review existing native recording frames
+
+on:
+  workflow_dispatch:
+    inputs:
+      source_run:
+        description: 'Existing original Android recording run ID'
+        default: '35988087451'
+        required: true
+        type: string
+      kind:
+        description: 'Artifact format to inspect without starting Android'
+        type: choice
+        options: [fullscreen, together, purchase, lifecycle]
+        default: fullscreen
+  push:
+    paths:
+      - '.github/workflows/native-recording-review.yml'
+      - 'tools/native_recording_review/**'
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  contracts:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - run: python3 -m unittest discover -s tools/native_recording_review -p 'test_*.py'
+  extract:
+    if: github.event_name == 'workflow_dispatch'
+    needs: contracts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - name: Download existing originals without starting Android
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.source_run || '35988087451' }}
+          REVIEW_KIND: ${{ inputs.kind || 'fullscreen' }}
+        run: |
+          [[ "$SOURCE_RUN" =~ ^[0-9]+$ ]]
+          mkdir -p build/recording-review
+          gh run view "$SOURCE_RUN" --json databaseId,headSha,url,conclusion > build/recording-review/source-run.json
+          case "$REVIEW_KIND" in
+            fullscreen) pattern='android-fullscreen-*' ;;
+            together) pattern='production-phone-tablet-*' ;;
+            purchase) pattern='production-purchase-*' ;;
+            lifecycle) pattern='android-native-lifecycle-*' ;;
+            *) exit 1 ;;
+          esac
+          gh run download "$SOURCE_RUN" --pattern "$pattern" --dir build/source-artifacts
+      - name: Extract a bounded set of original frames on the hosted runner
+        env:
+          REVIEW_KIND: ${{ inputs.kind || 'fullscreen' }}
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          if [[ "$REVIEW_KIND" == together ]]; then
+            python3 tools/native_recording_review/together.py --artifact build/source-artifacts --output build/recording-review/together
+          elif [[ "$REVIEW_KIND" == purchase ]]; then
+            python3 -m tools.native_recording_review.purchase --artifact build/source-artifacts --output build/recording-review/purchase
+          elif [[ "$REVIEW_KIND" == lifecycle ]]; then
+            python3 tools/native_recording_review/extract.py --artifact build/source-artifacts/android-native-lifecycle-1/android-lifecycle-artifacts --output build/recording-review/lifecycle
+          else
+            for variant in phone tablet; do
+              # A matrix rerun replaces only failed jobs. Keep each form
+              # factor's latest attempt, including failure rather than falling
+              # back to an older passing capture.
+              mapfile -t attempts < <(find build/source-artifacts -maxdepth 1 -type d -name "android-fullscreen-${variant}-[0-9]*" | sort -V)
+              [[ "${#attempts[@]}" -gt 0 ]]
+              artifact="${attempts[-1]}/android-fullscreen-artifacts"
+              python3 tools/native_recording_review/extract.py --artifact "$artifact" --output "build/recording-review/$variant"
+            done
+          fi
+      - name: Retain small native receipts for lightweight local review
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import shutil
+
+          source = Path('build/source-artifacts').resolve()
+          destination = Path('build/recording-review/source-receipts')
+          names = {'result.json', 'run.json', 'meowwatch-two-device.mp4.manifest.json'}
+          receipts = sorted(path for path in source.rglob('*') if path.name in names and path.is_file())
+          if len(receipts) > 64 or sum(path.stat().st_size for path in receipts) > 16 * 1024 * 1024:
+              raise ValueError('Unexpectedly large native receipt bundle')
+          for path in receipts:
+              if not path.resolve().is_relative_to(source):
+                  raise ValueError('Native receipt escapes the downloaded artifact')
+              target = destination / path.relative_to(source)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              shutil.copyfile(path, target)
+          print(f'Retained {len(receipts)} unchanged native receipts; no source video copied')
+          PY
+      - name: Retain source provenance and exact review frames
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: native-recording-review-${{ github.run_attempt }}
+          path: build/recording-review/
+          retention-days: 14

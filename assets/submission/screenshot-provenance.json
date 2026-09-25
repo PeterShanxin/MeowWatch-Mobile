@@ -1,0 +1,133 @@
+{
+  "file": "assets/submission/meowwatch-android-1179x2556.png",
+  "purpose": "Unframed native production app screenshot for submission",
+  "scene": "Free customer home after onboarding",
+  "width": 1179,
+  "height": 2556,
+  "format": "PNG",
+  "bytes": 158377,
+  "sha256": "df6c2c6105b394798c92d12aaf5e407d2ed8f0cef02ba5ae89d467b3eb324f01",
+  "pixelHandling": {
+    "copiedByteForByte": true,
+    "resized": false,
+    "cropped": false,
+    "framed": false,
+    "retouched": false
+  },
+  "source": {
+    "repository": "PeterShanxin/MeowWatch-Mobile",
+    "commit": "9b7e9ed08d0d83487441678b0aaee342d690138f",
+    "workflowName": "Production UI purchase journey",
+    "workflowPath": ".github/workflows/production-purchase.yml",
+    "workflowRunNumber": 6,
+    "workflowRunAttempt": 1,
+    "githubRunId": 35212468110,
+    "githubRunUrl": "https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/35212468110",
+    "githubJobId": 105173000210,
+    "jobName": "MainApp Test Store, themes and hosting (API 35 emulator)",
+    "artifactName": "production-purchase-1",
+    "artifactId": 10493172352,
+    "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/free-home.png",
+    "artifactRunId": "20260917T105737Z-6e753b05",
+    "sourceDocuments": [
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/run.json",
+        "sha256": "c3e009fdb91701b1062e5728a28e5b5bd301128709f2aad8348a9040614dcc29"
+      },
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/result.json",
+        "sha256": "7a1ce74c745779d5be9bc3f35cfb675ce113a5d07b13e28ff74d97945e82a4aa"
+      }
+    ],
+    "recordings": [
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/journey-001.mp4",
+        "sha256": "f29d5c22d7ded31b5f8f1e580d2a165ea4e325820c8a94c631f23db2d046ea54"
+      },
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/journey-002.mp4",
+        "sha256": "26a600d6a890cabb0fa52f23c0ec9970726049058dfd0dbcdfac99e3461b7e0d"
+      },
+      {
+        "artifactRelativePath": "production-purchase-artifacts/20260917T105737Z-6e753b05/journey-003.mp4",
+        "sha256": "77396f3b468c5a0f1dd6bf2ae000be31e47757bb1f0baf6c35efe39f16c4d46c"
+      }
+    ]
+  },
+  "runtime": {
+    "platform": "Android",
+    "api": 35,
+    "model": "sdk_gphone64_x86_64",
+    "serial": "emulator-5554",
+    "operatingSystemVersion": "sdk_gphone64_x86_64-userdebug 15 AE3A.240806.043 12960925 dev-keys",
+    "emulator": true,
+    "physicalDevice": false,
+    "nativeCapturePixels": [
+      1179,
+      2556
+    ],
+    "displayConfiguration": "The emulator display was configured to 1179x2556 before native capture; the exported PNG was not resized.",
+    "appEntrypoint": "Production MainApp",
+    "apkSha256": "34af1ee05316ab6c4ef80718b5281f46249b50195fb4e0444e51c8b2696b62d2",
+    "cleanInstall": true,
+    "peerBoundary": "Android MainApp; one native player and independent headless TLS peer in one process"
+  },
+  "acceptanceBoundary": {
+    "workflowPassed": true,
+    "journeyResult": "passed",
+    "verifiedStages": [
+      "clean_production_services_and_free_customer",
+      "one_free_host_consumed_via_ui_and_real_tls_peer",
+      "next_host_opens_production_paywall",
+      "native_cancel_through_production_paywall",
+      "native_failure_through_production_paywall",
+      "native_success_through_production_paywall",
+      "sdk_restore_via_settings_retains_entitlement_for_same_customer",
+      "sdk_restore_after_customer_info_cache_invalidation",
+      "glass_aurora_selected_persisted_and_paid_room_usable",
+      "movie_night_premium_reaction_sent_via_ui_and_received_by_real_tls_peer",
+      "premium_theme_selected_via_ui_and_persisted",
+      "two_distinct_paid_hosts_via_ui_with_real_tls_peer"
+    ],
+    "nativePurchaseOutcomes": {
+      "cancel": {
+        "nativeAction": "CANCEL",
+        "errorCode": "1"
+      },
+      "simulatedFailure": {
+        "nativeAction": "TEST FAILED PURCHASE",
+        "errorCode": "42"
+      },
+      "success": {
+        "nativeAction": "TEST VALID PURCHASE",
+        "plusActivated": true
+      }
+    },
+    "hostingEvidence": {
+      "freeHostsVerified": 1,
+      "paidHostsVerified": 2,
+      "distinctSessionIds": 3,
+      "allPeersObservedPlaying": true,
+      "allPeersCompletedTlsHello": true
+    },
+    "restoreEvidence": {
+      "scope": "Same persisted RevenueCat customer after customer-info cache invalidation",
+      "sameCustomerRetained": true,
+      "reinstallOrLostIdentityRecoveryProven": false
+    },
+    "themeEvidence": {
+      "selectedViaUiAndPersisted": true,
+      "theme": "cinemaNoir",
+      "glassAuroraPersisted": true,
+      "glassAuroraPaidRoomUsable": true
+    },
+    "premiumReactionEvidence": {
+      "reaction": "Movie night",
+      "sentViaProductionUi": true,
+      "realTlsPeerReceived": true,
+      "senderMatched": true
+    },
+    "interpretation": "The clean, unobscured free-home capture was visually inspected and establishes the rendered native free-customer home screen. Its source workflow completed the twelve recorded emulator acceptance stages, including one free host, two paid hosts, native Test Store cancel/failure/success, same-customer restore after cache invalidation, Glass Aurora persistence and paid-room usability, a Movie night premium reaction received by the independent real TLS peer, and Cinema Noir persistence. This run uses one native Android player plus an independent headless TLS peer; it does not establish two native devices, physical-device rendering, or reinstall/lost-identity recovery.",
+    "recordingCaveat": "This is screenshot provenance, not a claim of seamless demo footage. The selected original free-home PNG is unobscured, and review found no unexpected OS modal in the three raw recordings. The raw segmented recordings retain reported 1.281-second and 1.705-second coverage gaps and must not be presented as one continuous shot."
+  }
+}

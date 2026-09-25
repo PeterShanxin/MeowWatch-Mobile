@@ -1,0 +1,108 @@
+name: Android Together room audio focus
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    paths:
+      - '.github/workflows/android-together-focus.yml'
+      - 'integration_test/together_focus_journey_test.dart'
+      - 'integration_test/support/native_focus_stage_client.dart'
+      - 'integration_test/support/test_text_entry.dart'
+      - 'test/integration_support/native_focus_stage_client_test.dart'
+      - 'test/integration_support/test_text_entry_test.dart'
+      - 'android/**'
+      - 'lib/**'
+      - 'pubspec.*'
+      - 'third_party/video_player_android/**'
+      - 'tools/android_together_focus_runtime/**'
+      - 'tools/android_interruption_runtime/**'
+      - 'tools/android_native_ui/**'
+      - 'tools/android_multi_device/*fixture*'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-together-focus-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  together-focus:
+    name: Foreground permanent and transient focus in a real room (API 35)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      TOGETHER_FOCUS_AVD_NAME: meowwatch_interruption_${{ github.run_id }}_${{ github.run_attempt }}
+      PHONE_ACCEPTANCE_AVD_NAME: meowwatch_interruption_${{ github.run_id }}_${{ github.run_attempt }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Check runner contracts
+        run: |
+          flutter test test/integration_support/native_focus_stage_client_test.dart test/integration_support/test_text_entry_test.dart
+          python3 -m unittest tools.android_together_focus_runtime.test_run tools.android_interruption_runtime.test_run tools.android_lifecycle_runtime.test_prepare_avd -v
+          python3 -m tools.android_together_focus_runtime.run --help
+          bash -n tools/android_together_focus_runtime/ci.sh
+      - name: Prepare controlled 180-second fixture
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh --output build/android-together-focus-fixture --seconds 180
+      - name: Build MainApp integration APK
+        run: >-
+          flutter build apk --debug --target-platform android-x64
+          --target=integration_test/together_focus_journey_test.dart
+          --dart-define=TOGETHER_FOCUS_VIDEO_URL=http://10.0.2.2:18765/sync-fixture.mp4
+          --dart-define=TOGETHER_FOCUS_BRIDGE_URL=http://10.0.2.2:18867
+      - name: Build independent native helpers
+        run: |
+          python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+          python3 -m tools.android_interruption_runtime.build_helper --platform 35 --build-tools 36.0.0
+      - name: Enable KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Run native Together focus acceptance
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 35
+          target: google_apis
+          arch: x86_64
+          profile: pixel_6
+          avd-name: ${{ env.TOGETHER_FOCUS_AVD_NAME }}
+          cores: 2
+          ram-size: 4096M
+          heap-size: 512M
+          disable-animations: true
+          pre-emulator-launch-script: python3 -m tools.android_lifecycle_runtime.prepare_avd
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/android_together_focus_runtime/ci.sh
+      - name: Upload native receipts
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: android-together-focus-${{ github.run_attempt }}
+          path: |
+            build/android-together-focus-artifacts/
+            build/android-together-focus-sdk-preparation/
+            build/android-together-focus-boot-readiness/
+            build/android-together-focus-server/
+            build/android-together-focus-fixture/*.json
+            build/android-together-focus-fixture/*.sha256
+            build/android-interruption-helper/build.json
+            build/android-interruption-helper/*.log
+            build/android-native-ui/build.json
+            build/android-native-ui/manifest.log
+            build/android-native-ui/verify.log
+          if-no-files-found: warn
+          retention-days: 14

@@ -1,0 +1,73 @@
+name: Android native motion probe
+run-name: Android native motion probe (${{ inputs.display_profile || 'recording' }} displays, diagnostic only)
+
+on:
+  workflow_dispatch:
+    inputs:
+      display_profile:
+        description: 'Fixed logical layouts at standard or native recording pixel sizes'
+        type: choice
+        options: [standard, recording]
+        default: standard
+  push:
+    paths:
+      - '.github/workflows/android-motion-probe.yml'
+      - 'tools/android_motion_probe/**'
+
+permissions:
+  contents: read
+
+jobs:
+  motion:
+    name: Same-APK two-load and isolated-tablet capture
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    env:
+      MEOWWATCH_CI_DISPLAY_PROFILE: ${{ inputs.display_profile || 'recording' }}
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+          pub-cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Verify motion probe contracts
+        run: |
+          python3 -m unittest tools.android_motion_probe.test_run -v
+          python3 -m unittest tools.android_multi_device.test_device_readiness.ReadinessTests.test_launcher_aligns_existing_skin_and_lcd_without_changing_other_hardware
+          python3 -m tools.android_motion_probe.run --help
+          bash -n tools/android_motion_probe/ci.sh
+      - name: Prepare pinned Android image, KVM and reviewed media
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+          preparation="$GITHUB_WORKSPACE/build/android-motion-probe/sdk-preparation"
+          python3 -m tools.android_multi_device.prepare_sdk_packages prepare --sdk-root "$sdk_root" --output "$preparation"
+          echo "MEOWWATCH_ANDROID_SDK_PREPARATION=$preparation/result.json" >> "$GITHUB_ENV"
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          bash tools/android_multi_device/prepare_fixture.sh --output build/android-motion-probe/fixture --seconds 90
+      - name: Build one normal profile lib/main.dart APK and observer
+        run: |
+          flutter build apk --profile --target=lib/main.dart --dart-define=REVENUECAT_API_KEY=
+          python3 -m tools.android_native_ui.build --platform 35 --build-tools 36.0.0
+      - name: Capture original two-load and isolated-tablet motion
+        run: bash tools/android_motion_probe/ci.sh
+      - name: Retain original and partial diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: android-motion-probe-${{ github.run_attempt }}
+          path: |
+            build/android-motion-probe/
+            build/android-native-ui/build.json
+            build/android-native-ui/manifest.log
+            build/android-native-ui/verify.log
+            !build/android-motion-probe/fixture/*.mp4
+          retention-days: 14

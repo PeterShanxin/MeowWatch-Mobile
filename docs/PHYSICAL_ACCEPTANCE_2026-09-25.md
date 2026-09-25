@@ -46,7 +46,13 @@ documented emulator scope. Test Store evidence is not Google Play billing.
 
 ## Test cleanup
 
-Temporary phone sleep settings, debugging access, the review companion and its
-two narrowly scoped firewall rules must be cleaned up after the final candidate
-device check. Completion is recorded in [STATUS.md](STATUS.md); this document
-does not claim cleanup before its readback succeeds.
+At the owner's request the phone was released after the core physical checks.
+At 10:36 UTC, the original 30-second screen timeout and charging-awake value
+were restored and read back. Developer mode and USB debugging were set to off
+and read back. Disabling wireless debugging closed the transport before a final
+readback; the subsequent ADB device list and port forwards were empty. The
+task-owned ADB server was stopped. The Windows review app exited, its listener
+closed, and both specifically named review firewall rules were verified absent.
+
+The last UI-only fixes are validated in hosted checks, not represented as having
+been rerun on this now-disconnected physical phone.

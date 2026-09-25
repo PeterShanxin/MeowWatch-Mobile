@@ -80,11 +80,22 @@ of visibly choppy emulator footage. This edition is a review draft. The hybrid
 revision is in work; animated UI will be labeled separately from real captures.
 The earlier private YouTube upload is not the final submission video.
 
-Temporary phone sleep/debug settings and review firewall rules remain scheduled
-for cleanup after the final physical candidate check. No cleanup success is
-claimed before readback. Heavy builds, emulators and full film rendering remain
-on hosted CI; local work is limited to source edits, ADB, small captures and
-bounded formatting/media preparation.
+The owner requested the phone back. At 10:36 UTC its original 30-second timeout
+and charging-awake setting were restored and read back; developer mode and USB
+debugging were confirmed off. Wireless debugging shutdown closed the transport
+before readback, after which the device/forward lists were empty and the
+task-owned ADB server was stopped. The Windows companion exited and both
+review firewall rules were verified absent. Latest UI-only fixes retain hosted
+verification scope. Heavy builds, emulators and full rendering remain hosted.
+
+[Check 36124174769](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36124174769)
+passes all required app, native player, Nearby, media and secret checks at
+`0df32c6`, including both new UI regressions. Normal install `36123942946` has
+an external Maven HTTP 429 failure in its release build; other variants remain
+in progress. Complete normal-APK rehearsal `36122797821` reached advancing
+playback on both devices and a guest-to-host pause, then its observer confused
+the slider thumb bounds with the whole track. A bounded track-location fix
+retains the unchanged two-way seek acceptance checks; a full pass is still open.
 
 ### Final-source closeout, September 25
 

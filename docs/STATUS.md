@@ -13,7 +13,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36098502293 passes at fffc152 without setup ANR repair or observation timeout. Together focus 36098517831 now proves the early buffered interruption pauses native playback and the room; its held-transient proof rejects the app correctly abandoning focus, so the complete gate remains open. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36098502293 passes at fffc152 without setup ANR repair or observation timeout. Together focus 36100060718 at 86c8e10 passes early buffered, held permanent and held transient interruption, room pause, no-autoplay and explicit replay. Normal network 36080635480 passes at 4c01143; failed-source rebuilding and physical interruption acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
@@ -21,7 +21,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | 48e5a65 five-viewport journey 36068920060 passes 20 steps per profile; nine selected original screens are reviewed. 6daa1ea normal-release fullscreen 36078690609 passes phone and tablet: hidden controls/system bars, orientation restoration and two-stage Back. Five selected original fullscreen/return screens and six Together screens are reviewed. Final film motion and physical checks remain open; the SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
 | 13 | No placeholders, dead ends or silent failures | Partial | 6e46041 first-use/layout and purchase flows pass. 9a3fc05 Together verifies readable media errors, Choose another video recovery and shared-link confirmation. 5347142 makes same-source restoration visible and disables stale controls; native journey 36041063625 passes. Final-film inspection remains open |
-| 14 | Clean-install full demo rehearsal | Partial | 6daa1ea Together 36078687173 passes all 26 host and 25 guest stages on standard phone/tablet layouts without SDK Setup ANR repair. Normal-release lifecycle and both fullscreen layouts also pass. Normal network 36080635480 also passes at 4c01143. Failed-source rebuilding and Together-focus acceptance remain open, so this is not a complete rehearsal. The 98-second film has passed static sample review; full-motion acceptance remains open |
+| 14 | Clean-install full demo rehearsal | Partial | 6daa1ea Together 36078687173 passes all 26 host and 25 guest stages on standard phone/tablet layouts without SDK Setup ANR repair. Normal-release lifecycle and both fullscreen layouts also pass. Normal network 36080635480 also passes at 4c01143. Together focus 36100060718 also passes at 86c8e10. Failed-source rebuilding and final-source rehearsal remain open, so this is not a complete rehearsal. The 98-second film has passed static sample review; full-motion acceptance remains open |
 | 15 | Shipaton submission confidence | Partial | Brand kit and original-size submission screenshot are prepared. Final under-two-minute film, full rehearsal, physical gates and remaining eligibility/legal checks remain open |
 
 ## Current verification
@@ -33,71 +33,28 @@ runtime distinctions below are part of acceptance, not interchangeable checks.
 The [investigation history](ACCEPTANCE_HISTORY.md#archived-september-25-native-focus-and-recording-investigations-through-37adcf6)
 retains the complete prior results, original failures and repair rationale.
 
-### Integrated source and current focus repair
+### Integrated source and audio-focus acceptance
 
-Check `36099121755` at `6dfc120` passes every required job: 854 app tests,
+Check `36100639201` at `5f5dd7f` passes every required job: 855 app tests,
 114 native player tests without skips, normal debug APK, formatting, analysis,
 Nearby/platform contracts, observer SDK compilation and media/secret checks.
 Original app logs and native JUnit XML are reviewed. The native suite uses
 Java 21 for SDK 36; normal Android builds retain Java 17.
 
-Together focus `36090450938` at `1ab03e7` exposes a real early interruption gap.
-In the same foreground PID 3857, Android reports a 356 ms transient loss/gain,
-released 1,759 ms after the pre-Play marker. The continuous monitor sees neither
-native nor room pause. Passing mocked suppression-listener tests missed this:
-Media3 can withhold listener updates while native commands are pending.
-
-`37adcf6` makes one Media3 AudioFocusManager per player handle focus commands
-on the application thread, with ExoPlayer's automatic owner disabled. Loss
-pauses and reports false directly to Dart, including during buffering. Together
-requires fresh Play; Local Mode can resume on gain unless explicitly paused or
-the decoder stops. End/error and disposal release focus; a deferred renderer
-reset cannot override an intervening pause. Source regressions cover these
-boundaries, denied focus, ducking and mixing. Fresh Together gate `36092741332`
-stops before app installation: its initial baseline still has unfinished SDK
-provisioning/FallbackHome; five seconds later Android has completed setup and
-changed to NexusLauncher. No ANR occurs. A bounded read-only startup wait
-precedes the unchanged stable-Home admission gate. Six focused mocked
-contracts cover startup, exact identity, deadline, eligible system ANR and the
-unchanged five-second admission. No focus test ran in the failed native job.
-Fresh Together run `36094101888` passes that startup wait and the unchanged
-stable-Home gate without ANR repair. Its real 378 ms transient interruption is
-released 5,603 ms after the pre-Play marker, exceeding the required 3,000 ms
-early window. Native pause is observed, but room pause has not arrived when
-the runner aborts. This late trigger cannot establish early-focus acceptance;
-the test service is now prepared before the pre-Play marker without requesting
-focus. Its 15-second expiry, live PID/UID/nonce and absence of focus are checked.
-The existing app-focus ownership check and 3,000 ms/200–500 ms timing gates stay
-unchanged. Five focused mocked contracts pass, including an expired warm
-request that would otherwise fit the Play window. Run `36095814793` at `953178e`
-then triggers a valid 366 ms loss, released 1,409 ms after the marker. Native
-pause is observed after 333 ms, but the room never pauses in the 6,053 ms monitor
-and the rendered button still says Pause together. No native or room Play
-transition is observed after pause: the failed UI check does not prove native
-autoplay. The original early-interruption screenshot is reviewed. The source
-has a concrete ambiguity: ordinary buffering and real focus loss both report
-not-playing while buffering, which the bridge intentionally ignores. A separate
-player-scoped focus event now cancels room intent independently of buffering;
-native and Dart regressions and a fresh native gate are required before this
-repair is accepted. The early monitor also retains bounded per-event state
-samples so future failures distinguish intent, buffering and native playback.
-
-Together focus `36098517831` at `fffc152` now proves the early interruption
-repair on the actual foreground API 35 emulator in PID 3703. Android grants
-359 ms of transient focus, released 1,519 ms after the pre-Play marker. Native
-pause arrives after 308 ms and room pause after 993 ms, including samples with
-buffering still true. The 7,734 ms monitor retains all eight native and nine
-room events without autoplay. The original early-interruption PNG is reviewed.
-The held permanent interruption also pauses the native player and room and
-remains paused after release. The subsequent held transient check fails because
-its reused Local Mode assertion expects the app to retain a lost-focus stack
-entry; Together correctly sends explicit Pause and abandons that entry.
-The Together-only proof now requires exact pre-request app ownership, a granted
-transient request by the current helper UID/PID/client and the same app client
-subsequently abandoning focus in Android's command history. It does not claim
-the history directly logs the callback. Native/room pause and no-autoplay gates
-remain independent and unchanged. The original artifact parses successfully
-and all 18 pure runner tests pass; a complete fresh native run is still required.
+Together focus `36100060718` at `86c8e10` passes all three interruption cases
+in foreground PID 3448 without SDK Setup ANR repair. The early transient
+interruption lasts 354 ms and releases 1,860 ms after the pre-Play marker.
+Native pause is observed after 456 ms and room pause after 1,495 ms, including
+buffering samples. The 7,541 ms monitor records no native or room autoplay.
+Held permanent and transient interruptions pause within 1,044 and 815 ms;
+after focus release both native and peer remain at 7,248 and 12,658 ms during
+9,389 and 9,786 ms monitors. Fresh explicit Play resumes each case. Android
+focus identity/history, same-process foreground state and original receipts
+are reviewed; no test-side Pause is issued during interruption. Three original
+PNG screens show the real video and paused controls without overlays or
+clipping. This gate uses one Android decoder and an independent TLS peer in
+the same process; it does not establish two devices or physical hardware.
+It retains screenshots and event receipts, not a native video recording.
 
 Normal-release Local Mode `36098502293` at `fffc152` passes in PID 3052 without
 setup ANR repair or observation timeout. Permanent pause is observed within
@@ -108,20 +65,11 @@ reviewed. All three recording hashes match their successful cloud decode
 receipts (1,374 frames); gaps are 3.781 and 4.786 seconds. Full motion and
 physical hardware remain unverified.
 
-Normal-release Local Mode `36093565684` at `37adcf6` passes the new focus policy
-in PID 3214 without setup ANR repair or observation timeout. Permanent pause
-is observed within 2,042 ms, holds at 51 seconds after focus release, and
-explicit replay advances ten seconds. Transient pause is observed within
-1,744 ms and automatic resume within 6,987 ms, then advances twelve seconds.
-The app remains foreground throughout. Three original PNGs are reviewed;
-all three recording hashes match their successful cloud decode receipts.
-The recording gaps are 6.870 and 5.596 seconds; full motion remains unreviewed.
-
-The preceding normal-release Local Mode run `36089506421` at `433d365` passes:
-permanent pause within an 845 ms observed upper bound, a held 44-second clock,
-explicit replay advancing 16 seconds; transient pause within 1,729 ms and resume
-within 4,821 ms of release, advancing 11 seconds. One Google SDK Setup ANR was
-closed before testing, so this is not zero-repair clean-install acceptance.
+The player uses one native focus owner and a player-scoped interruption event
+that cancels Together intent even while buffering. Ordinary buffering does not
+pause the room. The [repair history](ACCEPTANCE_HISTORY.md#september-25-audio-focus-repair-through-86c8e10)
+preserves the original failures, the Local/Together focus-policy distinction
+and the strict Android ownership proof used by the runner.
 
 ### Network recovery
 
@@ -210,8 +158,8 @@ about one second of lead, 0.95 correction then converges too slowly through
 further buffering. The bridge now uses its existing bounded 0.90 rate from a
 900 ms lead and returns to 0.95 below 700 ms, with all freshness, buffering,
 25-second duration and native acceptance limits retained. A decoder-progression
-regression covers both 1.6-second and 1.45-second starting gaps; hosted tests
-and fresh native recovery proof remain required.
+regression covers both 1.6-second and 1.45-second starting gaps and passes in
+all 855 hosted app tests. Fresh native recovery proof remains required.
 
 Normal network `36091067116` stops before radio loss because its independent
 accessibility observer cannot obtain an app root within 15 attempts. PID 3155
@@ -313,9 +261,10 @@ remain open. Historical runs and asset provenance are preserved in
 
 ## Live development recording
 
-At September 25 04:10 UTC the current bounded two-fps recorder has 246,344,629
-bytes persisted in 1,701 chunks and is still saving. The scoped resource check
-finds 10.25 GiB available RAM and no local Dart, Java, FFmpeg or Android emulator.
+At September 25 05:59 UTC the current bounded two-fps recorder has 270,133,350
+bytes persisted in 1,918 chunks, with a newly saved chunk at 05:59:38 UTC. The
+latest scoped resource check finds 8.9 GiB available RAM and no local Dart,
+Java, FFmpeg or Android emulator.
 The selected image is a single
 static phone/tablet frame from the reviewed 100-second film candidate; it is
 labelled captured evidence, not live Android. Historical recording gaps below

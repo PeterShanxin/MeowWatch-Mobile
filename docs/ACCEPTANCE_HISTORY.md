@@ -2467,3 +2467,98 @@ Later source recovery is not represented as present in the pinned clips.
 retains original failures, earlier candidates and investigation details. The
 normal app uses unmodified Flutter 3.44.0 / Dart 3.12.0. Heavy verification and
 video decoding run in hosted CI; local review uses static PNGs and metadata.
+
+## September 25 audio-focus repair through 86c8e10
+
+The following status notes are retained from before the full Together focus gate passed.
+Earlier failed runs remain failed.
+
+### Integrated source and current focus repair
+
+Check `36099121755` at `6dfc120` passes every required job: 854 app tests,
+114 native player tests without skips, normal debug APK, formatting, analysis,
+Nearby/platform contracts, observer SDK compilation and media/secret checks.
+Original app logs and native JUnit XML are reviewed. The native suite uses
+Java 21 for SDK 36; normal Android builds retain Java 17.
+
+Together focus `36090450938` at `1ab03e7` exposes a real early interruption gap.
+In the same foreground PID 3857, Android reports a 356 ms transient loss/gain,
+released 1,759 ms after the pre-Play marker. The continuous monitor sees neither
+native nor room pause. Passing mocked suppression-listener tests missed this:
+Media3 can withhold listener updates while native commands are pending.
+
+`37adcf6` makes one Media3 AudioFocusManager per player handle focus commands
+on the application thread, with ExoPlayer's automatic owner disabled. Loss
+pauses and reports false directly to Dart, including during buffering. Together
+requires fresh Play; Local Mode can resume on gain unless explicitly paused or
+the decoder stops. End/error and disposal release focus; a deferred renderer
+reset cannot override an intervening pause. Source regressions cover these
+boundaries, denied focus, ducking and mixing. Fresh Together gate `36092741332`
+stops before app installation: its initial baseline still has unfinished SDK
+provisioning/FallbackHome; five seconds later Android has completed setup and
+changed to NexusLauncher. No ANR occurs. A bounded read-only startup wait
+precedes the unchanged stable-Home admission gate. Six focused mocked
+contracts cover startup, exact identity, deadline, eligible system ANR and the
+unchanged five-second admission. No focus test ran in the failed native job.
+Fresh Together run `36094101888` passes that startup wait and the unchanged
+stable-Home gate without ANR repair. Its real 378 ms transient interruption is
+released 5,603 ms after the pre-Play marker, exceeding the required 3,000 ms
+early window. Native pause is observed, but room pause has not arrived when
+the runner aborts. This late trigger cannot establish early-focus acceptance;
+the test service is now prepared before the pre-Play marker without requesting
+focus. Its 15-second expiry, live PID/UID/nonce and absence of focus are checked.
+The existing app-focus ownership check and 3,000 ms/200–500 ms timing gates stay
+unchanged. Five focused mocked contracts pass, including an expired warm
+request that would otherwise fit the Play window. Run `36095814793` at `953178e`
+then triggers a valid 366 ms loss, released 1,409 ms after the marker. Native
+pause is observed after 333 ms, but the room never pauses in the 6,053 ms monitor
+and the rendered button still says Pause together. No native or room Play
+transition is observed after pause: the failed UI check does not prove native
+autoplay. The original early-interruption screenshot is reviewed. The source
+has a concrete ambiguity: ordinary buffering and real focus loss both report
+not-playing while buffering, which the bridge intentionally ignores. A separate
+player-scoped focus event now cancels room intent independently of buffering;
+native and Dart regressions and a fresh native gate are required before this
+repair is accepted. The early monitor also retains bounded per-event state
+samples so future failures distinguish intent, buffering and native playback.
+
+Together focus `36098517831` at `fffc152` now proves the early interruption
+repair on the actual foreground API 35 emulator in PID 3703. Android grants
+359 ms of transient focus, released 1,519 ms after the pre-Play marker. Native
+pause arrives after 308 ms and room pause after 993 ms, including samples with
+buffering still true. The 7,734 ms monitor retains all eight native and nine
+room events without autoplay. The original early-interruption PNG is reviewed.
+The held permanent interruption also pauses the native player and room and
+remains paused after release. The subsequent held transient check fails because
+its reused Local Mode assertion expects the app to retain a lost-focus stack
+entry; Together correctly sends explicit Pause and abandons that entry.
+The Together-only proof now requires exact pre-request app ownership, a granted
+transient request by the current helper UID/PID/client and the same app client
+subsequently abandoning focus in Android's command history. It does not claim
+the history directly logs the callback. Native/room pause and no-autoplay gates
+remain independent and unchanged. The original artifact parses successfully
+and all 18 pure runner tests pass; a complete fresh native run is still required.
+
+Normal-release Local Mode `36098502293` at `fffc152` passes in PID 3052 without
+setup ANR repair or observation timeout. Permanent pause is observed within
+1,387 ms; transient pause within 1,248 ms and automatic resume within 5,323 ms,
+then advances twelve seconds. The app stays foreground, and both the helper
+and independent observer are removed. Two original transient screens are
+reviewed. All three recording hashes match their successful cloud decode
+receipts (1,374 frames); gaps are 3.781 and 4.786 seconds. Full motion and
+physical hardware remain unverified.
+
+Normal-release Local Mode `36093565684` at `37adcf6` passes the new focus policy
+in PID 3214 without setup ANR repair or observation timeout. Permanent pause
+is observed within 2,042 ms, holds at 51 seconds after focus release, and
+explicit replay advances ten seconds. Transient pause is observed within
+1,744 ms and automatic resume within 6,987 ms, then advances twelve seconds.
+The app remains foreground throughout. Three original PNGs are reviewed;
+all three recording hashes match their successful cloud decode receipts.
+The recording gaps are 6.870 and 5.596 seconds; full motion remains unreviewed.
+
+The preceding normal-release Local Mode run `36089506421` at `433d365` passes:
+permanent pause within an 845 ms observed upper bound, a held 44-second clock,
+explicit replay advancing 16 seconds; transient pause within 1,729 ms and resume
+within 4,821 ms of release, advancing 11 seconds. One Google SDK Setup ANR was
+closed before testing, so this is not zero-repair clean-install acceptance.

@@ -11,9 +11,9 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 1 | Clean checkout builds and installs | Verified on emulators | fdebec3 passes normal API 29/35 debug and API 35 release clean install in hosted run 36044617989. These are normal lib/main.dart APKs. Physical-device acceptance remains separate |
 | 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36080633060 at 4c01143 passes the secret scan, formatting, analysis, 827 app tests, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. The one-AVD network journey 36078681672 fails initial convergence before its outage; 4c01143 prevents catch-up from following its own room heartbeat and is under native verification in 36080635480. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Normal-release Local Mode audio focus 36074183098 passes. The new Together-room focus gate 36079974766 fails environment ownership validation before app acceptance. Network convergence and physical interruption acceptance remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Normal-release Local Mode audio focus 36074183098 passes. The new Together-room focus gate 36079974766 fails environment ownership validation before app acceptance. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
@@ -21,7 +21,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | 48e5a65 five-viewport journey 36068920060 passes 20 steps per profile; nine selected original screens are reviewed. 6daa1ea normal-release fullscreen 36078690609 passes phone and tablet: hidden controls/system bars, orientation restoration and two-stage Back. Five selected original fullscreen/return screens and six Together screens are reviewed. Final film motion and physical checks remain open; the SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
 | 13 | No placeholders, dead ends or silent failures | Partial | 6e46041 first-use/layout and purchase flows pass. 9a3fc05 Together verifies readable media errors, Choose another video recovery and shared-link confirmation. 5347142 makes same-source restoration visible and disables stale controls; native journey 36041063625 passes. Final-film inspection remains open |
-| 14 | Clean-install full demo rehearsal | Partial | 6daa1ea Together 36078687173 passes all 26 host and 25 guest stages on standard phone/tablet layouts without SDK Setup ANR repair. Normal-release lifecycle and both fullscreen layouts also pass. Network and Together-focus acceptance remain open, so this is not a complete rehearsal. The 98-second film has passed static sample review; full-motion acceptance remains open |
+| 14 | Clean-install full demo rehearsal | Partial | 6daa1ea Together 36078687173 passes all 26 host and 25 guest stages on standard phone/tablet layouts without SDK Setup ANR repair. Normal-release lifecycle and both fullscreen layouts also pass. Normal network 36080635480 also passes at 4c01143. Failed-source rebuilding and Together-focus acceptance remain open, so this is not a complete rehearsal. The 98-second film has passed static sample review; full-motion acceptance remains open |
 | 15 | Shipaton submission confidence | Partial | Brand kit and original-size submission screenshot are prepared. Final under-two-minute film, full rehearsal, physical gates and remaining eligibility/legal checks remain open |
 
 ## Current verification
@@ -84,7 +84,15 @@ bounded calibration fallback is not reached in this run. `4c01143` excludes
 self-origin room heartbeats from startup catch-up while permitting a fresh
 remote setter to take over. Hosted Check `36080633060` passes 827 app tests,
 including three self/remote transition regressions. Native network `36080635480`
-is checking that change; no native fix claim is made yet.
+now passes at that commit: actual radio loss pauses both decoders, rejoin keeps
+the same room/media/quota paused, and explicit Play/Pause/Seek converges. Initial
+playback takes 16.154 seconds and replay 22.328 seconds to meet the unchanged
+one-second position gate on this debug AVD. These are not instant-resume or
+physical-device measurements. All 372 native-position records are retained
+without rejection/drop; no SDK Setup repair occurs. Four original PNGs are
+reviewed and all four recording hashes match their cloud-decoded originals.
+Both healthy controllers retain their IDs, so failed-source rebuilding is still
+unaccepted; the controlled variant is running in `36081703062`.
 
 The new Together-room audio-focus journey uses MainApp with one API 35 native
 decoder and an independent real TLS client in the same process. It continuously
@@ -92,8 +100,8 @@ checks for native/room autoplay between focus loss and explicit Play. Its first
 run `36079974766` fails named-AVD ownership checks during environment preparation
 and rejects a successful streamed helper installation, before app acceptance.
 The runner now uses the existing interruption AVD naming policy and shared
-installation-result parser; 35 lightweight contracts pass. A fresh native run
-is required. This is separate from the accepted normal-release Local Mode focus
+installation-result parser; 35 lightweight contracts pass. Corrected native
+run `36081445086` is in progress. This is separate from the accepted normal-release Local Mode focus
 evidence.
 
 The local machine remains limited to source edits, lightweight evidence reads

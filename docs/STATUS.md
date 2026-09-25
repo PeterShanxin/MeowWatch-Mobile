@@ -126,7 +126,8 @@ unique cause is not established. The observer now streams its already computed,
 bounded first-missing-root diagnostic immediately, preserving it even if a later
 framework call blocks. This adds no retry, changes no deadline, and cannot
 replace complete hierarchy acceptance. Mocked observer contracts pass; SDK
-compilation and a fresh native run remain required.
+compilation passes in hosted Check `36085892139` at `e94015e`. A fresh native
+run remains required.
 
 The new Together-room audio-focus journey uses MainApp with one API 35 native
 decoder and an independent real TLS client in the same process. It continuously
@@ -155,6 +156,17 @@ release screenshot is paused and alone would miss the defect. This is a failed
 gate, not accepted Together focus behavior; the retained native play request
 must be cleared before focus returns. Its TLS peer shares the app process and
 is not evidence from a second physical device.
+
+The bridge repair explicitly clears the native play request after accepting a
+ready, non-buffering pause. Its queued correction is tied to the current source
+and intent, so a newer Play or source load supersedes it; external receivers
+are excluded. Socket regressions model a retained play request and require zero
+native Play events on focus release. Independent review identifies a remaining
+early-interruption gap: if focus returns before a peer command's settle window
+ends, the pause can still be dismissed as an echo. That requires a reliable
+native interruption policy rather than guessing from playback snapshots. The
+held-interruption fix and this short-interruption boundary both remain subject
+to cloud validation; Together focus is not yet accepted.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

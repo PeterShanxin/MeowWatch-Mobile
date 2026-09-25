@@ -55,6 +55,7 @@ class PlaybackSyncBridge {
   Timer? _deferredPause;
   bool _externalPlayPending = false;
   int? _pauseCorrectionSource;
+  int? _pauseCorrectionIntent;
   _PlayStartCatchUp? _playStartCatchUp;
   Timer? _rateExpiry;
   Stopwatch? _rateWindow;
@@ -341,6 +342,13 @@ class PlaybackSyncBridge {
     // can replay the older peer Play over this phone's interrupted decoder.
     final nativePause = !state.playing && _publishedPaused == false;
     _publish(state, changed: nativePause);
+    if (nativePause &&
+        state.connection == PlaybackConnection.ready &&
+        !target.acceptsExternalPlaybackChanges) {
+      // Audio focus can stop isPlaying while retaining playWhenReady. Clear
+      // that native request before focus returns and starts playback again.
+      _reassertPause(alreadyPublished: true);
+    }
   }
 
   void _recoverNetworkSource() {
@@ -737,25 +745,26 @@ class PlaybackSyncBridge {
     _requestRate(1);
   }
 
-  void _reassertPause() {
+  void _reassertPause({bool alreadyPublished = false}) {
     final source = _sourceGeneration;
-    if (_pauseCorrectionSource == source) return;
+    final intent = _intent;
+    if (_pauseCorrectionSource == source && _pauseCorrectionIntent == intent) {
+      return;
+    }
     _pauseCorrectionSource = source;
+    _pauseCorrectionIntent = intent;
     _background(
       _enqueue(() async {
-        if (!_hasSource ||
-            source != _sourceGeneration ||
-            _publishedPaused != true) {
+        if (!_current(intent, source) || _publishedPaused != true) {
           return;
         }
         _applying++;
         try {
           await target.pause().timeout(commandTimeout);
-          if (!_hasSource ||
-              source != _sourceGeneration ||
-              _publishedPaused != true) {
+          if (!_current(intent, source) || _publishedPaused != true) {
             return;
           }
+          if (alreadyPublished) return;
           final expected = _expected;
           if (expected != null && expected.paused) {
             _acknowledge(expected);
@@ -766,8 +775,10 @@ class PlaybackSyncBridge {
           _applying--;
         }
       }).whenComplete(() {
-        if (_pauseCorrectionSource == source) {
+        if (_pauseCorrectionSource == source &&
+            _pauseCorrectionIntent == intent) {
           _pauseCorrectionSource = null;
+          _pauseCorrectionIntent = null;
         }
       }),
     );

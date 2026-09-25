@@ -709,10 +709,21 @@ void main() {
           authorizePlayback: () async => true,
         )..start();
         unawaited(bridge.markSourceOpen(movie.uri.toString()));
+        final pausesBeforeBuffering = target.commands
+            .where((command) => command == 'pause')
+            .length;
         emitNative(target, playing: false, buffering: true);
         expect(sync.published.last.paused, isFalse);
+        expect(
+          target.commands.where((command) => command == 'pause').length,
+          pausesBeforeBuffering,
+        );
         emitNative(target, playing: false, buffering: false);
         expect(sync.published.last.paused, isFalse);
+        expect(
+          target.commands.where((command) => command == 'pause').length,
+          pausesBeforeBuffering,
+        );
         clock.elapse(bridge.settleWindow);
         expect(sync.published.last.paused, isTrue);
         expect(target.commands.where((c) => c == 'play').length, 1);
@@ -779,13 +790,25 @@ void main() {
         emitNative(target, playing: false, buffering: false);
         expect(sync.published.length, published);
         expect(sync.changes, isEmpty);
+        final pausesBeforeSettle = target.commands
+            .where((command) => command == 'pause')
+            .length;
         clock.elapse(bridge.settleWindow - const Duration(milliseconds: 1));
         expect(sync.published.length, published);
+        expect(
+          target.commands.where((command) => command == 'pause').length,
+          pausesBeforeSettle,
+        );
         clock.elapse(const Duration(milliseconds: 1));
+        clock.flushMicrotasks();
         expect(sync.published.length, published + 1);
         expect(sync.published.last.paused, isTrue);
         expect(sync.changes, [false]);
         expect(target.snapshot.playing, isFalse);
+        expect(
+          target.commands.where((command) => command == 'pause').length,
+          pausesBeforeSettle + 1,
+        );
 
         sync.peer(
           const PeerPlayState(
@@ -798,6 +821,58 @@ void main() {
         expect(target.snapshot.playing, isTrue);
         expect(sync.published.last.paused, isFalse);
       });
+    },
+  );
+
+  test('settled native pause yields to an immediate explicit Play', () async {
+    await bridge.load(movie);
+    await bridge.play();
+    target.commands.clear();
+
+    emitNative(target, playing: false, buffering: false);
+    expect(await bridge.play(), isTrue);
+
+    expect(target.commands, ['play']);
+    expect(target.snapshot.playing, isTrue);
+    expect(sync.published.last.paused, isFalse);
+  });
+
+  test('settled native pause cannot pause a replacement source', () async {
+    await bridge.load(movie);
+    await bridge.play();
+    target.commands.clear();
+
+    emitNative(target, playing: false, buffering: false);
+    bridge.beginSourceLoad();
+    await target.load(second);
+    await bridge.markSourceOpen(second.uri.toString());
+
+    expect(target.commands, isEmpty);
+    expect(target.snapshot.media, second);
+  });
+
+  test(
+    'external playback target keeps native pause without correction',
+    () async {
+      await bridge.dispose();
+      await target.close();
+      target = ExternalPlaybackTestTarget();
+      bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () => authorize(),
+        onError: errors.add,
+      )..start();
+      await bridge.load(movie);
+      await bridge.play();
+      target.commands.clear();
+
+      emitNative(target, playing: false, buffering: false);
+      await Future<void>.delayed(Duration.zero);
+
+      expect(target.commands, isEmpty);
+      expect(sync.published.last.paused, isTrue);
+      expect(sync.changes.last, isFalse);
     },
   );
 

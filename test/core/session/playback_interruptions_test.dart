@@ -19,7 +19,7 @@ void main() {
         final server = await SyncplayRoomServer.start();
         final interruptedClient = SyncplayClient();
         final peerClient = SyncplayClient();
-        final interruptedTarget = SyncTestTarget();
+        final interruptedTarget = _FocusRetainingTarget();
         final peerTarget = SyncTestTarget();
         final settleWindow = early
             ? const Duration(seconds: 1)
@@ -87,10 +87,14 @@ void main() {
         );
         if (!early) await Future<void>.delayed(settleWindow * 2);
         final beforeInterruption = server.acceptedChanges.length;
+        final pausesBeforeInterruption = interruptedTarget.commands
+            .where((command) => command == 'pause')
+            .length;
+        expect(interruptedTarget.retainedPlayRequest, isTrue);
 
-        // Model the non-buffering, ready player callback after Android has taken
-        // audio focus. This is a socket/bridge regression, not an Android gate.
-        _emitNative(interruptedTarget, playing: false);
+        // A transient focus loss pauses isPlaying but retains playWhenReady.
+        // Without an explicit pause(), releasing focus emits native Play.
+        interruptedTarget.loseFocus();
         if (early) {
           await Future<void>.delayed(const Duration(milliseconds: 100));
           expect(server.acceptedChanges.length, beforeInterruption);
@@ -114,21 +118,19 @@ void main() {
         expect(server.reportedPaused('alice'), isTrue);
         expect(server.reportedPaused('bob'), isTrue);
 
-        // A native auto-resume after focus release is an echo, not room intent.
-        final pausesBeforeEcho = interruptedTarget.commands
-            .where((command) => command == 'pause')
-            .length;
-        _emitNative(interruptedTarget, playing: true);
         await untilPhase(
-          'auto-resume correction',
+          'retained native request cleared',
           () =>
-              !interruptedTarget.snapshot.playing &&
+              !interruptedTarget.retainedPlayRequest &&
               interruptedTarget.commands
                       .where((command) => command == 'pause')
                       .length ==
-                  pausesBeforeEcho + 1,
+                  pausesBeforeInterruption + 1,
         );
+        interruptedTarget.releaseFocus();
         await Future<void>.delayed(const Duration(milliseconds: 60));
+        expect(interruptedTarget.focusReleasePlayEvents, 0);
+        expect(interruptedTarget.snapshot.playing, isFalse);
         expect(server.roomPaused, isTrue);
         expect(peerTarget.snapshot.playing, isFalse);
         expect(server.acceptedChanges.length, beforeInterruption + 1);
@@ -148,6 +150,31 @@ void main() {
         expect(server.acceptedChanges.last.doSeek, isFalse);
       },
     );
+  }
+}
+
+class _FocusRetainingTarget extends SyncTestTarget {
+  bool retainedPlayRequest = false;
+  int focusReleasePlayEvents = 0;
+
+  @override
+  Future<void> play() async {
+    retainedPlayRequest = true;
+    await super.play();
+  }
+
+  @override
+  Future<void> pause() async {
+    retainedPlayRequest = false;
+    await super.pause();
+  }
+
+  void loseFocus() => _emitNative(this, playing: false);
+
+  void releaseFocus() {
+    if (!retainedPlayRequest) return;
+    focusReleasePlayEvents++;
+    _emitNative(this, playing: true);
   }
 }
 

@@ -75,13 +75,14 @@ templates are not included. See [third-party notices](../THIRD_PARTY_NOTICES.md)
 TypeScript checks and a focused independent review pass; the review's misplaced
 Join tap was corrected and inspected in Studio. Representative scene checks
 also corrected text overlap. Hosted render
-[36125298522](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36125298522)
-exports the `7730515` hybrid edition at 1920 × 1080, 30 fps, 94.059 seconds.
-Representative rendered scenes were inspected and browser playback reached
-the ending at 1×. Technical audio checks found no clipping. The requested
-continuous-shot revision passes TypeScript and representative Studio review,
-including join, shared controls, fullscreen and purchase. It still needs its
-own hosted export and final playback check before publication.
+[36130037521](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36130037521)
+exports the `ebc58c4` continuous-stage edition at 1920 × 1080, 30 fps,
+94.059 seconds. Short movements, static reading holds and translucent touch
+indicators replace the earlier slow drift and expanding circles. The revised
+join, controls, fullscreen and ending layouts were inspected in Studio and
+representative cloud-rendered stills. The downloaded export reached the ending
+at 1× in the browser without a media error. The unchanged score's technical audio
+check found no clipping. Publication remains pending final review.
 
 Run **Remotion submission film** to prepare the documented sources, generate the
 score and export 1920 × 1080 H.264/AAC at 30 fps on hosted Ubuntu. The timeline

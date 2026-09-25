@@ -50,7 +50,7 @@ sources remain labeled.
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. No physical receiver is available to this task; receiver availability is awaiting the entrant. Phone playback is the fallback |
 | 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Physical acceptance is recorded below; its two UI defects are fixed and pass hosted checks. Complete normal-APK rehearsal remains open |
 | 14 | Clean-install full demo rehearsal | Partial | Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. The latest ordinary API 35 install has no SDK Setup ANR recovery; the launch wait times out before the independent native observer verifies onboarding |
-| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon and screenshot are prepared; a redesigned hybrid film is in work. Registration and Devpost draft fields are saved (3/5 sections). Public final video, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
+| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and a 94-second hybrid film are prepared. Registration and Devpost draft fields are saved (3/5 sections). Final video publication, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
 
 ## Current verification
 
@@ -77,15 +77,16 @@ layout. The correction requires the preceding exact-URL submission and the
 actual 90-second native timeline; it does not lower playback/synchronization
 acceptance. Earlier input/keyboard/invitation observer failures remain failed.
 
-[Remotion render 36125298522](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36125298522)
-exports the hybrid source `7730515` as 1920 × 1080 H.264/AAC, 30 fps,
-94.059 seconds. It combines labeled React UI animation with actual phone
-Local/fullscreen and emulator purchase footage. Representative rendered scenes
-were inspected and browser playback reached the ending at normal speed. A
-replay crashed its preview tab; a fresh preview completed without a media error.
-The owner then requested a consistent dark palette and continuous camera motion,
-so this edition remains a review draft. The earlier private YouTube upload is
-not the final submission video.
+[Remotion render 36130037521](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36130037521)
+exports source `ebc58c4` as 1920 × 1080 H.264/AAC, 30 fps, 94.059 seconds.
+It combines labeled React UI animation with actual phone Local/fullscreen and
+emulator purchase footage. The navy stage remains consistent; camera moves
+settle within 0.3–0.5 seconds, titles move offscreen, and small translucent dots
+mark taps. TypeScript checks and representative Studio/cloud still review pass.
+The downloaded export played to its 94.059-second ending at 1× in the browser
+without a media error; representative frames were visually inspected.
+This export replaces the earlier slow-moving editions. The previous private
+YouTube upload is not the final submission video; public publication is open.
 
 The owner requested the phone back. At 10:36 UTC its original 30-second timeout
 and charging-awake setting were restored and read back; developer mode and USB

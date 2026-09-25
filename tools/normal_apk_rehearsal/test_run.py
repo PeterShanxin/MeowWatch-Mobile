@@ -6,7 +6,7 @@ from xml.sax.saxutils import escape
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
     FIXTURE_URL, focused_text_field, history_context, join_sheet_ready, media_link_ready,
-    rehearsed_playback, unique_seekbar, unique_text_field, visible_code,
+    rehearsed_playback, timeline_tap, unique_seekbar, unique_text_field, visible_code,
 )
 
 
@@ -49,6 +49,20 @@ class VisibleUiContract(unittest.TestCase):
                    node('', kind='android.widget.SeekBar'))
         self.assertEqual(unique_text_field(xml).get('class'), 'android.widget.EditText')
         self.assertEqual(unique_seekbar(xml).get('class'), 'android.widget.SeekBar')
+
+    def test_seek_uses_visible_track_labels_when_native_seekbar_bounds_are_thumb_only(self):
+        xml = tree(
+            f'<node package="{PACKAGE}" class="android.widget.SeekBar" '
+            'content-desc="0:30" bounds="[307,588][355,636]"/>',
+            f'<node package="{PACKAGE}" class="android.view.View" '
+            'content-desc="0:30" bounds="[20,636][48,652]"/>',
+            f'<node package="{PACKAGE}" class="android.view.View" '
+            'content-desc="1:30" bounds="[895,636][919,652]"/>',
+        )
+        self.assertEqual(timeline_tap(xml, .60), (556, 612))
+        with self.assertRaises(RuntimeFailure):
+            timeline_tap(xml.replace('bounds="[895,636][919,652]"',
+                                     'bounds="[50,636][74,652]"'), .60)
 
     def test_history_requires_fixture_and_saved_room_position(self):
         xml = tree(node('Continue Watching'), node('sync-fixture.mp4'),

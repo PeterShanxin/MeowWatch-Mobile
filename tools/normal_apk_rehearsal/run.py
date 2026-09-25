@@ -89,6 +89,35 @@ def unique_seekbar(xml: str) -> ET.Element:
     return bars[0]
 
 
+def timeline_tap(xml: str, fraction: float) -> tuple[int, int]:
+    bar = unique_seekbar(xml)
+    times = [(parse_time(node.get("text") or node.get("content-desc", "")), node)
+             for node in nodes(xml)
+             if not node.get("class", "").endswith("SeekBar")]
+    times = [(seconds, node) for seconds, node in times if seconds is not None]
+    if len(times) != 2 or times[0][0] == times[1][0]:
+        raise RuntimeFailure("expected visible elapsed and duration labels below timeline")
+    elapsed, duration = sorted(times, key=lambda item: item[0])
+    bounds = []
+    for node in (bar, elapsed[1], duration[1]):
+        match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
+        if match is None:
+            raise RuntimeFailure("timeline bounds unavailable")
+        bounds.append(tuple(map(int, match.groups())))
+    thumb, elapsed_label, duration_label = bounds
+    thumb_left, thumb_top, thumb_right, thumb_bottom = thumb
+    _, elapsed_top, elapsed_right, _ = elapsed_label
+    duration_left, duration_top, _, _ = duration_label
+    thumb_x = (thumb_left + thumb_right) // 2
+    if (duration_left - elapsed_right < 100 or
+            not elapsed_right <= thumb_x <= duration_left or
+            not thumb_top < thumb_bottom <= min(elapsed_top, duration_top) + 4 or
+            abs(elapsed_top - duration_top) > 8):
+        raise RuntimeFailure("visible timeline labels do not flank the slider")
+    x = round(elapsed_right + (duration_left - elapsed_right) * fraction)
+    return x, (thumb_top + thumb_bottom) // 2
+
+
 def rehearsed_playback(xml: str, *, direct_fixture_submitted: bool) -> Playback:
     if any(FIXTURE_NAME in value for value in labels(xml)):
         return playback(xml)
@@ -258,14 +287,8 @@ class Device:
     def seek(self, fraction: float) -> None:
         xml = self.observe()
         rehearsed_playback(xml, direct_fixture_submitted=self.direct_fixture_submitted)
-        node = unique_seekbar(xml)
-        match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
-        if match is None:
-            raise RuntimeFailure("timeline bounds unavailable")
-        left, top, right, bottom = map(int, match.groups())
-        if right - left < 50:
-            raise RuntimeFailure("timeline is too narrow")
-        self.adb.run("shell", "input", "tap", str(round(left + (right-left)*fraction)), str((top+bottom)//2))
+        x, y = timeline_tap(xml, fraction)
+        self.adb.run("shell", "input", "tap", str(x), str(y))
 
     def diagnostics(self) -> None:
         prefix = self.output / f"failure-{self.phase}"

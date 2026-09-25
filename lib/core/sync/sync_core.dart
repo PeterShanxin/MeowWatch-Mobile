@@ -8,6 +8,10 @@ import 'peer_state.dart';
 /// protocol over a socket, or be a fake for tests. Commands in, streams out —
 /// the same shape as VideoCore.
 abstract class SyncCore {
+  /// Current server-assigned local name, when this backend has one. Room
+  /// playback projections carrying this setter are not peer clock evidence.
+  String? get localUsername => null;
+
   final StreamController<SyncConnectionState> _connection =
       StreamController<SyncConnectionState>.broadcast();
   // Peer state is the command path from the room to the local player. Deliver it

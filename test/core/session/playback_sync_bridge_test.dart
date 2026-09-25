@@ -63,6 +63,25 @@ void main() {
     await bridge.load(movie);
   }
 
+  Future<void> useNamedDelayedPlayTarget(
+    String username, {
+    PeerPlayState? initialRoom,
+  }) async {
+    await bridge.dispose();
+    await sync.dispose();
+    await target.close();
+    sync = _NamedSyncTestCore(username);
+    target = DelayedPlayTarget();
+    bridge = PlaybackSyncBridge(
+      target: target,
+      sync: sync,
+      authorizePlayback: () => authorize(),
+      onError: errors.add,
+    )..start();
+    if (initialRoom != null) sync.lastObservedRoomState = initialRoom;
+    await bridge.load(movie);
+  }
+
   test(
     'unconfirmed native open never publishes; local adoption asserts current time',
     () async {
@@ -290,6 +309,123 @@ void main() {
       );
       await Future<void>.delayed(const Duration(milliseconds: 50));
       expect(target.commands.where((c) => c.startsWith('seek:')).length, 3);
+      expect(sync.changes, isEmpty);
+      expect(errors, isEmpty);
+    },
+  );
+
+  test(
+    'a self-set room clock cannot cause catch-up after a prior seek',
+    () async {
+      await useNamedDelayedPlayTarget('host');
+      sync.peer(remotePlay);
+      await until(() => target.commands.contains('play'));
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 45100),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+      );
+      final first = target.snapshot.position;
+      emitNative(target, playing: false, buffering: true);
+      sync.lastObservedRoomState = PeerPlayState(
+        position: first + const Duration(seconds: 2),
+        paused: false,
+        setBy: 'host',
+      );
+      emitNativePosition(
+        target,
+        first + const Duration(milliseconds: 100),
+        playing: true,
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+      expect(target.commands.where((c) => c.startsWith('seek:')).length, 2);
+
+      sync.lastObservedRoomState = PeerPlayState(
+        position: first + const Duration(seconds: 2),
+        paused: false,
+        setBy: 'peer',
+      );
+      emitNativePosition(
+        target,
+        first + const Duration(milliseconds: 200),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 3,
+      );
+      expect(sync.changes, isEmpty);
+      expect(errors, isEmpty);
+    },
+  );
+
+  test('a source opened under its own setter cannot chase itself', () async {
+    await useNamedDelayedPlayTarget(
+      'host',
+      initialRoom: const PeerPlayState(
+        position: Duration(seconds: 45),
+        paused: false,
+        setBy: 'host',
+      ),
+    );
+    await until(() => target.commands.contains('play'));
+    expect(target.commands.where((c) => c.startsWith('seek:')), ['seek:45000']);
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+    sync.lastObservedRoomState = null;
+    emitNativePosition(
+      target,
+      const Duration(milliseconds: 45100),
+      playing: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(target.commands.where((c) => c.startsWith('seek:')), ['seek:45000']);
+    sync.lastObservedRoomState = const PeerPlayState(
+      position: Duration(seconds: 47),
+      paused: false,
+      setBy: 'host',
+    );
+    emitNativePosition(
+      target,
+      const Duration(milliseconds: 45200),
+      playing: true,
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 50));
+    expect(target.commands.where((c) => c.startsWith('seek:')), ['seek:45000']);
+    expect(sync.changes, isEmpty);
+  });
+
+  test(
+    'a source opened under its own setter can follow a fresh peer',
+    () async {
+      await useNamedDelayedPlayTarget(
+        'host',
+        initialRoom: const PeerPlayState(
+          position: Duration(seconds: 45),
+          paused: false,
+          setBy: 'host',
+        ),
+      );
+      await until(() => target.commands.contains('play'));
+      expect(target.commands.where((c) => c.startsWith('seek:')), [
+        'seek:45000',
+      ]);
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      sync.lastObservedRoomState = const PeerPlayState(
+        position: Duration(seconds: 47),
+        paused: false,
+        setBy: 'peer',
+      );
+      emitNativePosition(
+        target,
+        const Duration(milliseconds: 45100),
+        playing: true,
+      );
+      await until(
+        () => target.commands.where((c) => c.startsWith('seek:')).length == 2,
+      );
       expect(sync.changes, isEmpty);
       expect(errors, isEmpty);
     },
@@ -1739,6 +1875,15 @@ class PauseCompletionGatedTarget extends SyncTestTarget {
     pauseCompletionGate = null;
     await gate?.future;
   }
+}
+
+class _NamedSyncTestCore extends SyncTestCore {
+  _NamedSyncTestCore(this._username);
+
+  final String _username;
+
+  @override
+  String get localUsername => _username;
 }
 
 class RateTestTarget extends SyncTestTarget implements PlaybackRateTarget {

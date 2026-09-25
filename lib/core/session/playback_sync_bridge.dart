@@ -962,6 +962,7 @@ class PlaybackSyncBridge {
   }
 
   Duration? _projectPlayStart(_PlayStartCatchUp watch, Duration duration) {
+    final localUsername = sync.localUsername;
     final room = sync.lastObservedRoomState;
     final age = sync.lastObservedRoomStateAge;
     // Room playback may also stall. A fresh heartbeat is a better anchor than
@@ -969,8 +970,21 @@ class PlaybackSyncBridge {
     final Duration projected;
     if (room != null && age != null && room.setBy != null) {
       if (room.paused || age > const Duration(seconds: 2)) return null;
+      if (localUsername != null && room.setBy == localUsername) {
+        // Syncplay also echoes this client's own room setter. Its projected
+        // heartbeat cannot prove that the native decoder moved after a seek.
+        return null;
+      }
+      if (localUsername == null && room.setBy != watch.peer.setBy) {
+        // A generic SyncCore has no local identity; retain only the setter
+        // that supplied this watch instead of trusting an unknown switch.
+        return null;
+      }
       projected = room.position + age;
     } else {
+      if (localUsername != null && watch.peer.setBy == localUsername) {
+        return null;
+      }
       if (watch.clock.elapsed > const Duration(seconds: 2)) return null;
       projected = watch.peer.position + watch.clock.elapsed;
     }

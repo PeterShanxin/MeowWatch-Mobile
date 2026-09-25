@@ -142,6 +142,9 @@ class SyncplayClient extends SyncCore {
   /// Requested name before login; server-assigned identity after it.
   String get username => _username;
 
+  @override
+  String? get localUsername => _username.isEmpty ? null : _username;
+
   /// Secure Hello completed on this connection. Used by public-endpoint
   /// discovery to tell an unreachable candidate (try the next) from a live
   /// server that refused this room (do not hop).

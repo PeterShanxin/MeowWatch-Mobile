@@ -4,7 +4,8 @@
 
 <img src="assets/brand/meowwatch-256.png" alt="MeowWatch cat and play icon" width="96" height="96">
 
-Android-first MeowWatch: synchronized playback, conversation, and nearby desktop control for couples, friends, and small groups.
+Watch together on Android: shared playback controls, conversation and a room
+that keeps couples, friends and small groups connected across the distance.
 
 This is the mobile counterpart to [MeowWatch for desktop](https://github.com/PeterShanxin/MeowWatch), with a new touch interface, Android playback, lifecycle handling, and subscription flow. **Active development: not yet submission-ready.** See the [acceptance ledger](docs/STATUS.md) for verified capabilities and remaining work.
 
@@ -128,7 +129,7 @@ and independent phone/tablet journeys. The
 failures and hardware checks. Native recordings and screenshots are retained as
 GitHub Actions artifacts; an artifact from a failed job is development evidence.
 
-The [demo script and 94-second frozen-source edit](docs/DEMO_SCRIPT.md),
+The [94-second hybrid film and demo script](docs/DEMO_SCRIPT.md),
 [English submission draft](docs/SUBMISSION_DRAFT.md), and
 [verified submission requirements](docs/SUBMISSION_REQUIREMENTS.md) track the
 remaining submission work. The local [showcase](tools/showcase/README.md) can

@@ -25,7 +25,10 @@ desktop remote. Do not add automatic nearby room creation or a large Nearby
 chapter to the film. Prioritize distant Together sessions, recovery, phone/tablet
 usability and a clear, reliable Plus flow. The owner also requested a more
 designed hybrid film: accurate React UI animation for explanatory shots and
-real-device footage for runtime demonstration, clearly distinguished.
+real-device footage for runtime demonstration, clearly distinguished. Following
+review of the hybrid edition, the owner requested a continuous-shot visual
+treatment and one consistent palette. The next film uses a deep navy stage and
+continuous device/camera movement; its edited sources remain labeled.
 
 ## Acceptance evidence
 
@@ -38,12 +41,12 @@ real-device footage for runtime demonstration, clearly distinguished.
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Final-source Together verifies native chat, reaction, presence and peer links. Test Store journey 36103033131 also verifies a premium reaction received by a headless TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | Failed-decoder profile 36101860905 passes; later network runs remain failed before recovery assertions. Hosted lifecycle restores 69 seconds paused. Physical Local restart restores 19 seconds paused and Nearby saved reconnect passes; physical Together radio-loss recovery is not claimed |
 | 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
-| 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified; UI fix pending | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. Device-selector stale verified label is fixed in source and awaiting validation. Desktop process restart is not claimed |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Hosted 36103033131 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Physical OnePlus passes native cancellation/failure/success and retains Plus after relaunch; Restore feedback placement fix is pending. No Google Play production billing claim |
+| 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. The stale device-selector label fix passes hosted Check 36124174769. Desktop process restart is not claimed |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Hosted 36103033131 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Physical OnePlus passes native cancellation/failure/success, confirms active-customer Restore feedback, and retains Plus after relaunch. Feedback placement fix passes hosted Check 36124174769. No Google Play production billing claim |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | Latest Together and purchase journeys verify one free host, free joining, unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Physical phone and emulator layouts verified; final changes pending | Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded. Final UI fixes and hybrid film require review |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. No physical receiver is available to this task; receiver availability is awaiting the entrant. Phone playback is the fallback |
-| 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Selected final-film frames are inspected; full-motion review and physical acceptance remain open |
+| 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Physical acceptance is recorded below; its two UI defects are fixed and pass hosted checks. Complete normal-APK rehearsal remains open |
 | 14 | Clean-install full demo rehearsal | Partial | Final-source Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. Install receipt includes SDK Setup recovery |
 | 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon and screenshot are prepared; a redesigned hybrid film is in work. Registration and Devpost draft fields are saved (3/5 sections). Public final video, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
 
@@ -54,18 +57,17 @@ real-device footage for runtime demonstration, clearly distinguished.
 [Physical acceptance](PHYSICAL_ACCEPTANCE_2026-09-25.md) records the actual
 OnePlus Android 16 / Windows runtime and its limits. It also verifies native
 RevenueCat Test Store cancellation, failure, success, active-customer Restore
-invocation and Plus after phone process restart. Clean-cache restore and two
+success feedback and Plus after phone process restart. Clean-cache restore and two
 Plus hosting sessions retain the separate hosted evidence below. The physical
 fullscreen capture shows advancing video with hidden controls and system bars.
 
-`92422a7` changes only the Nearby sheet's live connection status and its test.
-Candidate `f981413` includes a bounded rehearsal observer correction for the
-tablet's title-free landscape layout. Check `36122799731` finds a test formatting
-issue and a path-classifier rejection of the two intentionally published app-only
-film clips; both actual secret scans report zero findings. The formatting and
-specific asset classification are being corrected. Normal install `36122803849`
-and normal-APK rehearsal `36122797821` are in progress. No new candidate pass
-is claimed yet.
+`0df32c6` is the latest product source: it includes the Nearby sheet's live
+connection-status fix and Restore feedback directly below the purchase action.
+[Check 36124174769](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36124174769)
+passes all required app, native player, Nearby, media and secret checks,
+including both new UI regressions. Earlier formatting, mounted-context lint and
+exact film-asset path-classification failures are corrected; no secret scan was
+disabled. Later commits change only the film, documentation and rehearsal code.
 
 Earlier rehearsal `36120725219` loaded the exact fixture URL on both devices,
 then failed because its observer required a filename absent from the landscape
@@ -73,12 +75,15 @@ layout. The correction requires the preceding exact-URL submission and the
 actual 90-second native timeline; it does not lower playback/synchronization
 acceptance. Earlier input/keyboard/invitation observer failures remain failed.
 
-[Remotion render 36120725164](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36120725164)
-exports the 94-second `ec26bb8` edition with real phone Local/fullscreen clips.
-The owner reviewed it and requested a stronger motion design and replacement
-of visibly choppy emulator footage. This edition is a review draft. The hybrid
-revision is in work; animated UI will be labeled separately from real captures.
-The earlier private YouTube upload is not the final submission video.
+[Remotion render 36125298522](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36125298522)
+exports the hybrid source `7730515` as 1920 × 1080 H.264/AAC, 30 fps,
+94.059 seconds. It combines labeled React UI animation with actual phone
+Local/fullscreen and emulator purchase footage. Representative rendered scenes
+were inspected and browser playback reached the ending at normal speed. A
+replay crashed its preview tab; a fresh preview completed without a media error.
+The owner then requested a consistent dark palette and continuous camera motion,
+so this edition remains a review draft. The earlier private YouTube upload is
+not the final submission video.
 
 The owner requested the phone back. At 10:36 UTC its original 30-second timeout
 and charging-awake setting were restored and read back; developer mode and USB
@@ -88,18 +93,20 @@ task-owned ADB server was stopped. The Windows companion exited and both
 review firewall rules were verified absent. Latest UI-only fixes retain hosted
 verification scope. Heavy builds, emulators and full rendering remain hosted.
 
-[Check 36124174769](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36124174769)
-passes all required app, native player, Nearby, media and secret checks at
-`0df32c6`, including both new UI regressions. Normal install `36123942946` has
-an external Maven HTTP 429 failure in its release build; other variants remain
-in progress. Complete normal-APK rehearsal `36122797821` reached advancing
-playback on both devices and a guest-to-host pause, then its observer confused
-the slider thumb bounds with the whole track. A bounded track-location fix
-retains the unchanged two-way seek acceptance checks; a full pass is still open.
+Normal install `36123942946` passes API 29/35 debug; its release build fails on
+external Maven HTTP 429. Current-source install `36125719065` is in progress.
+Complete rehearsal `36122797821` reached advancing playback on both devices and
+a guest-to-host pause, then confused the slider thumb bounds with the whole
+track. The track-location fix retains the unchanged two-way seek requirements.
+Later `36125073381` fails earlier: a spurious leading character makes the guest
+join a different room. Its hierarchy shows the entry field was already focused;
+the runner now avoids tapping that field again and requires exact visible input
+before submitting. Twelve focused Python checks pass. These runs remain failed;
+a full normal-APK journey pass is still open.
 
-### Final-source closeout, September 25
+### Earlier accepted product baseline, September 25
 
-The installable candidate is `67d0206`; its `lib`, `android` and `assets` are
+The physical-test candidate is `67d0206`; its `lib`, `android` and `assets` are
 unchanged from frozen product `5f5dd7f`. Later `d8b55b2`/`7bcd6f4` commits prepare
 the film and documentation on `feat/submission-showcase`. They do not rebuild
 or alter the app. Draft mobile PR #1 remains at `67d0206`.

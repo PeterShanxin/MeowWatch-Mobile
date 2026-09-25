@@ -17,7 +17,7 @@ No integration-test entry point or simulated billing adapter was used.
 | Nearby controls | Phone Play advances the desktop's real player. Pause settles at 26 seconds; back ten seconds produces 16 seconds on both screens; forward ten returns both to 26 seconds paused. |
 | Saved pairing | After phone app process restart, the saved desktop reconnects without a new invitation or approval. The desktop remains paused at 26 seconds. |
 | Revocation | Desktop Revoke disconnects the phone. Attempting the saved credential again is rejected. Returning to This phone works, with the original Local history preserved. |
-| RevenueCat outcomes | The SDK's native Test Store dialog handles cancellation, failed purchase and successful purchase. Success activates Plus. Restore was invoked on the same active customer; Plus also remains active after app process restart. |
+| RevenueCat outcomes | The SDK's native Test Store dialog handles cancellation, failed purchase and successful purchase. Success activates Plus. Restore on the same active customer visibly reports “Restored. MeowWatch Plus is active.” after scrolling to its feedback. Plus also remains active after app process restart. |
 
 The successful pairing used the paste path; this report does not claim that the
 entire camera-to-approved-pair flow completed in one attempt. The initial
@@ -26,7 +26,8 @@ existing deadline; transport validation and approval requirements were unchanged
 
 Two visible issues were found: the device selector retained a verified label
 after revocation, and Settings put Restore feedback below the offscreen privacy
-section. Fixes are being validated separately. A successful Restore action on
+section. Both fixes pass hosted Check `36124174769` at `0df32c6`, including their
+focused UI regressions. They were not rerun on the released phone. A successful Restore action on
 an already active customer does not demonstrate clean-cache recovery; the
 separate hosted purchase journey provides that evidence.
 

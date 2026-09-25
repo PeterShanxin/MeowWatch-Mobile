@@ -1,110 +1,94 @@
 # MeowWatch Mobile — submission film
 
-**Presentation revision in progress, September 25:** the owner reviewed the
-94-second physical-footage edition `ec26bb8` (render `36120725164`) and requested
-more deliberate motion and smoother UI scenes. The next edition combines
-faithful React-rendered app interaction animations with actual physical Local,
-fullscreen and native Test Store footage. Animated scenes must be identified
-as UI animation; they do not establish synchronization or purchase acceptance.
-The story table below describes the earlier review edit until the revised
-composition and complete film review are finished. Neither review draft is
-the final public submission video.
+The current edit is a **94-second hybrid product film**, combining frame-driven
+React UI animation with actual Android recordings. The animation explains
+interactions at a readable scale; real footage shows playback, fullscreen,
+Continue Watching and RevenueCat Test Store behavior. It is an edited product
+story, not a single uninterrupted session.
 
-The current Remotion edit is **94 seconds**, using actual Android phone/tablet recordings
-from the frozen product source. It covers Start/Join, shared playback controls,
-conversation, Local Mode resume and the real RevenueCat Test Store purchase,
-Restore and Plus features. [Remotion export 36112159786](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36112159786)
-at `efec08e` passes: 1920 × 1080, H.264, 30 fps and an AAC music track. The
-composition is 2,820 frames; encoded duration includes normal audio padding.
-It adds a kinetic branded opening, alternating device layouts, restrained focus
-changes and an original synthesized 120 BPM score. The editable project is in
-[showcase/remotion](../showcase/remotion/README.md). Critical scenes and a short
-moving Studio preview are inspected. Full editorial review and a publicly
-playable final video link remain open. This is not a submission-ready declaration.
+The owner has requested a continuous-shot visual revision with a consistent
+deep navy stage. The phone and tablet will persist through connected camera
+moves instead of alternating light/dark chapter cards. This is a presentation
+treatment; it does not turn the edited captures into one recorded session.
 
-The earlier silent export [36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
-at `7bcd6f4` remains a private YouTube review upload. It is 94.000 seconds and
-3,925,136 bytes; its full decoding passed in hosted CI. The Remotion edition
-supersedes its presentation while retaining the same source intervals.
+The editable [Remotion project](../showcase/remotion/README.md) and
+[storyboard](../showcase/remotion/STORYBOARD.md) contain the composition,
+references and scene boundaries. The first four feature scenes were rebuilt
+at the owner's request because the earlier emulator recordings looked choppy.
+A 30 fps export cannot restore missing source frames. Recreated UI is therefore
+explicitly labeled **UI animation · based on the app**; it is not synchronization
+or purchase acceptance evidence.
 
-[Edit decision list](demo/submission-final.edl.json) ·
-[Exact source artifacts](demo/submission-final.edl.sources.json) ·
-[Remaining acceptance](STATUS.md)
+## Story
 
-## Story and cuts
+| Film time | What the viewer sees | Presentation |
+| --- | --- | --- |
+| 0–3 | Movie night, even miles apart. | Kinetic brand typography |
+| 3–11 | A tap starts a room and reveals an invitation action. | Animated app UI |
+| 11–19 | A tablet enters the invitation and joins. | Animated app UI |
+| 19–29 | Play, pause and seek affect both illustrated screens. | Animated app UI |
+| 29–35 | A message appears for the other person. | Animated app UI |
+| 35–45 | Sintel plays in Local Player Mode on a real phone. | Physical Android capture, 1× |
+| 45–52 | Landscape fullscreen expands across the composition. | Physical Android capture, 1× |
+| 52–62 | Continue Watching restores the saved position, paused. | Emulator capture, 1× |
+| 62–66 | One free hosted session per local day; guests join free. | Editorial quota card |
+| 66–72 | Native Test Store purchase and Plus activation. | Emulator capture, 1×, no charge |
+| 72–76 | Restore on the same active customer. | Emulator capture, 1× |
+| 76–80 | Glass Aurora appearance. | Emulator capture, 1× |
+| 80–85 | A premium Movie night reaction. | Emulator capture, 1× |
+| 85–90 | Another Plus session in Cinema Noir. | Emulator capture, 1× |
+| 90–94 | Together. The Android counterpart to open-source MeowWatch. | Brand ending |
 
-| Film time | What the viewer sees |
-| --- | --- |
-| 0–4 | Movie night, even miles apart. |
-| 4–12 | Start a room on the phone. |
-| 12–20 | A tablet joins the same room. |
-| 20–45 | Actual two-way play, pause and seek. |
-| 45–51 | Messages beside the shared movie. |
-| 51–61 | Local Mode returns paused at the saved place, then explicit Play. |
-| 61–65 | One free hosted session per local day; guests always join free. |
-| 65–71 | Native Test Store purchase and Plus activation. |
-| 71–75 | Restore in Settings for the same active customer. |
-| 75–79 | Select Glass Aurora. |
-| 79–84 | Send the premium Movie night reaction. |
-| 84–89 | A second Plus session in Cinema Noir. |
-| 89–94 | The new Android counterpart to open-source MeowWatch. |
+Nearby remains a secondary explicitly paired remote and is not a dedicated
+film chapter. Automatic nearby room creation is outside the approved direction.
+The film does not depict an unverified Cast receiver.
 
-All clips run at 1×. Thin device frames and captions sit outside the complete
-capture. Paired clips retain their shared approximate recording clock; neither
-device is independently retimed. Native held frames and latency remain visible.
-This is an edited feature demonstration from separate journeys and binaries,
-not one uninterrupted take. The footage uses the CC0 Bee fixture; licensing
-and the separate in-app Sintel sample are in [third-party notices](../THIRD_PARTY_NOTICES.md).
+## Sources and runtime boundaries
 
-## Source and runtime
+- The recreated screens follow the actual Flutter UI, with interaction copy
+  checked against the earlier phone/tablet journey. Decorative connections,
+  tap pulses and illustrated progress do not claim measured network latency.
+- Physical Local/fullscreen: OnePlus PLK110, Android 16 / API 36, ordinary
+  `67d0206` Test Store APK. The reviewed app-only excerpts, exact intervals and
+  Sintel credit are in [source media](../showcase/remotion/source-media/README.md).
+  The phone encoded the original footage. These excerpts run at 1×.
+- Continue Watching: [36103033022, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033022/attempts/2),
+  normal release APK on an API 35 emulator. It restores 69 seconds after a new
+  process and resumes only after explicit Play.
+- Purchases and Plus: [36103033131](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033131),
+  actual RevenueCat SDK/Test Store and native phone UI, with a headless TLS peer.
+  The accepted journey includes cancellation, failure, success, clean-cache
+  Restore, premium appearance/reaction and two distinct Plus hosts.
+- Original emulator source intervals and receipts are retained in the
+  [source edit](demo/submission-final.edl.json) and its
+  [artifact record](demo/submission-final.edl.sources.json). Some older clips
+  are now replaced by the labeled UI animation and are not in the final timeline.
 
-- Phone/tablet: [36101169078](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36101169078)
-  at `5f5dd7f`, two independent API 35 emulators, production UI integration builds.
-  All 26 host and 25 guest stages passed. Original 432 × 960 phone and 960 × 600
-  tablet recordings are used.
-- Local Mode: [36103033022, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033022/attempts/2)
-  at `67d0206`, normal `lib/main.dart` release APK on an API 35 emulator. It
-  preserves 69 seconds across a new process, waits paused and resumes only on
-  explicit Play. No setup ANR repair or observation timeout occurred.
-- Purchases: [36103033131](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033131)
-  at `67d0206`, native phone UI and RevenueCat SDK/Test Store with a headless TLS
-  peer. Cancellation, failure, success, same-customer Restore, premium appearance
-  and reaction, and two distinct Plus hosts passed. No real charge occurs.
+The Bee fixture is CC0. Sintel is credited to Blender Foundation under CC BY 3.0.
+DM Sans and DM Serif Display include their OFL notices. The music is an original
+synthesized 120 BPM score. Reference studios' footage, music and proprietary
+templates are not included. See [third-party notices](../THIRD_PARTY_NOTICES.md).
 
-There are no `lib`, `android` or `assets` changes between `5f5dd7f` and
-`67d0206`. The later commits update the network verifier and documentation.
-Full hashes, source intervals and artifact names are in the EDL. Selected
-original screens and representative output frames have been inspected, including
-the final free-host explanatory card. Full editorial review is still open.
-The earlier silent export's SHA-256 is
-`20926535cb81b2f07d685674d7603360914b45c3eb798678d08bf463d1c08750`.
+## Review and publication
 
-Physical Android-to-Windows Nearby and receiver Cast acceptance remain open.
-They are not depicted as demonstrated features. The app still includes native
-fullscreen playback. The final-source phone and tablet fullscreen gate
-`36103033180` passed after unchanged reruns; the earlier observer/recording
-failures remain recorded in STATUS. The frozen film does not add another clip.
+TypeScript checks and a focused independent review pass; the review's misplaced
+Join tap was corrected and inspected in Studio. Representative scene checks
+also corrected text overlap. Hosted render
+[36125298522](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36125298522)
+exports the `7730515` hybrid edition at 1920 × 1080, 30 fps, 94.059 seconds.
+Representative rendered scenes were inspected and browser playback reached
+the ending at 1×. Technical audio checks found no clipping. The requested
+continuous-shot revision still needs its own render and visual review before
+publication.
 
-## Render and publish
+Run **Remotion submission film** to prepare the documented sources, generate the
+score and export 1920 × 1080 H.264/AAC at 30 fps on hosted Ubuntu. The timeline
+contains 2,820 frames; the encoded container can include a small audio tail.
+Verify that the final duration is strictly below two minutes.
 
-Run **Remotion submission film** for the current edition. It prepares the original
-clips, generates the original score and renders on hosted Ubuntu with two workers.
-Its separate preview artifact can be downloaded into the project's `public/`
-directory to use Studio without local transcoding.
-
-For the earlier silent edition, run the existing **Check** workflow with
-`submission_edit=docs/demo/submission-final.edl.json` on the branch containing the
-EDL. Rendering, exact-source checks and full decoding run on hosted GitHub
-Actions. No emulator starts in the rendering job. Its artifact includes the
-film, EDL, source receipts and static review frames.
-
-Before publication, inspect the complete film at normal speed, check the final
-encoded duration is below two minutes, and keep captions/runtime disclosures
-accurate. Publish to YouTube or Vimeo with visibility allowed by the
-[submission requirements](SUBMISSION_REQUIREMENTS.md). Complete the remaining
-entrant confirmations and product acceptance separately.
-
-The previous 98-second review edit remains in
-[its original EDL](demo/submission-candidate.edl.json); its footage predates the
-final recovery fixes and is not the current submission candidate. Its review
-history is preserved in Git and the earlier local evidence packages.
+The earlier silent edit is saved on YouTube as a private review upload. It is
+not the final video and cannot satisfy public submission availability. The
+physical-footage Remotion edition `ec26bb8`, rendered by `36120725164`, is also
+superseded by this hybrid direction. Keep the final runtime/source labels,
+credits and public visibility consistent with [submission requirements](SUBMISSION_REQUIREMENTS.md).
+Product acceptance and repository closeout remain tracked in [STATUS.md](STATUS.md).

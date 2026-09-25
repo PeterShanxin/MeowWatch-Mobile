@@ -327,7 +327,12 @@ class _NearbyDevicesSheetState extends State<NearbyDevicesSheet> {
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.app,
+    builder: (context, _) => _buildSheet(context),
+  );
+
+  Widget _buildSheet(BuildContext context) {
     final colors = Theme.of(context).colorScheme;
     final savedIds = _saved.map((item) => item.desktopId).toSet();
     final unpaired = _advertisements.values
@@ -392,10 +397,16 @@ class _NearbyDevicesSheetState extends State<NearbyDevicesSheet> {
                         minVerticalPadding: 12,
                         leading: const Icon(Icons.desktop_windows_rounded),
                         title: Text(widget.app.nearby!.label),
-                        subtitle: const Text(
-                          'Connected and verified · controlling desktop playback',
+                        subtitle: Text(
+                          widget.app.nearby!.connected
+                              ? 'Connected and verified · controlling desktop playback'
+                              : 'Desktop disconnected · reconnect or watch on this phone',
                         ),
-                        trailing: const Icon(Icons.check_circle_rounded),
+                        trailing: Icon(
+                          widget.app.nearby!.connected
+                              ? Icons.check_circle_rounded
+                              : Icons.link_off_rounded,
+                        ),
                       ),
                     if (_saved.isNotEmpty) ...[
                       const _SectionLabel('Paired desktops'),

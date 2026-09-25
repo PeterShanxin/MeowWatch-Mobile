@@ -3,6 +3,9 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:meowwatch_mobile/core/nearby/nearby_desktop_target.dart';
+import 'package:meowwatch_mobile/core/nearby/nearby_snapshot.dart';
+import 'package:meowwatch_mobile/core/playback/playback_target.dart';
+import 'package:meowwatch_mobile/core/sync/peer_state.dart';
 import 'package:meowwatch_mobile/ui/app_theme.dart';
 import 'package:meowwatch_mobile/ui/nearby/nearby_devices_sheet.dart';
 import 'package:nearby_bridge/nearby_bridge.dart';
@@ -59,6 +62,65 @@ void main() {
       findsOneWidget,
     );
     expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    await tester.runAsync(fixture.close);
+  });
+
+  testWidgets('current desktop loses verified status when it disconnects', (
+    tester,
+  ) async {
+    await _setView(tester, const Size(500, 720));
+    final fixture = UiTestApp.create();
+    final desktop = _SheetDesktop(_credential(4));
+    final backend = FakeNearbyBackend();
+    expect(await fixture.controller.adoptNearby(desktop), isTrue);
+
+    await tester.pumpWidget(
+      _app(NearbyDevicesSheet(app: fixture.controller, backend: backend)),
+    );
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Connected and verified · controlling desktop playback'),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Cinema desktop'),
+        matching: find.byIcon(Icons.check_circle_rounded),
+      ),
+      findsOneWidget,
+    );
+
+    desktop.disconnect();
+    await tester.pump();
+
+    expect(fixture.controller.isNearby, isTrue);
+    expect(
+      find.text('Desktop disconnected · reconnect or watch on this phone'),
+      findsOneWidget,
+    );
+    expect(
+      find.text('Connected and verified · controlling desktop playback'),
+      findsNothing,
+    );
+    expect(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Cinema desktop'),
+        matching: find.byIcon(Icons.link_off_rounded),
+      ),
+      findsOneWidget,
+    );
+    expect(
+      find.descendant(
+        of: find.widgetWithText(ListTile, 'Cinema desktop'),
+        matching: find.byIcon(Icons.check_circle_rounded),
+      ),
+      findsNothing,
+    );
+    expect(
+      tester.widget<ListTile>(find.widgetWithText(ListTile, 'This phone')).onTap,
+      isNotNull,
+    );
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.runAsync(fixture.close);
   });
@@ -200,6 +262,48 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.runAsync(fixture.close);
   });
+}
+
+class _SheetDesktop extends NearbyDesktopTarget {
+  _SheetDesktop(NearbyClientCredential credential)
+    : _remote = NearbySnapshot(
+        desktopId: credential.desktopId,
+        desktopName: 'Cinema desktop',
+        epoch: 'test-epoch',
+        username: 'Milo',
+        connection: SyncConnectionStatus.connected,
+        playback: const PlaybackSnapshot(),
+        participants: const {},
+        messages: const [],
+      ),
+      super(
+        client: NearbyClient(store: _MemoryClientStore()),
+        credential: credential,
+      );
+
+  final NearbySnapshot _remote;
+  bool _connected = true;
+
+  @override
+  NearbySnapshot get remote => _remote;
+  @override
+  String get label => _remote.desktopName;
+  @override
+  bool get connected => _connected;
+
+  void disconnect() {
+    _connected = false;
+    notifyListeners();
+  }
+}
+
+class _MemoryClientStore implements NearbyClientStore {
+  @override
+  Future<NearbyClientCredential?> read(String desktopId) async => null;
+  @override
+  Future<void> remove(String desktopId) async {}
+  @override
+  Future<void> write(NearbyClientCredential credential) async {}
 }
 
 class FakeNearbyBackend implements NearbyDevicesBackend {

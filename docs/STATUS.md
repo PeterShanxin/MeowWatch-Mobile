@@ -13,7 +13,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36093565684 passes at 37adcf6 without setup ANR repair or observation timeout. Together focus 36084442812 detects transient-focus autoplay and remains a failed gate. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36098502293 passes at fffc152 without setup ANR repair or observation timeout. Together focus 36098517831 now proves the early buffered interruption pauses native playback and the room; its held-transient proof rejects the app correctly abandoning focus, so the complete gate remains open. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
@@ -35,8 +35,8 @@ retains the complete prior results, original failures and repair rationale.
 
 ### Integrated source and current focus repair
 
-Check `36095100513` at `8e31b65` passes every required job: 846 app tests,
-110 native player tests without skips, normal debug APK, formatting, analysis,
+Check `36099121755` at `6dfc120` passes every required job: 854 app tests,
+114 native player tests without skips, normal debug APK, formatting, analysis,
 Nearby/platform contracts, observer SDK compilation and media/secret checks.
 Original app logs and native JUnit XML are reviewed. The native suite uses
 Java 21 for SDK 36; normal Android builds retain Java 17.
@@ -81,6 +81,32 @@ player-scoped focus event now cancels room intent independently of buffering;
 native and Dart regressions and a fresh native gate are required before this
 repair is accepted. The early monitor also retains bounded per-event state
 samples so future failures distinguish intent, buffering and native playback.
+
+Together focus `36098517831` at `fffc152` now proves the early interruption
+repair on the actual foreground API 35 emulator in PID 3703. Android grants
+359 ms of transient focus, released 1,519 ms after the pre-Play marker. Native
+pause arrives after 308 ms and room pause after 993 ms, including samples with
+buffering still true. The 7,734 ms monitor retains all eight native and nine
+room events without autoplay. The original early-interruption PNG is reviewed.
+The held permanent interruption also pauses the native player and room and
+remains paused after release. The subsequent held transient check fails because
+its reused Local Mode assertion expects the app to retain a lost-focus stack
+entry; Together correctly sends explicit Pause and abandons that entry.
+The Together-only proof now requires exact pre-request app ownership, a granted
+transient request by the current helper UID/PID/client and the same app client
+subsequently abandoning focus in Android's command history. It does not claim
+the history directly logs the callback. Native/room pause and no-autoplay gates
+remain independent and unchanged. The original artifact parses successfully
+and all 18 pure runner tests pass; a complete fresh native run is still required.
+
+Normal-release Local Mode `36098502293` at `fffc152` passes in PID 3052 without
+setup ANR repair or observation timeout. Permanent pause is observed within
+1,387 ms; transient pause within 1,248 ms and automatic resume within 5,323 ms,
+then advances twelve seconds. The app stays foreground, and both the helper
+and independent observer are removed. Two original transient screens are
+reviewed. All three recording hashes match their successful cloud decode
+receipts (1,374 frames); gaps are 3.781 and 4.786 seconds. Full motion and
+physical hardware remain unverified.
 
 Normal-release Local Mode `36093565684` at `37adcf6` passes the new focus policy
 in PID 3214 without setup ANR repair or observation timeout. Permanent pause

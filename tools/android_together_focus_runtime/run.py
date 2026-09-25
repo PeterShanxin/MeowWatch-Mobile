@@ -17,9 +17,9 @@ import time
 
 from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, focused_component, install_output_succeeded
 from tools.android_interruption_runtime.run import (
-    HELPER, HELPER_APK, SERVICE, LIFECYCLE_TAGS, lifecycle_events,
+    HELPER, HELPER_APK, SERVICE, FOCUS_HEADER, LIFECYCLE_TAGS, lifecycle_events,
     package_uid, probe_events, require_focus, require_foreground_history,
-    require_prompt_pause, require_resumed_baseline, require_transient_focus,
+    require_prompt_pause, require_resumed_baseline,
     focus_stack,
 )
 from tools.android_lifecycle_runtime.run import playback
@@ -60,6 +60,65 @@ def require_warm_event(raw: str, nonce: str, uid: int, pid: int | None = None) -
     if len(rows) != 1:
         raise RuntimeFailure("one live nonce-bound warm helper receipt is required")
     return rows[0]
+
+
+def require_together_transient_interruption(before: str, after: str, *, app_uid: int,
+                                            app_pid: str, helper_uid: int,
+                                            helper_pid: int, grant: dict) -> dict:
+    """Tie the pre-focus app client to the granted helper and app's subsequent abandon."""
+    app_stack = require_focus(before, PACKAGE, app_uid)
+    helper_stack = focus_stack(after)
+    helper = {"package": HELPER, "uid": helper_uid, "gain": "GAIN_TRANSIENT", "loss": "none"}
+    if helper_stack != [helper] or grant.get("event") != "requested" or grant.get("result") != 1 \
+            or grant.get("gain") != 2 or grant.get("uid") != helper_uid or grant.get("pid") != helper_pid:
+        raise RuntimeFailure("Together transient helper is not the sole granted focus owner")
+
+    def clients(raw: str) -> list[str]:
+        section = raw.replace("\r\n", "\n").split(FOCUS_HEADER, 1)[1]
+        section = section.removeprefix("\n").split("\n\n", 1)[0]
+        found = []
+        for line in section.splitlines():
+            match = re.search(r" -- client: (\S+) -- gain: ", line)
+            if match is None:
+                raise RuntimeFailure("Android focus-owner client identity is missing")
+            found.append(match[1])
+        return found
+
+    app_client = clients(before)[-1]
+    helper_client = clients(after)[-1]
+
+    def history(raw: str) -> list[str]:
+        header = "Events log: focus commands as seen by MediaFocusControl\n"
+        normalized = raw.replace("\r\n", "\n")
+        if normalized.count(header) != 1:
+            raise RuntimeFailure("Android audio-focus command history is missing or ambiguous")
+        section = normalized.split(header, 1)[1].split("\nMulti Audio Focus enabled", 1)
+        if len(section) != 2:
+            raise RuntimeFailure("Android audio-focus command history is incomplete")
+        return [line for line in section[0].splitlines() if line]
+
+    earlier, later = history(before), history(after)
+    if not earlier or later[:len(earlier)] != earlier or len(later) != len(earlier) + 2:
+        raise RuntimeFailure("Android focus history does not isolate one helper request and app abandon")
+    request_pattern = (r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d{3} requestAudioFocus\(\) from uid/pid "
+                       r"([0-9]+)/([0-9]+) AA=(\S+) clientId=(\S+) callingPack=(\S+) "
+                       r"req=([0-9]+) flags=0x[0-9a-fA-F]+ sdk=[0-9]+")
+    abandon_pattern = (r"\d{2}-\d{2} \d{2}:\d{2}:\d{2}:\d{3} abandonAudioFocus\(\) from "
+                       r"uid/pid ([0-9]+)/([0-9]+) clientId=(\S+)")
+    old_request = re.fullmatch(request_pattern, earlier[-1])
+    helper_request = re.fullmatch(request_pattern, later[-2])
+    app_abandon = re.fullmatch(abandon_pattern, later[-1])
+    if (old_request is None or helper_request is None or app_abandon is None
+            or old_request.groups() != (str(app_uid), app_pid, "USAGE_MEDIA/CONTENT_TYPE_MOVIE",
+                                        app_client, PACKAGE, "1")
+            or helper_request.groups() != (str(helper_uid), str(helper_pid),
+                                           "USAGE_MEDIA/CONTENT_TYPE_SPEECH", helper_client, HELPER, "2")
+            or app_abandon.groups() != (str(app_uid), app_pid, app_client)):
+        raise RuntimeFailure("Android focus history did not show the exact owner yielding to transient helper")
+    return {"beforeFocusStack": app_stack, "afterFocusStack": helper_stack,
+            "appClient": app_client, "helperClient": helper_client,
+            "androidHistory": {"appRequest": earlier[-1], "helperRequest": later[-2],
+                               "appAbandon": later[-1]}}
 
 
 def await_boot_ready(adb: str, serial: str, avd_name: str, output: Path, *,
@@ -462,7 +521,8 @@ class FocusSession:
         self.foreground(stage + "-before")
         if action == "acquire":
             self.app_uid = package_uid(self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", PACKAGE).stdout.decode(), PACKAGE)
-            require_focus(self.raw(stage, "app-focus", "shell", "dumpsys", "audio"), PACKAGE, self.app_uid)
+            app_focus = self.raw(stage, "app-focus", "shell", "dumpsys", "audio")
+            require_focus(app_focus, PACKAGE, self.app_uid)
             self.nonce = secrets.token_hex(16)
             self.helper_pid = None
             self.events = []
@@ -477,9 +537,15 @@ class FocusSession:
         capture = self.observer.observations[-1]
         timing = require_prompt_pause(event, capture, xml, self.app_pid) if action == "acquire" else None
         audio = self.raw(stage, "focus-stack", "shell", "dumpsys", "audio")
+        interruption = None
         if action == "acquire":
-            stack = (require_transient_focus(audio, self.helper_uid, self.app_uid) if self.gain == 2
-                     else require_focus(audio, HELPER, self.helper_uid))
+            if self.gain == 2:
+                interruption = require_together_transient_interruption(
+                    app_focus, audio, app_uid=self.app_uid, app_pid=self.app_pid,
+                    helper_uid=self.helper_uid, helper_pid=self.helper_pid, grant=event)
+                stack = interruption["afterFocusStack"]
+            else:
+                stack = require_focus(audio, HELPER, self.helper_uid)
         else:
             stack = focus_stack(audio)
             if any(row["package"] == HELPER for row in stack):
@@ -490,6 +556,8 @@ class FocusSession:
                             "playing": native.playing, "xmlSha256": hashlib.sha256(xml.encode()).hexdigest(),
                             "capture": capture}, "appPid": self.app_pid,
                "pauseTiming": timing}
+        if interruption is not None:
+            row["interruptionEvidence"] = interruption
         self.completed.append(row)
         if action == "release":
             self.adb.run("shell", "am", "force-stop", HELPER)

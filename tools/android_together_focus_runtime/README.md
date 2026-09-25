@@ -56,6 +56,14 @@ changes PID, emits pause/stop lifecycle events, fails to relinquish focus, or
 the helper grant cannot be tied to its current UID, PID and nonce. On API 35,
 permanent loss can remove the app entry from the focus stack; this gate checks
 its ownership immediately before the request and the helper's ownership after.
+For the held transient case, Together explicitly pauses its native player and
+relinquishes app focus. The gate therefore requires the exact app UID and
+client to own focus before interruption, a granted transient request by the
+exact helper UID, PID and client, then an Android focus-history abandon by the
+same app UID, PID and client. The post-request stack must contain only that
+helper as the active transient owner. The Android history records the request
+and abandon sequence; it does not label the app's focus callback. Native pause,
+room pause and no-autoplay evidence remain required separately.
 
 Dispatch `.github/workflows/android-together-focus.yml` for the native run.
 Branches can also dispatch the registered `android-interruption.yml` workflow

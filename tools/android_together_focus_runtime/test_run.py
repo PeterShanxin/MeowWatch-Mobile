@@ -19,7 +19,7 @@ from tools.android_multi_device.device_readiness import MeasurementError
 from tools.android_multi_device.prepare_sdk_setup import LAUNCHER_HOME
 from tools.android_together_focus_runtime.run import (
     AVD_NAME, STAGES, FocusSession, StageServer, await_boot_ready, require_prelaunch_home,
-    require_warm_event, validate_journey,
+    require_together_transient_interruption, require_warm_event, validate_journey,
 )
 
 
@@ -271,6 +271,60 @@ class ReceiptTests(unittest.TestCase):
                         after + FOCUS_HEADER):
             with self.assertRaises(RuntimeFailure):
                 require_focus(changed, HELPER, 10179)
+
+    def test_together_transient_requires_exact_granted_helper_then_app_abandon(self):
+        app_client = "android.media.AudioManager@app-client"
+        helper_client = "android.media.AudioManager@helper-client"
+        app_request = ("09-25 05:34:08:844 requestAudioFocus() from uid/pid 10211/3703 "
+                       "AA=USAGE_MEDIA/CONTENT_TYPE_MOVIE clientId=" + app_client +
+                       " callingPack=" + PACKAGE + " req=1 flags=0x0 sdk=36")
+        helper_request = ("09-25 05:34:15:545 requestAudioFocus() from uid/pid 10209/4819 "
+                          "AA=USAGE_MEDIA/CONTENT_TYPE_SPEECH clientId=" + helper_client +
+                          " callingPack=" + HELPER + " req=2 flags=0x0 sdk=35")
+        app_abandon = ("09-25 05:34:15:552 abandonAudioFocus() from uid/pid 10211/3703 "
+                       "clientId=" + app_client)
+        before_stack = (FOCUS_HEADER + "\n  source:android.os.BinderProxy@abc -- pack: " + PACKAGE +
+                        " -- client: " + app_client +
+                        " -- gain: GAIN -- loss: none -- uid: 10211\n\n")
+        after_stack = (FOCUS_HEADER + "\n  source:android.os.BinderProxy@def -- pack: " + HELPER +
+                       " -- client: " + helper_client +
+                       " -- gain: GAIN_TRANSIENT -- loss: none -- uid: 10209\n\n")
+
+        def dump(stack, events):
+            return (stack + "Events log: focus commands as seen by MediaFocusControl\n" +
+                    "\n".join(events) + "\nMulti Audio Focus enabled :false\n")
+
+        before = dump(before_stack, [app_request])
+        after = dump(after_stack, [app_request, helper_request, app_abandon])
+        grant = {"event": "requested", "result": 1, "gain": 2, "uid": 10209, "pid": 4819}
+
+        def check(prior=before, later=after, receipt=grant):
+            return require_together_transient_interruption(
+                prior, later, app_uid=10211, app_pid="3703", helper_uid=10209,
+                helper_pid=4819, grant=receipt)
+
+        proof = check()
+        self.assertEqual(proof["androidHistory"]["helperRequest"], helper_request)
+        self.assertEqual(proof["androidHistory"]["appAbandon"], app_abandon)
+        self.assertEqual(check(before.replace("\n", "\r\n"), after.replace("\n", "\r\n")), proof)
+        for prior, later, receipt in (
+                (before.replace("uid: 10211", "uid: 10212"), after, grant),
+                (before.replace(app_client, "other-client"), after, grant),
+                (before, after.replace("uid: 10209", "uid: 10210"), grant),
+                (before, after.replace("GAIN_TRANSIENT", "GAIN"), grant),
+                (before, after.replace(" -- client: " + helper_client,
+                                       " -- client: other-helper"), grant),
+                (before, dump(after_stack, [app_request, helper_request]), grant),
+                (before, dump(after_stack, [app_request, app_abandon, helper_request]), grant),
+                (before, after.replace("10211/3703 clientId=" + app_client,
+                                       "10211/3703 clientId=other-client"), grant),
+                (before, after.replace("10209/4819", "10210/4819"), grant),
+                (before, after.replace("req=2", "req=1"), grant),
+                (before, after, {**grant, "result": 0}),
+                (before, after, {**grant, "pid": 4820}),
+        ):
+            with self.subTest(prior=prior, later=later, receipt=receipt), self.assertRaises(RuntimeFailure):
+                check(prior, later, receipt)
 
     def test_requires_two_actual_play_pause_no_autoplay_and_replay_cycles(self):
         value, stages = receipt()

@@ -6,7 +6,13 @@ MeowWatch client. It uses the public `syncplay.pl:8995` endpoint and the
 [Big Buck Bunny MP4](https://storage.googleapis.com/exoplayer-test-media-0/BigBuckBunny_320x180.mp4)
 used by [AndroidX's native media test activity](https://android.googlesource.com/platform/frameworks/support/+/0c3df10399d72871a0706423b30a7bb75dc8b36a/graphics/filters/filters/src/androidTest/kotlin/androidx/graphics/filters/TestFiltersActivity.kt).
 The approximately 10-minute Blender film is [CC BY 3.0](https://peach.blender.org/about/).
-The Windows client must join the same disposable room and load that exact URL.
+The Windows client must join the same disposable room and load that video.
+Prefer the same URL. If its network player cannot retain that remote stream,
+an unchanged downloaded copy may be loaded locally or through the existing
+loopback fixture server. Record the original URL, copy identity, actual desktop
+source and reason for the fallback; this does not establish remote-stream
+reliability on Windows. Different announced source names can show a mismatch
+warning even when the content is identical; retain that visible limitation.
 No test entry point, app-state injection, LAN connection or desktop control is
 used. The GitHub job itself takes at most 45 minutes including build; the guest
 journey has a 20-minute limit beginning before ordinary app launch.

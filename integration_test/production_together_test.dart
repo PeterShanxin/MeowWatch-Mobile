@@ -18,6 +18,7 @@ import 'package:video_player/video_player.dart';
 
 import '../tools/native_capture/native_screenshot.dart';
 import '../tools/production_together/json_request.dart';
+import 'support/local_day_quota.dart';
 import 'support/native_invite_qr.dart';
 import 'support/playback_command_trace.dart';
 import 'support/test_text_entry.dart';
@@ -84,6 +85,7 @@ void main() {
       final screenshots = <String>[];
       final verified = <String>[];
       final observations = <Map<String, Object?>>[];
+      final journeyStartedAt = DateTime.now();
 
       final support = await getApplicationSupportDirectory();
       final repositoryFile = File(
@@ -492,14 +494,14 @@ void main() {
       );
       final originalRoom = app.room!;
       final originalInvite = app.invite.toString();
-      final originalAllowance = isHost ? 0 : 1;
-      expect(await hosting.remainingFreeHostsToday(), originalAllowance);
       final originalQuota = await _quotaContents(quotaFile);
+      String? originalChargeDate;
       if (isHost) {
-        final ledger = jsonDecode(originalQuota!) as Map<String, dynamic>;
-        final sessions = ledger['sessions'] as Map<String, dynamic>;
-        expect(sessions.keys, [originalRoom.id]);
-        expect(sessions[originalRoom.id]['usedFreeHost'], isTrue);
+        originalChargeDate = _singleChargeDate(
+          originalQuota!,
+          originalRoom.id,
+          journeyStartedAt,
+        );
       } else {
         expect(
           originalQuota,
@@ -507,6 +509,13 @@ void main() {
           reason: 'Joining must not consume a host.',
         );
       }
+      observations.add({
+        'stage': 'original-room-quota',
+        ...await verifyFreeAllowanceToday(
+          hosting,
+          chargedLocalDate: originalChargeDate,
+        ),
+      });
 
       final sharedUri = Uri.parse(_videoUrl).replace(
         queryParameters: {
@@ -586,7 +595,7 @@ void main() {
         quotaFile,
         originalRoom,
         originalQuota,
-        originalAllowance,
+        originalChargeDate,
         observations,
         'shared-link',
       );
@@ -629,7 +638,7 @@ void main() {
         quotaFile,
         originalRoom,
         originalQuota,
-        originalAllowance,
+        originalChargeDate,
         observations,
         'media-error',
       );
@@ -662,7 +671,7 @@ void main() {
         quotaFile,
         originalRoom,
         originalQuota,
-        originalAllowance,
+        originalChargeDate,
         observations,
         'media-recovery',
       );
@@ -714,7 +723,7 @@ void main() {
         quotaFile,
         originalRoom,
         originalQuota,
-        originalAllowance,
+        originalChargeDate,
         observations,
         'history-resume',
       );
@@ -775,7 +784,10 @@ void main() {
       }
       await _waitForRoomAndVideo(tester, app, peerName, Uri.parse(_videoUrl));
       final nextRoom = app.room!;
-      expect(await hosting.remainingFreeHostsToday(), originalAllowance);
+      await verifyFreeAllowanceToday(
+        hosting,
+        chargedLocalDate: originalChargeDate,
+      );
       expect(await _quotaContents(quotaFile), originalQuota);
       await _signalCheckpoint('watch-again-ready');
       await _waitForCheckpoint(tester, peerRole, 'watch-again-ready');
@@ -786,8 +798,7 @@ void main() {
         stage: 'watch-again',
         controllingRole: 'guest',
       );
-      expect(await hosting.remainingFreeHostsToday(), 0);
-      expect(await hosting.canHostNow(), isFalse);
+      var finalChargeDate = originalChargeDate;
       if (isHost) {
         expect(
           await _quotaContents(quotaFile),
@@ -797,20 +808,25 @@ void main() {
         );
         expect(await hosting.canHostNow(sessionId: originalRoom.id), isTrue);
       } else {
-        final ledger =
-            jsonDecode((await _quotaContents(quotaFile))!)
-                as Map<String, dynamic>;
-        final sessions = ledger['sessions'] as Map<String, dynamic>;
-        expect(sessions.keys, [nextRoom.id]);
-        expect(sessions[nextRoom.id]['usedFreeHost'], isTrue);
+        finalChargeDate = _singleChargeDate(
+          (await _quotaContents(quotaFile))!,
+          nextRoom.id,
+          journeyStartedAt,
+        );
         expect(await hosting.canHostNow(sessionId: nextRoom.id), isTrue);
       }
+      final finalAllowance = await verifyFreeAllowanceToday(
+        hosting,
+        chargedLocalDate: finalChargeDate,
+      );
       observations.add({
         'stage': 'watch-again-quota',
         'originalRoomId': originalRoom.id,
         'newRoomId': nextRoom.id,
         'newRoomIsHost': nextRoom.isHost,
-        'remainingFreeHostsToday': 0,
+        'remainingFreeHostsToday':
+            (finalAllowance['remaining'] as Map)['actual'],
+        'dailyQuota': finalAllowance,
         'atUtc': DateTime.now().toUtc().toIso8601String(),
       });
       await _capture(nativeScreenshots, tester, screenshots, 'new-movie-night');
@@ -1196,13 +1212,36 @@ Future<void> _waitForNativeVideo(
 Future<String?> _quotaContents(File file) async =>
     await file.exists() ? file.readAsString() : null;
 
+String _singleChargeDate(
+  String contents,
+  String roomId,
+  DateTime journeyStart,
+) {
+  final ledger = jsonDecode(contents) as Map<String, dynamic>;
+  expect(ledger['version'], 1);
+  final sessions = ledger['sessions'] as Map<String, dynamic>;
+  expect(sessions.keys, [roomId]);
+  expect(sessions[roomId]['usedFreeHost'], isTrue);
+  final date = sessions[roomId]['date'] as String;
+  expect(RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(date), isTrue);
+  expect(
+    date.compareTo(localCalendarDate(journeyStart)),
+    greaterThanOrEqualTo(0),
+  );
+  expect(
+    date.compareTo(localCalendarDate(DateTime.now())),
+    lessThanOrEqualTo(0),
+  );
+  return date;
+}
+
 Future<void> _expectRoomAndQuotaUnchanged(
   AppController app,
   LocalHostingAccessPolicy hosting,
   File quotaFile,
   RoomTicket originalRoom,
   String? originalQuota,
-  int originalAllowance,
+  String? originalChargeDate,
   List<Map<String, Object?>> observations,
   String stage,
 ) async {
@@ -1216,8 +1255,10 @@ Future<void> _expectRoomAndQuotaUnchanged(
   expect(app.room!.contextKey, originalRoom.contextKey);
   expect(app.room!.isHost, originalRoom.isHost);
   expect(app.needsPlus, isFalse);
-  final remaining = await hosting.remainingFreeHostsToday();
-  expect(remaining, originalAllowance);
+  final allowance = await verifyFreeAllowanceToday(
+    hosting,
+    chargedLocalDate: originalChargeDate,
+  );
   expect(
     await _quotaContents(quotaFile),
     originalQuota,
@@ -1227,7 +1268,8 @@ Future<void> _expectRoomAndQuotaUnchanged(
     'stage': '$stage-quota',
     'roomId': app.room!.id,
     'roomEndpointUnchanged': true,
-    'remainingFreeHostsToday': remaining,
+    'remainingFreeHostsToday': (allowance['remaining'] as Map)['actual'],
+    'dailyQuota': allowance,
     'quotaLedgerUnchanged': true,
     'atUtc': DateTime.now().toUtc().toIso8601String(),
   });

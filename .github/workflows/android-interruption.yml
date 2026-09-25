@@ -2,6 +2,12 @@ name: Android foreground audio-focus interruption
 
 on:
   workflow_dispatch:
+    inputs:
+      scope:
+        description: 'Local mode or real Together-room audio focus acceptance'
+        type: choice
+        options: [local, together]
+        default: local
   pull_request:
     paths:
       - '.github/workflows/android-interruption.yml'
@@ -23,7 +29,12 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  together-focus:
+    if: ${{ inputs.scope == 'together' }}
+    uses: ./.github/workflows/android-together-focus.yml
+
   audio-focus:
+    if: ${{ inputs.scope != 'together' }}
     name: Permanent and transient audio focus recovery (API 35)
     runs-on: ubuntu-24.04
     timeout-minutes: 35

@@ -22,6 +22,9 @@ permanent loss can remove the app entry from the focus stack; this gate checks
 its ownership immediately before the request and the helper's ownership after.
 
 Dispatch `.github/workflows/android-together-focus.yml` for the native run.
+Branches can also dispatch the registered `android-interruption.yml` workflow
+with `scope=together`; it calls the same Together workflow at that branch's
+commit. The default `scope=local` keeps the normal-release Local Mode gate.
 `build/android-together-focus-artifacts` and fixture/server receipts are uploaded
 even on failure. Local contract checks are intentionally lightweight:
 

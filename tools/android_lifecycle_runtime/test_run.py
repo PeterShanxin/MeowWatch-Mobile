@@ -1502,6 +1502,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 runner.last_xml, runner.last_window = xml, window
                 runner.phase = "01-fixture-review"
                 runner.preparation_recoveries.append({"attempt": 1, "status": "uncertain"})
+                runner.home_timings.append({"status": "incomplete"})
                 raise PreparationRecoveryFailure("unconfirmed close")
             with patch.object(Runner, "run", failed_run), patch(
                 "tools.android_install.runner.Adb.screenshot", return_value=b"png",
@@ -1513,6 +1514,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
             report = json.loads((output / "result.json").read_text())
             self.assertFalse(report["completed"])
             self.assertEqual(report["preparationAnrRecoveries"], [{"attempt": 1, "status": "uncertain"}])
+            self.assertEqual(report["homeTimings"], [{"status": "incomplete"}])
 
     def test_actual_timeline_and_action_parse_together(self):
         self.assertEqual(playback(player()), Playback(12, 90, True))
@@ -1590,6 +1592,8 @@ class LifecycleRuntimeTests(unittest.TestCase):
         class FakeAdb:
             def run(self, *arguments, **_kwargs):
                 events.append(("adb", arguments))
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    return type("Result", (), {"stdout": b"123.45 0.00\n"})()
                 if arguments[:3] == ("shell", "dumpsys", "window"):
                     return type(
                         "Result",
@@ -1612,6 +1616,7 @@ class LifecycleRuntimeTests(unittest.TestCase):
             def sample(self, phase, *, playing, screenshot=True):
                 events.append(("sample", (phase, playing, screenshot)))
                 self.phase = phase
+                self.samples.append({"phase": phase})
                 return player("0:26", "Pause"), Playback(26, 90, True)
 
         with tempfile.TemporaryDirectory() as directory, patch(
@@ -1621,6 +1626,8 @@ class LifecycleRuntimeTests(unittest.TestCase):
             runner.adb = FakeAdb()
             runner.output = Path(directory)
             runner.phase = "04-advanced"
+            runner.samples = []
+            runner.home_timings = []
             elapsed, state = runner.go_home(
                 pre_home_phase="04-pre-home-playing",
                 playing=True,
@@ -1630,10 +1637,85 @@ class LifecycleRuntimeTests(unittest.TestCase):
         self.assertGreaterEqual(elapsed, 0)
         self.assertEqual(events[0], ("sample", ("04-pre-home-playing", True, False)))
         self.assertEqual(
-            events[1],
+            events[2],
             ("adb", ("shell", "input", "keyevent", "KEYCODE_HOME")),
         )
+        self.assertEqual(events[1], ("adb", ("exec-out", "cat", "/proc/uptime")))
+        self.assertEqual(events[3], ("adb", ("exec-out", "cat", "/proc/uptime")))
+        timing = runner.home_timings[0]
+        self.assertEqual(timing["preHomeSampleIndex"], 0)
+        self.assertEqual(timing["deviceClockSource"], "Android /proc/uptime elapsedRealtime seconds")
+        self.assertEqual(timing["beforeHomeClock"]["deviceElapsedSeconds"], 123.45)
+        self.assertEqual(timing["afterHomeClock"]["deviceElapsedSeconds"], 123.45)
+        self.assertLessEqual(timing["beforeHomeClock"]["returnedAtMonotonic"],
+                             timing["keyeventRequestedAtMonotonic"])
+        self.assertLessEqual(timing["keyeventReturnedAtMonotonic"],
+                             timing["afterHomeClock"]["requestedAtMonotonic"])
+        self.assertEqual(timing["keyeventStatus"], "completed")
+        self.assertEqual(timing["status"], "measured")
         self.assertEqual(events[-1], ("screenshot", ()))
+
+    def test_home_clock_probe_and_keyevent_share_original_control_bound(self):
+        clock = [10.0]
+        commands = []
+
+        class SlowAdb:
+            def run(self, *arguments, **kwargs):
+                commands.append((arguments, kwargs["timeout"]))
+                if arguments == ("exec-out", "cat", "/proc/uptime"):
+                    clock[0] += 2
+                    return type("Result", (), {"stdout": b"100.00 0.00\n"})()
+                if arguments == ("shell", "input", "keyevent", "KEYCODE_HOME"):
+                    clock[0] += 24
+                    return type("Result", (), {"stdout": b""})()
+                raise AssertionError(arguments)
+
+        class HomeRunner(Runner):
+            def sample(self, phase, *, playing, screenshot=True):
+                self.phase = phase
+                self.samples.append({"phase": phase})
+                return player("0:26", "Pause"), Playback(26, 90, True)
+
+        runner = HomeRunner.__new__(HomeRunner)
+        runner.adb = SlowAdb()
+        runner.samples = []
+        runner.home_timings = []
+        with patch("tools.android_lifecycle_runtime.run.time.monotonic", side_effect=lambda: clock[0]):
+            with self.assertRaisesRegex(RuntimeFailure, "original ADB control bound"):
+                runner.go_home(pre_home_phase="04-pre-home-playing", playing=True)
+        self.assertEqual(commands, [
+            (("exec-out", "cat", "/proc/uptime"), 3),
+            (("shell", "input", "keyevent", "KEYCODE_HOME"), 23),
+        ])
+        self.assertEqual(runner.home_timings[0]["status"], "incomplete")
+        self.assertEqual(runner.home_timings[0]["keyeventStatus"], "completed")
+
+    def test_invalid_pre_home_clock_does_not_send_home(self):
+        commands = []
+
+        class InvalidClockAdb:
+            def run(self, *arguments, **kwargs):
+                commands.append(arguments)
+                return type("Result", (), {"stdout": b"stale clock"})()
+
+        class HomeRunner(Runner):
+            def sample(self, phase, *, playing, screenshot=True):
+                self.phase = phase
+                self.samples.append({"phase": phase})
+                return player("0:26", "Pause"), Playback(26, 90, True)
+
+        runner = HomeRunner.__new__(HomeRunner)
+        runner.adb = InvalidClockAdb()
+        runner.samples = []
+        runner.home_timings = []
+        with self.assertRaisesRegex(RuntimeFailure, "HOME device elapsed clock is invalid"):
+            runner.go_home(pre_home_phase="04-pre-home-playing", playing=True)
+        self.assertEqual(commands, [("exec-out", "cat", "/proc/uptime")])
+        timing = runner.home_timings[0]
+        self.assertEqual(timing["status"], "incomplete")
+        self.assertIn("requestedAtMonotonic", timing["beforeHomeClock"])
+        self.assertIn("finishedAtMonotonic", timing["beforeHomeClock"])
+        self.assertNotIn("keyeventRequestedAtMonotonic", timing)
 
     def test_home_baseline_arguments_must_be_paired(self):
         runner = Runner.__new__(Runner)
@@ -1641,6 +1723,31 @@ class LifecycleRuntimeTests(unittest.TestCase):
             runner.go_home(pre_home_phase="04-pre-home-playing")
         with self.assertRaises(ValueError):
             runner.go_home(playing=True)
+
+    def test_pre_home_sample_rejects_reused_or_mismatched_capture(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            apk, fixture = root / "app.apk", root / FIXTURE_NAME
+            apk.write_bytes(b"apk")
+            fixture.write_bytes(b"fixture")
+            runner = Runner("emulator-5554", apk, fixture, root)
+            xml = player("0:26", "Pause")
+            state = Playback(26, 90, True)
+            runner.wait = Mock(return_value=(xml, state))
+            old_capture = {"status": "success", "xmlSha256": hashlib.sha256(xml.encode()).hexdigest(),
+                           "startedAtMonotonic": 1.0, "completedAtMonotonic": 2.0,
+                           "captureStartedAtElapsedRealtimeMs": 1000,
+                           "captureCompletedAtElapsedRealtimeMs": 1100}
+            runner.observer.observations.append(old_capture)
+            with self.assertRaisesRegex(ObserverIntegrityFailure, "matching fresh native UI capture"):
+                runner.sample("04-pre-home-playing", playing=True, screenshot=False)
+            self.assertEqual(runner.samples, [])
+            runner.wait.side_effect = lambda *_args, **_kwargs: (
+                runner.observer.observations.append({**old_capture, "xmlSha256": "wrong"})
+                or (xml, state))
+            with self.assertRaisesRegex(ObserverIntegrityFailure, "matching fresh native UI capture"):
+                runner.sample("04-pre-home-playing", playing=True, screenshot=False)
+            self.assertEqual(runner.samples, [])
 
     def test_observation_timeout_retries_fresh_xml_without_accepting_old_sample(self):
         with tempfile.TemporaryDirectory() as directory:
@@ -1692,6 +1799,12 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 dump_commands[1][dump_commands[1].index("nonce") + 1],
             )
             self.assertEqual([item["position_seconds"] for item in runner.samples], [20])
+            capture = runner.samples[0]["nativeUiCapture"]
+            self.assertEqual(capture["observationIndex"], 1)
+            self.assertEqual(capture["requestedAtMonotonic"],
+                             runner.observer.observations[1]["startedAtMonotonic"])
+            self.assertEqual(capture["completedAtDeviceElapsedRealtimeMs"],
+                             runner.observer.observations[1]["captureCompletedAtElapsedRealtimeMs"])
             self.assertEqual(runner.observation_timeouts[0]["operation"], "native accessibility snapshot")
             self.assertEqual([item["status"] for item in runner.observer.observations], ["failure", "success"])
             self.assertEqual(runner.observer.observations[0]["failure"], "instrumentation_timeout")

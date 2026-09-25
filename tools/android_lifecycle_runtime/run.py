@@ -910,6 +910,7 @@ class Runner:
         self.last_observation: dict[str, object] | None = None
         self.observation_timeouts: list[dict[str, object]] = []
         self.samples: list[dict[str, object]] = []
+        self.home_timings: list[dict[str, object]] = []
         self.preparation_recoveries: list[dict[str, object]] = []
         self.recording: LifecycleRecording | None = None
         self.recordings: list[dict[str, object]] = []
@@ -1102,8 +1103,30 @@ class Runner:
             if state.playing != playing:
                 raise RuntimeFailure("native player has the wrong play/pause state")
             return state
+        observation_count_before = len(self.observer.observations)
         xml, state = self.wait(phase, check)
-        self.samples.append({"phase": phase, "observedAtMonotonic": time.monotonic(), **asdict(state)})
+        sample: dict[str, object] = {"phase": phase, "observedAtMonotonic": time.monotonic(),
+                                     **asdict(state)}
+        observations = self.observer.observations
+        if len(observations) > observation_count_before:
+            capture = observations[-1]
+            required_capture_fields = (
+                "startedAtMonotonic", "completedAtMonotonic",
+                "captureStartedAtElapsedRealtimeMs", "captureCompletedAtElapsedRealtimeMs",
+            )
+            if (capture.get("status") == "success"
+                    and capture.get("xmlSha256") == hashlib.sha256(xml.encode()).hexdigest()
+                    and all(field in capture for field in required_capture_fields)):
+                sample["nativeUiCapture"] = {
+                    "observationIndex": len(observations) - 1,
+                    "requestedAtMonotonic": capture["startedAtMonotonic"],
+                    "returnedAtMonotonic": capture["completedAtMonotonic"],
+                    "startedAtDeviceElapsedRealtimeMs": capture["captureStartedAtElapsedRealtimeMs"],
+                    "completedAtDeviceElapsedRealtimeMs": capture["captureCompletedAtElapsedRealtimeMs"],
+                }
+        if phase in ("04-pre-home-playing", "05-foreground-paused") and "nativeUiCapture" not in sample:
+            raise ObserverIntegrityFailure("HOME playback sample has no matching fresh native UI capture")
+        self.samples.append(sample)
         if screenshot:
             self.output.joinpath(f"{phase}.png").write_bytes(self.adb.screenshot())
         return xml, state
@@ -1165,7 +1188,33 @@ class Runner:
                 playing=playing,
                 screenshot=False,
             )
-        self.adb.run("shell", "input", "keyevent", "KEYCODE_HOME")
+        timing: dict[str, object] | None = None
+        if pre_home is not None:
+            timing = {"phase": pre_home_phase, "status": "incomplete",
+                      "preHomeSampleIndex": len(self.samples) - 1,
+                      "deviceClockSource": "Android /proc/uptime elapsedRealtime seconds"}
+            self.home_timings.append(timing)
+            # Keep both added clock reads and HOME inside the original 25-second
+            # ADB action bound; a slow probe must not enlarge the control window.
+            deadline = time.monotonic() + 25
+            before_clock: dict[str, object] = {}
+            timing["beforeHomeClock"] = before_clock
+            self.device_clock_observation(deadline, before_clock)
+            home_timeout = self.home_timing_timeout(deadline, 25)
+            timing["keyeventRequestedAtMonotonic"] = time.monotonic()
+        try:
+            self.adb.run("shell", "input", "keyevent", "KEYCODE_HOME",
+                         timeout=home_timeout if timing is not None else 25)
+            if timing is not None:
+                timing["keyeventStatus"] = "completed"
+        finally:
+            if timing is not None:
+                timing["keyeventReturnedAtMonotonic"] = time.monotonic()
+        if timing is not None:
+            after_clock: dict[str, object] = {}
+            timing["afterHomeClock"] = after_clock
+            self.device_clock_observation(deadline, after_clock)
+            timing["status"] = "measured"
         started = time.monotonic()
         time.sleep(8)
         window = self.adb.run("shell", "dumpsys", "window", "displays").stdout.decode()
@@ -1174,6 +1223,27 @@ class Runner:
             raise RuntimeFailure("HOME did not put an Android launcher in the foreground")
         self.output.joinpath(f"{self.phase}-home.png").write_bytes(self.adb.screenshot())
         return time.monotonic() - started, pre_home
+
+    @staticmethod
+    def home_timing_timeout(deadline: float, cap: float) -> float:
+        remaining = min(cap, deadline - time.monotonic())
+        if remaining <= 0:
+            raise RuntimeFailure("HOME timing exceeded its original ADB control bound")
+        return remaining
+
+    def device_clock_observation(self, deadline: float, evidence: dict[str, object]) -> None:
+        evidence["requestedAtMonotonic"] = time.monotonic()
+        try:
+            data = self.adb.run(
+                "exec-out", "cat", "/proc/uptime", timeout=self.home_timing_timeout(deadline, 3)).stdout
+            try:
+                value = recording_device_elapsed(data)
+            except RuntimeFailure as error:
+                raise RuntimeFailure("HOME device elapsed clock is invalid") from error
+        finally:
+            evidence["finishedAtMonotonic"] = time.monotonic()
+        evidence["returnedAtMonotonic"] = evidence["finishedAtMonotonic"]
+        evidence["deviceElapsedSeconds"] = value
 
     def run(self) -> dict[str, object]:
         report = self.prepare()
@@ -1261,6 +1331,7 @@ class Runner:
             "noAutoplayAfterRestart": True,
             "explicitReplayAfterRestartAdvanceSeconds": resumed_advance,
             "samples": self.samples,
+            "homeTimings": self.home_timings,
             "observationTimeouts": self.observation_timeouts,
             "preparationAnrRecoveries": self.preparation_recoveries,
             "nativeUiObservations": self.observer.observations,
@@ -1324,6 +1395,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         if runner.evidence_started:
             report = {
                 "completed": False, "phase": runner.phase, "error": message, "samples": runner.samples,
+                "homeTimings": runner.home_timings,
                 "observationTimeouts": runner.observation_timeouts,
                 "lastCompletedUiObservation": runner.last_observation,
                 "preparationAnrRecoveries": runner.preparation_recoveries,

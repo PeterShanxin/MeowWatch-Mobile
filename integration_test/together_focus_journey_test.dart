@@ -13,6 +13,8 @@ import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 import 'package:meowwatch_mobile/main.dart';
 import 'package:video_player/video_player.dart';
 
+import 'support/native_focus_stage_client.dart';
+
 const _video = String.fromEnvironment('TOGETHER_FOCUS_VIDEO_URL');
 const _bridge = String.fromEnvironment('TOGETHER_FOCUS_BRIDGE_URL');
 const _poll = Duration(milliseconds: 150);
@@ -321,30 +323,43 @@ void _requireStable(Map<String, Object?> a, Map<String, Object?> b) {
 }
 
 Future<Map<String, Object?>> _stage(WidgetTester tester, String stage) async {
-  final result = await tester.runAsync(() async {
-    final client = HttpClient()..connectionTimeout = const Duration(seconds: 5);
-    try {
-      final request = await client.postUrl(Uri.parse('$_bridge/$stage'));
-      request.headers.contentType = ContentType.json;
-      request.write(jsonEncode({'stage': stage}));
-      final response = await request.close().timeout(
-        const Duration(seconds: 50),
-      );
-      final body = await utf8.decoder.bind(response).join();
-      if (response.statusCode != 200) {
-        throw TestFailure('Native stage $stage failed: $body');
-      }
-      return Map<String, Object?>.from(jsonDecode(body) as Map);
-    } finally {
-      client.close(force: true);
-    }
-  });
-  if (result == null ||
-      result['stage'] != stage ||
-      result['completed'] != true) {
+  final result = await tester
+      .runAsync<({int? statusCode, String? body, String? error})>(() async {
+        try {
+          final response = await postNativeFocusStage(
+            Uri.parse(_bridge),
+            stage,
+          );
+          return (
+            statusCode: response.statusCode,
+            body: response.body,
+            error: null,
+          );
+        } catch (error) {
+          return (statusCode: null, body: null, error: '$error');
+        }
+      });
+  if (result == null) {
+    throw TestFailure('Native stage $stage returned no HTTP result');
+  }
+  if (result.error != null) {
+    throw TestFailure('Native stage $stage request failed: ${result.error}');
+  }
+  if (result.statusCode != 200) {
+    throw TestFailure(
+      'Native stage $stage returned HTTP ${result.statusCode}: ${result.body}',
+    );
+  }
+  final Map<String, Object?> receipt;
+  try {
+    receipt = Map<String, Object?>.from(jsonDecode(result.body!) as Map);
+  } catch (error) {
+    throw TestFailure('Native stage $stage returned invalid JSON: $error');
+  }
+  if (receipt['stage'] != stage || receipt['completed'] != true) {
     throw TestFailure('Native stage $stage returned no matching receipt');
   }
-  return result;
+  return receipt;
 }
 
 Finder _control(String action) => find.byWidgetPredicate(

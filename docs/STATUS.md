@@ -27,8 +27,10 @@ usability and a clear, reliable Plus flow. The owner also requested a more
 designed hybrid film: accurate React UI animation for explanatory shots and
 real-device footage for runtime demonstration, clearly distinguished. Following
 review of the hybrid edition, the owner requested a continuous-shot visual
-treatment and one consistent palette. The next film uses a deep navy stage and
-continuous device/camera movement; its edited sources remain labeled.
+treatment and one consistent palette. The film uses a deep navy stage, quick
+0.3–0.5-second device/camera moves and still reading holds. Titles leave by
+moving offscreen; small translucent touch indicators mark taps. Its edited
+sources remain labeled.
 
 ## Acceptance evidence
 
@@ -47,7 +49,7 @@ continuous device/camera movement; its edited sources remain labeled.
 | 11 | Rendered phone, small phone, tablet and rotation QA | Physical phone and emulator layouts verified; final changes pending | Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded. Final UI fixes and hybrid film require review |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. No physical receiver is available to this task; receiver availability is awaiting the entrant. Phone playback is the fallback |
 | 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Physical acceptance is recorded below; its two UI defects are fixed and pass hosted checks. Complete normal-APK rehearsal remains open |
-| 14 | Clean-install full demo rehearsal | Partial | Final-source Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. Install receipt includes SDK Setup recovery |
+| 14 | Clean-install full demo rehearsal | Partial | Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. The latest ordinary API 35 install has no SDK Setup ANR recovery; the launch wait times out before the independent native observer verifies onboarding |
 | 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon and screenshot are prepared; a redesigned hybrid film is in work. Registration and Devpost draft fields are saved (3/5 sections). Public final video, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
 
 ## Current verification
@@ -104,8 +106,18 @@ track. The track-location fix retains the unchanged two-way seek requirements.
 Later `36125073381` fails earlier: a spurious leading character makes the guest
 join a different room. Its hierarchy shows the entry field was already focused;
 the runner now avoids tapping that field again and requires exact visible input
-before submitting. Twelve focused Python checks pass. These runs remain failed;
-a full normal-APK journey pass is still open.
+before submitting. Run `36126715801` then passes both directions of native
+play/pause/seek and visibly delivers the phone message to the tablet, but its
+receipt check expects a standalone message label while Flutter merges sender
+and body. The dedicated chat receipt check now accepts the exact complete body
+in that merged label, excludes input fields and rejects partial matches.
+Run `36128627853` then passes both chat directions and reaches the reaction
+picker, where the runner chooses a nonclickable semantics label rather than
+its visible clickable heart. The exact heart target is corrected. The same
+run's home hierarchy also establishes the complete clickable Local Player Mode
+label, which the later step now uses. Fifteen Python checks pass. These failed
+runs do not replace a full normal-APK journey; the remaining stages still need
+the complete hosted rehearsal.
 
 ### Earlier accepted product baseline, September 25
 

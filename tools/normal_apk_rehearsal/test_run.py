@@ -4,6 +4,7 @@ import unittest
 from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
+from tools.android_lifecycle_runtime.run import button
 from tools.normal_apk_rehearsal.run import (
     FIXTURE_URL, entered_text_field, focused_text_field, history_context,
     join_sheet_ready, media_link_ready,
@@ -126,6 +127,22 @@ class VisibleUiContract(unittest.TestCase):
             visible_chat_receipt(
                 tree(node('HelloFromPhone', kind='android.widget.EditText')),
                 'HelloFromPhone')
+
+    def test_reaction_picker_exposes_clickable_emoji_below_semantics_label(self):
+        # Native picker hierarchy from run 36128627853: the label is not clickable.
+        xml = tree(node('React ❤️', kind='android.widget.Button'),
+                   node('❤️', kind='android.widget.Button', clickable=True))
+        self.assertEqual(button(xml, '❤️').get('clickable'), 'true')
+        with self.assertRaises(RuntimeFailure):
+            button(xml, 'React ❤️')
+
+    def test_local_mode_home_action_has_complete_merged_label(self):
+        # Phone home hierarchy from run 36128627853.
+        label = 'Local Player Mode\nWatch on this device without starting a room.'
+        xml = tree(node(label, kind='android.view.View', clickable=True))
+        self.assertEqual(button(xml, label).get('clickable'), 'true')
+        with self.assertRaises(RuntimeFailure):
+            button(xml, 'Local Player Mode')
 
     def test_tablet_player_uses_submitted_url_and_visible_ninety_second_timeline(self):
         landscape = tree(node('Together in this room'),

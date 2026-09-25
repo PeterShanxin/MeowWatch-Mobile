@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+sdk_root="${ANDROID_SDK_ROOT:-$ANDROID_HOME}"
+export PATH="$sdk_root/platform-tools:$PATH"
+command -v adb >/dev/null
+
 root='build/normal-apk-rehearsal'
 fixture='build/android-multi-device/fixture/sync-fixture.mp4'
 apk='build/app/outputs/flutter-apk/app-debug.apk'

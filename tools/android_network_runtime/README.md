@@ -38,13 +38,24 @@ For this variant, the fixture server keeps HTTP 200/206 Range headers and a live
 response, sends an initial buffer, then paces the body and never sends bytes at
 or beyond 90% of the file. CI uses `ffprobe` packet positions to prove that the
 video keyframe preceding the 85-second seek starts beyond this cap. The server
-records every delivered byte span. After the real radio-off socket proof and
-automatic pause, the guest's original native controller seeks to 85 seconds
+records every delivered byte span and cap wait on the host monotonic clock.
+Its 160 KiB/s pace leaves roughly 107 seconds between the initial 8 MiB burst
+and the 90% cap for the current fixture; live playback still has to pass.
+After the real cached-IP socket failure and automatic pause, the variant pauses
+at a separate checkpoint immediately before the controlled seek. The runner
+verifies the same app PID, both radios off, and no cap wait before its host
+monotonic boundary, then acknowledges the test. The guest's original native
+controller then seeks to 85 seconds
 while both radios remain off. It must report a native error and target failure
 within 25 seconds before the runner restores connectivity. The runner verifies
 the actual delivered intervals remained below the cap before restoration.
-It rejects a server cap stall in those receipts, so the player cannot pass from
-an artificial pre-outage HTTP pause or premature EOF.
+It rejects every cap wait at or before the offline boundary and accepts only
+later controlled waits; a later wait is not mandatory. Missing or misordered
+clocks fail. The local `10.0.2.2` fixture may remain reachable after guest
+radios are disabled. The byte cap prevents its server from supplying the late
+keyframe if a request still reaches it; transport loss may instead fail the
+request before a cap wait. The public Syncplay socket proof establishes the
+real radio outage, and the original decoder must report an actual error.
 The runner then checks the server's exact PID, birth token, command, port and
 cap configuration and sends one local `SIGUSR1` to release the body cap. It
 waits up to five seconds for the server's timestamped release receipt before

@@ -364,6 +364,7 @@ void main() {
             isTrue,
           );
           expect(originalGuestController.value.hasError, isFalse);
+          await checkpoint('offline-unreachable', 'offline-proof-accepted');
           final injection = <String, Object?>{
             'phase': 'offline-decoder-failure',
             'controlledCacheMiss': true,

@@ -8,8 +8,8 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
-| 1 | Clean checkout builds and installs | Verified on emulators | fdebec3 passes normal API 29/35 debug and API 35 release clean install in hosted run 36044617989. These are normal lib/main.dart APKs. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36080633060 at 4c01143 passes the secret scan, formatting, analysis, 827 app tests, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
+| 1 | Clean checkout builds and installs | Verified on emulators | 29eafe2 passes normal API 29/35 debug and API 35 release clean install in hosted run 36074182955. The original normal-release APK hash, clean-install receipt, first-use and shared-video screens are reviewed. These are normal lib/main.dart APKs; release is debug-signed with billing disabled. Physical-device acceptance remains separate |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36083540519 at a4b8107 passes the secret scan, formatting, analysis, 828 app tests, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
@@ -43,6 +43,15 @@ passes on normal-release Local Mode: permanent pause upper bound 1,600 ms,
 transient pause 2,513 ms, and transient resume 5,268 ms. Three original screens
 and recording hashes are reviewed; this does not establish Together-room focus
 delivery or physical-device behavior.
+
+Normal-install `36074182955` passes API 29/35 debug and API 35 release at
+`29eafe2`. The original release receipt and APK hash are reviewed: one launch,
+no SDK Setup repair, no fatal app log, normal `lib/main.dart`, and a non-debuggable
+API 35 process. It is signed with the Android debug key and billing is disabled.
+Seven cold/warm incoming-media and invitation cases retain explicit confirmation
+and cancel without replay. Confirmed HTTPS and temporary read-only content-URI
+playback advance five and four seconds. First-use, shared-file confirmation and
+actual playback PNGs are reviewed; this is not physical or full-motion evidence.
 
 Check `36078119317` at `6daa1ea` passes all 824 app tests, 87 Nearby tests,
 14 platform tests, formatting, analysis, native observer SDK compilation and
@@ -97,8 +106,15 @@ then fails its fixture-byte guard after radios are disabled. The guard currently
 rejects every artificial-cap wait, including waits following the intended
 offline seek. Existing wait records lack timestamps, so they cannot establish
 whether the first cap was reached before or after radio loss. This failed run
-does not accept the decoder-rebuild path; the guard needs a distinct proved-
-offline boundary before the seek and timestamped fixture evidence.
+does not accept the decoder-rebuild path. The repaired guard now requires a
+same-process checkpoint after the real socket failure and automatic pause,
+immediately before the seek. Same-host monotonic timestamps distinguish early
+cap waits from allowed post-proof waits, including late-written records and
+interleaved request threads. Every pre-release served byte must stay below the
+proved keyframe cap; the original native error remains required. The server pace
+is 160 KiB/s. Independent source review finds no remaining defect; 65 lightweight
+contracts pass with one Windows-inapplicable skip. Fresh native acceptance is
+still required.
 
 The new Together-room audio-focus journey uses MainApp with one API 35 native
 decoder and an independent real TLS client in the same process. It continuously
@@ -110,8 +126,9 @@ installation-result parser; 35 lightweight contracts pass. Run `36081445086`
 then reaches real TLS and native playback, but its first stage receives HTTP 400:
 the strict bridge requires a bounded Content-Length and the Dart sender omitted
 it. No native focus request occurs. The sender now sets the exact UTF-8 body
-length; a real HTTP sender/server regression is scheduled before the next cloud
-native run. This is separate from the accepted normal-release Local Mode focus
+length. Hosted Check `36083540519` at `a4b8107` passes 828 app tests, including
+the real HTTP sender/server regression; native focus run `36083537904` is in
+progress. This is separate from the accepted normal-release Local Mode focus
 evidence.
 
 The local machine remains limited to source edits, lightweight evidence reads

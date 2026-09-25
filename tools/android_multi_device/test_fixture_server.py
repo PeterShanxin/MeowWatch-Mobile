@@ -6,6 +6,7 @@ from concurrent.futures import ThreadPoolExecutor
 import http.client
 import io
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -17,6 +18,7 @@ import tempfile
 import threading
 import time
 import unittest
+from unittest.mock import patch
 
 from tools.android_multi_device import fixture_server as fixture
 
@@ -24,6 +26,51 @@ from tools.android_multi_device import fixture_server as fixture
 ROOT = Path(__file__).resolve().parents[2]
 SCRIPTS = ROOT / "tools/android_multi_device"
 PAYLOAD = bytes(range(251)) * 4096
+
+
+class FixtureClockTests(unittest.TestCase):
+    def test_receipts_use_one_host_monotonic_clock_without_starting_server(self):
+        server = object.__new__(fixture.FixtureServer)
+        server.log = io.StringIO()
+        server.max_log_records = 10
+        server._log_count = 0
+        server._log_lock = threading.Lock()
+        with patch.object(fixture.time, "monotonic", side_effect=[10.0, 11.0, 12.0]):
+            for event in ("body_response", "body_span", "body_cap_wait"):
+                server.record({"event": event})
+        rows = [json.loads(line) for line in server.log.getvalue().splitlines()]
+        self.assertEqual([row["at_monotonic"] for row in rows], [10.0, 11.0, 12.0])
+
+    def test_wait_keeps_event_clock_when_log_write_is_delayed(self):
+        server = object.__new__(fixture.FixtureServer)
+        server.log = io.StringIO()
+        server.max_log_records = 10
+        server._log_count = 0
+        server._log_lock = threading.Lock()
+        entered = threading.Event()
+        clock = [9.0]
+
+        def monotonic():
+            value = clock[0]
+            entered.set()
+            return value
+
+        server._log_lock.acquire()
+        try:
+            with patch.object(fixture.time, "monotonic", side_effect=monotonic):
+                worker = threading.Thread(target=server.record,
+                                          args=({"event": "body_cap_wait"},))
+                worker.start()
+                self.assertTrue(entered.wait(1))
+                clock[0] = 11.0  # Runner recorded its offline boundary at 10.
+                server._log_lock.release()
+                worker.join(timeout=1)
+                self.assertFalse(worker.is_alive())
+        finally:
+            if server._log_lock.locked():
+                server._log_lock.release()
+        row = json.loads(server.log.getvalue())
+        self.assertEqual(row["at_monotonic"], 9.0)
 
 
 class FixtureHttpTests(unittest.TestCase):
@@ -50,6 +97,13 @@ class FixtureHttpTests(unittest.TestCase):
                     time.sleep(0.01)
                 rows = [json.loads(line) for line in log.getvalue().splitlines()]
                 self.assertTrue(any(row.get("event") == "body_cap_wait" for row in rows))
+                timed = [row for row in rows if row.get("event") in
+                         {"body_response", "body_span", "body_cap_wait"}]
+                self.assertTrue(all(isinstance(row.get("at_monotonic"), float)
+                                    and math.isfinite(row["at_monotonic"])
+                                    for row in timed))
+                self.assertEqual([row["at_monotonic"] for row in timed],
+                                 sorted(row["at_monotonic"] for row in timed))
                 server.body_cap_released.set()
                 self.assertEqual(response.read(), PAYLOAD[150000:200001])
                 connection.close()

@@ -553,10 +553,11 @@ class EvidenceTests(unittest.TestCase):
             runner.output.mkdir()
             runner.adb.pid = b"456"
             runner.android_pid = 456
-            runner.phase_index = PHASES.index("offline-confirmed")
+            runner.phase_index = runner.phases.index("offline-confirmed")
+            runner.offline_proof_at = 100.0
             runner.adb.radios = {"wifi": False, "data": False}
             order = []
-            proof = {"maxBodyOffset": 900, "bodyBytesPerSecond": 262144}
+            proof = {"maxBodyOffset": 900, "bodyBytesPerSecond": 160 * 1024}
             marker = {"runId": RUN_ID, "phase": "offline-confirmed", "pid": 456}
             with patch.object(runner, "capture"), \
                     patch.object(runner, "finish_recording"), \
@@ -565,14 +566,16 @@ class EvidenceTests(unittest.TestCase):
                     patch("tools.android_network_runtime.run.Path.read_text",
                           return_value=json.dumps(proof)), \
                     patch("tools.android_network_runtime.run.validate_spans",
-                          return_value={"highestServedOffset": 899}) as spans, \
+                          return_value={"highestServedOffset": 899,
+                                        "postProofCapWaitCount": 0}) as spans, \
                     patch("tools.android_network_runtime.run.release_owned_server",
                           side_effect=lambda *_: order.append("release") or {"event": "body_cap_released"}), \
                     patch.object(runner.radios, "restore",
                                  side_effect=lambda **_: order.append("restore")):
                 runner.observe_checkpoint(marker)
             self.assertEqual(order, ["release", "restore"])
-            self.assertTrue(spans.called)
+            spans.assert_called_once_with(
+                Path("build/android-network-fixture-server/http-server.log"), proof, 100.0)
             self.assertEqual(runner.fixture_release_receipt["event"], "body_cap_released")
 
     def test_failed_cap_release_cannot_ack_or_restore_in_checkpoint(self):
@@ -582,14 +585,16 @@ class EvidenceTests(unittest.TestCase):
             runner.output.mkdir()
             runner.adb.pid = b"456"
             runner.android_pid = 456
-            runner.phase_index = PHASES.index("offline-confirmed")
+            runner.phase_index = runner.phases.index("offline-confirmed")
+            runner.offline_proof_at = 100.0
             runner.adb.radios = {"wifi": False, "data": False}
             marker = {"runId": RUN_ID, "phase": "offline-confirmed", "pid": 456}
             with patch.object(runner, "capture"), \
                     patch("tools.android_network_runtime.run.Path.read_text",
                           return_value='{}'), \
                     patch("tools.android_network_runtime.run.validate_spans",
-                          return_value={"highestServedOffset": 899}), \
+                          return_value={"highestServedOffset": 899,
+                                        "postProofCapWaitCount": 1}), \
                     patch("tools.android_network_runtime.run.release_owned_server",
                           side_effect=RuntimeFailure("release missing")), \
                     patch.object(runner.radios, "restore") as restore, \
@@ -598,6 +603,73 @@ class EvidenceTests(unittest.TestCase):
                 runner.observe_checkpoint(marker)
             restore.assert_not_called()
             ack.assert_not_called()
+
+    def test_variant_offline_socket_checkpoint_precedes_seek_and_cap_release(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.variant = "decoder_failure"
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.android_pid = 456
+            runner.phase_index = runner.phases.index("offline-unreachable")
+            runner.adb.radios = {"wifi": False, "data": False}
+            marker = {"runId": RUN_ID, "phase": "offline-unreachable", "pid": 456}
+            proof = {"maxBodyOffset": 900, "bodyBytesPerSecond": 160 * 1024}
+            with patch("tools.android_network_runtime.run.time.monotonic", return_value=100.0), \
+                    patch("tools.android_network_runtime.run.Path.read_text",
+                          return_value=json.dumps(proof)), \
+                    patch("tools.android_network_runtime.run.validate_spans",
+                          return_value={"postProofCapWaitCount": 0}) as spans, \
+                    patch("tools.android_network_runtime.run.release_owned_server") as release, \
+                    patch.object(runner, "ack") as ack:
+                runner.observe_checkpoint(marker)
+            spans.assert_called_once_with(
+                Path("build/android-network-fixture-server/http-server.log"), proof, 100.0)
+            self.assertEqual(runner.offline_proof_at, 100.0)
+            ack.assert_called_once_with("offline-proof-accepted")
+            release.assert_not_called()
+            self.assertEqual(runner.phase_index, runner.phases.index("offline-confirmed"))
+
+    def test_variant_offline_checkpoint_fails_closed_without_radios_or_valid_receipts(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.variant = "decoder_failure"
+            runner.output.mkdir()
+            runner.adb.pid = b"789"
+            runner.android_pid = 456
+            runner.phase_index = runner.phases.index("offline-unreachable")
+            marker = {"runId": RUN_ID, "phase": "offline-unreachable", "pid": 456}
+            with patch.object(runner, "ack") as ack, \
+                    self.assertRaisesRegex(RuntimeFailure, "current MainApp process"):
+                runner.observe_checkpoint(marker)
+            ack.assert_not_called()
+            runner.adb.pid = b"456"
+            with patch.object(runner, "ack") as ack, \
+                    patch("tools.android_network_runtime.run.validate_spans") as spans, \
+                    self.assertRaisesRegex(RuntimeFailure, "radios changed"):
+                runner.observe_checkpoint(marker)
+            ack.assert_not_called()
+            spans.assert_not_called()
+            runner.phase_index = runner.phases.index("offline-unreachable")
+            runner.adb.radios = {"wifi": False, "data": False}
+            with patch.object(runner, "ack") as ack, \
+                    patch("tools.android_network_runtime.run.Path.read_text",
+                          return_value='{}'), \
+                    patch("tools.android_network_runtime.run.validate_spans",
+                          side_effect=RuntimeFailure("pre-proof cap wait")), \
+                    self.assertRaisesRegex(RuntimeFailure, "pre-proof cap wait"):
+                runner.observe_checkpoint(marker)
+            ack.assert_not_called()
+
+    def test_normal_variant_rejects_extra_checkpoint(self):
+        with tempfile.TemporaryDirectory() as directory:
+            runner = self.make_runner(Path(directory))
+            runner.output.mkdir()
+            runner.adb.pid = b"456"
+            runner.phase_index = PHASES.index("offline-confirmed")
+            with self.assertRaisesRegex(RuntimeFailure, "out-of-order"):
+                runner.observe_checkpoint({"runId": RUN_ID,
+                                           "phase": "offline-unreachable", "pid": 456})
 
     def test_wifi_readiness_failure_restores_original_radios_without_ack(self):
         with tempfile.TemporaryDirectory() as directory:

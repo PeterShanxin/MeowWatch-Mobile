@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 from pathlib import Path
 import re
@@ -15,7 +16,7 @@ from tools.android_multi_device.fixture_server import process_identity
 
 
 SEEK_MS = 85000
-PACE_BYTES_PER_SECOND = 256 * 1024
+PACE_BYTES_PER_SECOND = 160 * 1024
 
 
 def prepare(fixture: Path, output: Path) -> dict:
@@ -44,7 +45,13 @@ def prepare(fixture: Path, output: Path) -> dict:
     return proof
 
 
-def validate_spans(log: Path, proof: dict) -> dict:
+def validate_spans(log: Path, proof: dict, offline_proof_at: float) -> dict:
+    lines = log.read_text(encoding="utf-8").splitlines()
+    observed_at = time.monotonic()
+    if (type(offline_proof_at) not in (int, float)
+            or not math.isfinite(offline_proof_at)
+            or not 0 < offline_proof_at <= observed_at):
+        raise RuntimeFailure("offline proof has no valid host monotonic boundary")
     if (proof.get("seekMs") != SEEK_MS
             or proof.get("bodyBytesPerSecond") != PACE_BYTES_PER_SECOND
             or type(proof.get("fixtureSize")) is not int
@@ -56,13 +63,33 @@ def validate_spans(log: Path, proof: dict) -> dict:
     spans = []
     ready = []
     responses = {}
+    waits = []
     cap = proof["maxBodyOffset"]
-    for line in log.read_text(encoding="utf-8").splitlines():
+    previous_clock_by_port = {}
+    for line in lines:
         row = json.loads(line)
         if row.get("event") == "request_log_limit":
             raise RuntimeFailure("fixture byte receipts exceeded their log budget")
-        if row.get("event") == "body_cap_wait" or row.get("outcome") == "body_cap_timeout":
-            raise RuntimeFailure("fixture reached its artificial byte cap before offline proof")
+        if row.get("outcome") == "body_cap_timeout":
+            raise RuntimeFailure("fixture timed out at its artificial byte cap")
+        event = row.get("event")
+        if event in {"body_response", "body_span", "body_cap_wait"}:
+            clock = row.get("at_monotonic")
+            port = row.get("client_port")
+            if (type(clock) not in (int, float) or not math.isfinite(clock)
+                    or not 0 < clock <= observed_at
+                    or type(port) is not int or port <= 0
+                    or clock < previous_clock_by_port.get(port, 0)):
+                raise RuntimeFailure("fixture body receipt has a missing or misordered host monotonic timestamp")
+            previous_clock_by_port[port] = clock
+        if event == "body_cap_wait":
+            if (row.get("asset") != "sync-fixture.mp4"
+                    or type(row.get("next_offset")) is not int
+                    or row["next_offset"] < cap):
+                raise RuntimeFailure("fixture cap wait receipt is invalid")
+            if clock <= offline_proof_at:
+                raise RuntimeFailure("fixture reached its artificial byte cap before offline proof")
+            waits.append(row)
         if row.get("event") == "ready":
             ready.append(row)
         if row.get("event") == "body_response" and row.get("asset") == "sync-fixture.mp4":
@@ -89,10 +116,17 @@ def validate_spans(log: Path, proof: dict) -> dict:
     if ports - responses.keys() or any(
             row["first"] < responses[row["client_port"]]["first"]
             or row["last"] > responses[row["client_port"]]["last"]
+            or row["at_monotonic"] < responses[row["client_port"]]["at_monotonic"]
             for row in spans):
         raise RuntimeFailure("fixture bytes lack a matching HTTP range receipt")
+    if any(row["client_port"] not in responses
+           or row["at_monotonic"] < responses[row["client_port"]]["at_monotonic"]
+           for row in waits):
+        raise RuntimeFailure("fixture cap wait lacks a preceding HTTP range receipt")
     return {"spanCount": len(spans), "requestPorts": len(ports),
             "highestServedOffset": max(row["last"] for row in spans),
+            "offlineProofAtMonotonic": offline_proof_at,
+            "postProofCapWaitCount": len(waits),
             **proof}
 
 

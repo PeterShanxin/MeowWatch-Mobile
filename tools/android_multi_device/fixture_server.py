@@ -84,6 +84,9 @@ class FixtureServer(ThreadingHTTPServer):
         super().__init__((HOST, port), FixtureHandler)
 
     def record(self, row: dict) -> None:
+        # Capture the event before waiting for the log lock: a cap wait that
+        # happened before the offline boundary must not appear later in time.
+        row = {**row, "at_monotonic": time.monotonic()}
         with self._log_lock:
             if self._log_count < self.max_log_records:
                 print(json.dumps(row, separators=(",", ":")), file=self.log, flush=True)

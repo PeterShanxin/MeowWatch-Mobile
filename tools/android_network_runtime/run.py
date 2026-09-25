@@ -31,7 +31,9 @@ from tools.billing_runtime.native_dialog import (
 RUNTIME = "One dedicated API 35 AVD; one MainApp process; two real TLS clients/native decoders"
 PHASES = ("app-ready", "players-ready", "initial-ready", "offline-confirmed",
           "reconnected-confirmed", "recovery-confirmed", "teardown-complete")
+FAILURE_PHASES = PHASES[:3] + ("offline-unreachable",) + PHASES[3:]
 ACK_PHASES = {"bootstrap-observed", "recording-ready", "network-disabled",
+              "offline-proof-accepted",
               "network-restored", "controls-ready", "evidence-complete"}
 REQUIRED = {
     "initial_real_tls_native_playback_and_consumed_host",
@@ -94,7 +96,7 @@ def parse_checkpoint(line: str, run_id: str) -> dict | None:
         raise RuntimeFailure("malformed network checkpoint") from error
     if not isinstance(value, dict) or value.get("runId") != run_id:
         raise RuntimeFailure("network checkpoint belongs to another run")
-    if value.get("phase") not in PHASES or type(value.get("pid")) is not int or value["pid"] <= 0:
+    if value.get("phase") not in FAILURE_PHASES or type(value.get("pid")) is not int or value["pid"] <= 0:
         raise RuntimeFailure("invalid network checkpoint phase or Android PID")
     return value
 
@@ -421,6 +423,7 @@ class Runner:
         self.variant = variant
         self.fixture_byte_proof: dict | None = None
         self.fixture_release_receipt: dict | None = None
+        self.offline_proof_at: float | None = None
         self.adb = Adb(serial, run_id)
         self.observer = NativeUiObserver(self.adb)
         self.avd_name, self.apk, self.run_id = avd_name, apk.resolve(strict=True), run_id
@@ -440,6 +443,10 @@ class Runner:
         self.admitted = False
         self.sdk_setup_recovery_attempts = 0
         self.sdk_setup_preflight_recovered = False
+
+    @property
+    def phases(self) -> tuple[str, ...]:
+        return FAILURE_PHASES if self.variant == "decoder_failure" else PHASES
 
     def write(self, name: str, value: object) -> None:
         (self.output / name).write_text(json.dumps(value, indent=2) + "\n", encoding="utf-8")
@@ -677,7 +684,7 @@ class Runner:
     def observe_checkpoint(self, value: dict) -> None:
         phase = value["phase"]
         failed_teardown = phase == "teardown-complete" and value.get("passed") is False
-        if not failed_teardown and (self.phase_index >= len(PHASES) or phase != PHASES[self.phase_index]):
+        if not failed_teardown and (self.phase_index >= len(self.phases) or phase != self.phases[self.phase_index]):
             raise RuntimeFailure(f"duplicate or out-of-order checkpoint: {phase}")
         current = self.adb.run("shell", "pidof", PACKAGE).stdout.strip()
         if current != str(value["pid"]).encode("ascii"):
@@ -692,7 +699,7 @@ class Runner:
             failure = value.get("failure")
             if isinstance(failure, dict) and failure.get("stage") and failure.get("message"):
                 raise RuntimeFailure(f"integration failed during {failure['stage']}: {failure['message']}")
-            previous = PHASES[self.phase_index - 1] if self.phase_index else "startup"
+            previous = self.phases[self.phase_index - 1] if self.phase_index else "startup"
             raise RuntimeFailure(f"integration test failed after {previous}; see flutter-drive.log and result.json")
         self.phase_index += 1
         if phase == "app-ready":
@@ -708,15 +715,31 @@ class Runner:
             self.radios.disable()
             self.capture("radios-disabled")
             self.ack("network-disabled")
+        elif phase == "offline-unreachable":
+            if self.radios.read() != {"wifi": False, "data": False}:
+                raise RuntimeFailure("radios changed before the offline socket proof")
+            boundary = time.monotonic()
+            proof = json.loads(Path("build/android-network-fixture/failure-proof.json")
+                               .read_text(encoding="utf-8"))
+            # Server and runner share this host clock. Revalidate the complete
+            # receipt at the later failure checkpoint to catch delayed writes.
+            self.fixture_byte_proof = validate_spans(
+                Path("build/android-network-fixture-server/http-server.log"), proof, boundary)
+            self.offline_proof_at = boundary
+            self.write("fixture-byte-proof.json", self.fixture_byte_proof)
+            self.ack("offline-proof-accepted")
         elif phase == "offline-confirmed":
             self.capture(phase)
             if self.radios.read() != {"wifi": False, "data": False}:
                 raise RuntimeFailure("radios changed before the offline observation")
             if self.variant == "decoder_failure":
+                if self.offline_proof_at is None:
+                    raise RuntimeFailure("native failed-decoder variant lacks the offline socket boundary")
                 proof = json.loads(Path("build/android-network-fixture/failure-proof.json")
                                    .read_text(encoding="utf-8"))
                 self.fixture_byte_proof = validate_spans(
-                    Path("build/android-network-fixture-server/http-server.log"), proof)
+                    Path("build/android-network-fixture-server/http-server.log"),
+                    proof, self.offline_proof_at)
                 self.write("fixture-byte-proof.json", self.fixture_byte_proof)
                 self.fixture_release_receipt = release_owned_server(
                     Path("build/android-network-fixture-server/server.env"),
@@ -817,7 +840,7 @@ class Runner:
                 if self.process.poll() is not None:
                     if self.process.returncode != 0:
                         raise RuntimeFailure(f"flutter drive failed with exit {self.process.returncode}")
-                    if self.phase_index != len(PHASES):
+                    if self.phase_index != len(self.phases):
                         raise RuntimeFailure("flutter drive exited before every owned checkpoint completed")
                     break
                 if self.logcat.poll() is not None:
@@ -867,7 +890,7 @@ class Runner:
                 "removed": not self.observer.owns_package,
             })
             self.write("gate.json", {"passed": not self.errors, "errors": self.errors,
-                                     "runtime": RUNTIME, "completedPhases": list(PHASES[:self.phase_index]),
+                                     "runtime": RUNTIME, "completedPhases": list(self.phases[:self.phase_index]),
                                      "originalRadios": self.radios.initial,
                                      "sdkSetupRecoveryExercised": (self.sdk_setup_preflight_recovered
                                                                    or self.sdk_setup_recovery_attempts > 0),

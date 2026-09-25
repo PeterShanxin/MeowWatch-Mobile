@@ -96,6 +96,16 @@ and the existing timeline/source/action semantics are still required.
 records each snapshot's nonce, device/host times, app PID, node count and XML hash.
 The workflow retains the helper build/signature/manifest evidence as well.
 
+The immediate pre-HOME and returned-paused samples must have a matching fresh
+`nativeUiCapture`, bound to the original observation by its XML hash and index.
+`homeTimings` also brackets the HOME key event with Android `/proc/uptime` reads
+and host command timestamps. Both reads and the key event share the original
+25-second command budget; invalid clock evidence fails before dispatch where
+possible. These receipts distinguish capture/command scheduling delays from the
+eight-second background hold. They do not identify when the app's lifecycle
+callback or native pause executed, and do not relax the four-second position
+tolerance.
+
 Two original native `screenrecord` MP4 segments supplement the XML assertions:
 initial fixture review/playback, then the immediate pre-HOME sample through
 foreground, explicit replay, new-process restoration and manual continuation.

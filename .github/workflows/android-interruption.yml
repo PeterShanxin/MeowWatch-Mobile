@@ -26,7 +26,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: android-interruption-${{ github.ref }}
+  group: android-interruption-${{ github.ref }}-${{ inputs.scope || 'local' }}
   cancel-in-progress: true
 
 jobs:

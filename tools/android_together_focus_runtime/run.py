@@ -24,6 +24,8 @@ from tools.android_interruption_runtime.run import (
 )
 from tools.android_lifecycle_runtime.run import playback
 from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver
+from tools.android_multi_device.device_readiness import MeasurementError
+from tools.android_multi_device.prepare_sdk_setup import LAUNCHER_HOME, Preparation
 
 
 HELD_STAGES = ("permanent-acquire", "permanent-release", "transient-acquire", "transient-release")
@@ -31,6 +33,42 @@ STAGES = ("early-short-ready", "early-short-acquire", *HELD_STAGES)
 EARLY_AUTO_RELEASE_MS = 350
 EARLY_WINDOW_MS = 3000
 AVD_NAME = re.compile(r"meowwatch_interruption_[0-9]+_[0-9]+")
+
+
+def await_boot_ready(adb: str, serial: str, avd_name: str, output: Path, *,
+                     clock=time.monotonic, sleep=time.sleep, budget_seconds: int = 60) -> dict:
+    """Observe cold provisioning before establishing the SDK preparation baseline."""
+    output.mkdir(parents=True, exist_ok=False)
+    deadline = clock() + budget_seconds
+    observer = Preparation(adb, output, deadline, clock=clock, sleep=sleep)
+    report = {"status": "failed", "budgetSeconds": budget_seconds, "observations": 0}
+    try:
+        while clock() < deadline:
+            index = report["observations"]
+            state = observer.snapshot(serial, avd_name, f"boot-readiness-{index:02}")
+            report["observations"] += 1
+            report["lastState"] = state
+            if clock() >= deadline:
+                raise RuntimeFailure("cold startup observation exceeded its deadline")
+            if state["verifiedAvd"] != avd_name or state["appInstalled"] is not False:
+                raise RuntimeFailure("cold startup observation lost task AVD or found MeowWatch installed")
+            provisioned = all(state[key] == "1" for key in
+                              ("bootCompleted", "provisioned", "userSetupComplete"))
+            if provisioned and state["eligible"] is True:
+                # The existing preparation owns exact system ANR recovery.
+                report["status"] = "eligible-system-anr"
+                return report
+            if (provisioned and state["resolvedHome"] == LAUNCHER_HOME
+                    and state["homeFocused"] is True and state["anrWindow"] is None):
+                report["status"] = "home-ready"
+                return report
+            sleep(min(2, max(0, deadline - clock())))
+        raise RuntimeFailure(f"task AVD did not finish cold provisioning and Home startup within {budget_seconds} seconds")
+    except (MeasurementError, RuntimeFailure, OSError) as error:
+        report["reason"] = str(error)
+        raise
+    finally:
+        (output / "result.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 
 
 def require_prelaunch_home(preparation: dict, fresh: dict, serial: str, avd_name: str) -> dict:

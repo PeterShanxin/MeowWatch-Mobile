@@ -25,13 +25,14 @@ import sys
 import time
 
 from tools.android_multi_device.prepare_sdk_setup import Preparation, prepare
-from tools.android_together_focus_runtime.run import require_prelaunch_home
+from tools.android_together_focus_runtime.run import await_boot_ready, require_prelaunch_home
 
 avd = sys.argv[1]
 if re.fullmatch(r"meowwatch_interruption_[0-9]+_[0-9]+", avd) is None:
     raise SystemExit("Together focus requires its exact task AVD name")
 serial = "emulator-5554"
 output = Path("build/android-together-focus-sdk-preparation")
+await_boot_ready("adb", serial, avd, Path("build/android-together-focus-boot-readiness"))
 report = prepare("adb", {serial: avd}, output)
 if report["status"] != "prepared":
     raise SystemExit(f"SDK preparation failed: {report.get('reason')}")

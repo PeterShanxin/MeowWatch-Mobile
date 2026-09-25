@@ -10,13 +10,15 @@ import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from types import SimpleNamespace
-from unittest.mock import Mock
+from unittest.mock import Mock, patch
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_interruption_runtime.run import HELPER, FOCUS_HEADER, require_focus
 from tools.android_lifecycle_runtime.prepare_avd import ORIGINAL, prepare
+from tools.android_multi_device.device_readiness import MeasurementError
+from tools.android_multi_device.prepare_sdk_setup import LAUNCHER_HOME
 from tools.android_together_focus_runtime.run import (
-    AVD_NAME, STAGES, FocusSession, StageServer, require_prelaunch_home, validate_journey,
+    AVD_NAME, STAGES, FocusSession, StageServer, await_boot_ready, require_prelaunch_home, validate_journey,
 )
 
 
@@ -65,6 +67,97 @@ def receipt() -> tuple[dict, list[dict]]:
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_cold_fallback_home_waits_for_provisioned_launcher(self):
+        avd = "meowwatch_interruption_36092741332_1"
+        cold = {"verifiedAvd": avd, "appInstalled": False, "bootCompleted": "1",
+                "provisioned": "0", "userSetupComplete": "0", "eligible": False,
+                "resolvedHome": "com.google.android.googlesdksetup/com.google.android.googlesdksetup.DefaultActivity",
+                "homeFocused": False, "anrWindow": None}
+        ready = {**cold, "provisioned": "1", "userSetupComplete": "1",
+                 "resolvedHome": LAUNCHER_HOME, "homeFocused": True}
+        now = [0.0]
+        observer = Mock()
+        observer.snapshot.side_effect = [cold, ready]
+        with TemporaryDirectory() as directory, patch(
+                "tools.android_together_focus_runtime.run.Preparation", return_value=observer):
+            output = Path(directory) / "boot"
+            result = await_boot_ready("adb", "emulator-5554", avd, output,
+                                      clock=lambda: now[0], sleep=lambda delay: now.__setitem__(0, now[0] + delay))
+            self.assertEqual(result["status"], "home-ready")
+            self.assertEqual(result["observations"], 2)
+            self.assertEqual([call.args[2] for call in observer.snapshot.call_args_list],
+                             ["boot-readiness-00", "boot-readiness-01"])
+            self.assertEqual(json.loads((output / "result.json").read_text())["lastState"], ready)
+
+    def test_cold_home_deadline_does_not_admit_unfinished_provisioning(self):
+        avd = "meowwatch_interruption_123_1"
+        cold = {"verifiedAvd": avd, "appInstalled": False, "bootCompleted": "1",
+                "provisioned": "0", "userSetupComplete": "0", "eligible": False,
+                "resolvedHome": "com.android.settings/.FallbackHome", "homeFocused": False,
+                "anrWindow": None}
+        now = [0.0]
+        observer = Mock()
+        observer.snapshot.return_value = cold
+        with TemporaryDirectory() as directory, patch(
+                "tools.android_together_focus_runtime.run.Preparation", return_value=observer):
+            output = Path(directory) / "boot"
+            with self.assertRaisesRegex(RuntimeFailure, "within 5 seconds"):
+                await_boot_ready("adb", "emulator-5554", avd, output, budget_seconds=5,
+                                 clock=lambda: now[0], sleep=lambda delay: now.__setitem__(0, now[0] + delay))
+            self.assertEqual(observer.snapshot.call_count, 3)
+            self.assertEqual(json.loads((output / "result.json").read_text())["status"], "failed")
+
+    def test_cold_home_identity_install_and_measurement_fail_without_retry(self):
+        avd = "meowwatch_interruption_123_1"
+        ready = {"verifiedAvd": avd, "appInstalled": False, "bootCompleted": "1",
+                 "provisioned": "1", "userSetupComplete": "1", "eligible": False,
+                 "resolvedHome": LAUNCHER_HOME, "homeFocused": True, "anrWindow": None}
+        for state, error in (({**ready, "verifiedAvd": "other"}, RuntimeFailure),
+                             ({**ready, "appInstalled": True}, RuntimeFailure),
+                             (MeasurementError("invalid focused window"), MeasurementError)):
+            with self.subTest(state=state), TemporaryDirectory() as directory:
+                observer = Mock()
+                observer.snapshot.side_effect = [state] if isinstance(state, Exception) else None
+                if not isinstance(state, Exception):
+                    observer.snapshot.return_value = state
+                with patch("tools.android_together_focus_runtime.run.Preparation", return_value=observer):
+                    with self.assertRaises(error):
+                        await_boot_ready("adb", "emulator-5554", avd, Path(directory) / "boot",
+                                         clock=lambda: 0, sleep=lambda _: self.fail("unexpected retry"))
+                self.assertEqual(observer.snapshot.call_count, 1)
+
+    def test_provisioned_system_anr_goes_to_existing_preparation(self):
+        avd = "meowwatch_interruption_123_1"
+        eligible = {"verifiedAvd": avd, "appInstalled": False, "bootCompleted": "1",
+                    "provisioned": "1", "userSetupComplete": "1", "eligible": True,
+                    "resolvedHome": LAUNCHER_HOME, "homeFocused": False, "anrWindow": "abc"}
+        observer = Mock()
+        observer.snapshot.return_value = eligible
+        with TemporaryDirectory() as directory, patch(
+                "tools.android_together_focus_runtime.run.Preparation", return_value=observer):
+            result = await_boot_ready("adb", "emulator-5554", avd, Path(directory) / "boot", clock=lambda: 0)
+            self.assertEqual(result["status"], "eligible-system-anr")
+            self.assertEqual(observer.snapshot.call_count, 1)
+
+    def test_ready_home_observed_after_deadline_is_rejected(self):
+        avd = "meowwatch_interruption_123_1"
+        now = [0.0]
+        observer = Mock()
+
+        def late_snapshot(*args):
+            now[0] = 60.1
+            return {"verifiedAvd": avd, "appInstalled": False, "bootCompleted": "1",
+                    "provisioned": "1", "userSetupComplete": "1", "eligible": False,
+                    "resolvedHome": LAUNCHER_HOME, "homeFocused": True, "anrWindow": None}
+
+        observer.snapshot.side_effect = late_snapshot
+        with TemporaryDirectory() as directory, patch(
+                "tools.android_together_focus_runtime.run.Preparation", return_value=observer):
+            with self.assertRaisesRegex(RuntimeFailure, "exceeded its deadline"):
+                await_boot_ready("adb", "emulator-5554", avd, Path(directory) / "boot",
+                                 clock=lambda: now[0])
+            self.assertEqual(observer.snapshot.call_count, 1)
+
     def test_prelaunch_requires_same_ready_home_and_anr_history(self):
         serial = "emulator-5554"
         avd = "meowwatch_interruption_36088605515_1"

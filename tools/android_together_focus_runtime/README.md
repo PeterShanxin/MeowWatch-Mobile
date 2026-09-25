@@ -10,8 +10,14 @@ physical phone.
 The host loopback stage bridge issues two fresh, nonce-bound native focus helper
 requests after the native player and peer both report settled playback.
 Before app installation, the dedicated API 35 AVD runs the repository's
-bounded SDK setup preparation once. It can recover only a verified current
-system Launcher or SDK setup ANR, with original screenshots and process/event
+bounded, read-only cold-start observation for up to 60 seconds. Each original
+AVD identity, setup state, Home focus, ANR state and screenshot is retained in
+the separate boot-readiness artifact. The wait ends only after provisioning
+completes and NexusLauncher owns Home, or after a fully identified eligible
+system ANR is ready for the existing preparation step. Wrong AVD, an installed
+MeowWatch app, invalid measurements and a persistent unfinished startup fail
+without a recovery attempt. Then SDK setup preparation runs once. It can
+recover only a verified current system Launcher or SDK setup ANR, with original screenshots and process/event
 identity retained. A second Home observation five seconds later must still
 show the same resolved Home, no current dialog, and no new ANR event. The
 preparation receipt is uploaded separately. If an ANR appears after the app

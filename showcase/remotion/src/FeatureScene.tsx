@@ -3,6 +3,7 @@ import {Video} from '@remotion/media';
 import {
   AbsoluteFill,
   Interactive,
+  Sequence,
   interpolate,
   spring,
   staticFile,
@@ -21,8 +22,16 @@ export type Feature = {
   title: string;
   caption: string;
   disclosure: string;
+  sourceType?: 'physical' | 'emulator';
   accent?: 'blue' | 'peach';
 };
+
+// These three matching cuts retain the phone and tablet's shared recording clock.
+const controlCuts = [
+  {at: 0, source: 0, frames: 60},
+  {at: 60, source: 315, frames: 90},
+  {at: 150, source: 495, frames: 150},
+];
 
 const Screen: React.FC<{
   id: string;
@@ -30,7 +39,8 @@ const Screen: React.FC<{
   width: number;
   height: number;
   label?: string;
-}> = ({id, device, width, height, label}) => (
+  controls?: boolean;
+}> = ({id, device, width, height, label, controls = false}) => (
   <div style={{position: 'relative', width: width + 18, flexShrink: 0}}>
     <div
       style={{
@@ -44,19 +54,37 @@ const Screen: React.FC<{
         boxShadow: '0 32px 60px #0000006B, 0 0 0 1px #FFFFFF12 inset',
       }}
     >
-      <Video
-        src={staticFile(`media/${id}-${device}.mp4`)}
-        muted
-        style={{width, height, display: 'block', objectFit: 'contain', background: '#05080D'}}
-      />
+      {controls ? (
+        controlCuts.map((cut) => (
+          <Sequence
+            key={cut.at}
+            from={cut.at}
+            durationInFrames={cut.frames}
+            layout="none"
+          >
+            <Video
+              src={staticFile(`media/${id}-${device}.mp4`)}
+              trimBefore={cut.source}
+              muted
+              style={{width, height, display: 'block', objectFit: 'contain', background: '#05080D'}}
+            />
+          </Sequence>
+        ))
+      ) : (
+        <Video
+          src={staticFile(`media/${id}-${device}.mp4`)}
+          muted
+          style={{width, height, display: 'block', objectFit: 'contain', background: '#05080D'}}
+        />
+      )}
     </div>
     {label && (
       <div
         style={{
           marginTop: 19,
           fontFamily: 'DM Sans',
-          fontSize: 18,
-          letterSpacing: 2.5,
+          fontSize: 20,
+          letterSpacing: 1.7,
           color: muted,
           textTransform: 'uppercase',
         }}
@@ -76,18 +104,18 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
   const controls = feature.id === 'controls';
   const reverse = ['continue', 'restore', 'reaction'].includes(feature.id);
   const displayWord = controls
-    ? frame < 8 * fps
+    ? frame < 2 * fps
       ? 'PLAY'
-      : frame < 16 * fps
+      : frame < 5 * fps
         ? 'PAUSE'
         : 'SEEK'
     : null;
   const displayWordFrame = controls
-    ? frame < 8 * fps
+    ? frame < 2 * fps
       ? frame
-      : frame < 16 * fps
-        ? frame - 8 * fps
-        : frame - 16 * fps
+      : frame < 5 * fps
+        ? frame - 2 * fps
+        : frame - 5 * fps
     : 0;
 
   return (
@@ -138,7 +166,7 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
           fontWeight: 700,
         }}
       >
-        {feature.number} / 10
+        {feature.number} / 12
       </div>
       <div
         style={{
@@ -213,7 +241,7 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
               device="phone"
               width={342}
               height={760}
-              label="Android phone / actual capture"
+              label={feature.sourceType === 'physical' ? 'Physical OnePlus' : 'Android emulator'}
             />
           </div>
           <div
@@ -235,9 +263,9 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
               left: 134,
               top: 316,
               opacity: entrance,
-              translate: `${controls ? interpolate(frame, [0, 8 * fps, 16 * fps, 25 * fps], [0, 15, -6, 0], {extrapolateRight: 'clamp'}) : 0}px ${interpolate(entrance, [0, 1], [72, 0])}px`,
+              translate: `${controls ? interpolate(frame, [0, 2 * fps, 5 * fps, 10 * fps], [0, 15, -6, 0], {extrapolateRight: 'clamp'}) : 0}px ${interpolate(entrance, [0, 1], [72, 0])}px`,
               scale: controls
-                ? interpolate(frame, [0, 8 * fps, 16 * fps, 25 * fps], [1.035, 1, 0.98, 1], {
+                ? interpolate(frame, [0, 2 * fps, 5 * fps, 10 * fps], [1.035, 1, 0.98, 1], {
                     extrapolateLeft: 'clamp',
                     extrapolateRight: 'clamp',
                   })
@@ -251,6 +279,7 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
               device="phone"
               width={288}
               height={640}
+              controls={controls}
             />
           </div>
           <div
@@ -259,9 +288,9 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
               left: 728,
               top: 380,
               opacity: entrance,
-              translate: `${interpolate(entrance, [0, 1], [90, 0]) + (controls ? interpolate(frame, [0, 8 * fps, 16 * fps, 25 * fps], [0, -22, 15, 0], {extrapolateRight: 'clamp'}) : 0)}px 0`,
+              translate: `${interpolate(entrance, [0, 1], [90, 0]) + (controls ? interpolate(frame, [0, 2 * fps, 5 * fps, 10 * fps], [0, -22, 15, 0], {extrapolateRight: 'clamp'}) : 0)}px 0`,
               scale: controls
-                ? interpolate(frame, [0, 8 * fps, 16 * fps, 25 * fps], [0.98, 1, 1.035, 1], {
+                ? interpolate(frame, [0, 2 * fps, 5 * fps, 10 * fps], [0.98, 1, 1.035, 1], {
                     extrapolateLeft: 'clamp',
                     extrapolateRight: 'clamp',
                   })
@@ -275,6 +304,7 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
               device="tablet"
               width={895}
               height={560}
+              controls={controls}
             />
           </div>
           <div
@@ -350,10 +380,7 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
           }),
         }}
       >
-        Android emulator footage · 1×
-        {feature.kind === 'pair' && '   /   Separate recordings · Approximate alignment'}
-        {(feature.id === 'purchase' || feature.id === 'restore' || feature.id === 'aurora' || feature.id === 'reaction' || feature.id === 'another') &&
-          '   /   RevenueCat Test Store · No charge'}
+        {feature.disclosure}
       </div>
       <div
         style={{

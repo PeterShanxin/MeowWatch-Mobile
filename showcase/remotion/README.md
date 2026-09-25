@@ -1,10 +1,20 @@
 # MeowWatch launch film
 
-The editable Remotion edition uses the same 94-second story and original native
-captures as [the documented edit](../../docs/DEMO_SCRIPT.md). Motion, typography,
-device framing and an original soundtrack are added around the real app footage.
-Paired recordings retain their common approximate clock. No app interactions or
-device results are synthesized, sped up or independently retimed.
+The editable Remotion edition is a 94-second story built from real app captures.
+It adds physical OnePlus local playback and fullscreen footage to the original
+Android emulator room, chat, history and RevenueCat Test Store scenes. Motion,
+typography, device framing and an original soundtrack sit around the captures.
+The physical-phone scenes are separate journeys; they do not depict paired sync
+or a purchase on that phone. No app interactions or device results are synthesized
+or sped up.
+
+The paired control scene uses three matching 1× cuts from its original 25-second
+phone and tablet recordings: 0–2 seconds (playing), 10.5–13.5 seconds (pause),
+and 16.5–21.5 seconds (seek and resume). The two captures retain their common
+approximate clock within every cut. The physical portrait clip is 10 seconds of
+the 105–115 second interval from `02-local-playback.mp4`; the physical landscape
+clip is seven seconds from 29–36 seconds in `03-landscape.mp4`. The raw onboarding
+recording is not used.
 
 ## Preview
 
@@ -12,7 +22,10 @@ Node 24 is supported. Run `npm ci` here. Download the
 `meowwatch-remotion-preview-<attempt>` artifact from **Remotion submission film**
 into this directory's `public/` folder, then run `npm run dev`. The Studio opens
 at the URL printed by the command; composition `MeowWatchLaunch` is 1920 × 1080,
-30 fps and 2,820 frames. Keep playback paused while editing on constrained hosts.
+30 fps and 2,820 frames. The two physical clips belong at
+`public/media/physical-local-phone.mp4` and
+`public/media/physical-fullscreen-phone.mp4`. Keep playback paused while editing
+on constrained hosts.
 
 The global `remotion` command is optional; this project's lockfile pins the
 renderer and all Remotion packages to 4.0.529 for reproducible output.
@@ -20,14 +33,15 @@ renderer and all Remotion packages to 4.0.529 for reproducible output.
 ## Export
 
 The **Remotion submission film** workflow fetches the existing pinned source
-recordings, prepares 1× clips, creates music, checks TypeScript and renders with
+recordings, stages the physical excerpts, prepares 1× clips, creates music,
+checks TypeScript and renders with
 two concurrent workers on hosted Ubuntu. It also exports three review stills.
 It runs on scoped changes to the showcase branch or manual dispatch. No Android
 build or emulator starts in this workflow. The separate normal-APK rehearsal
 continues to verify product behavior.
 
-`prepare_media.py` reuses the existing source/timeline validation and only trims
-the EDL's selected intervals. `compose_music.py` creates a new 120 BPM electronic
+`prepare_media.py` reuses the existing source/timeline validation for the
+original emulator excerpts. `compose_music.py` creates a 120 BPM electronic
 score using synthesized keys, pads, bass and percussion; it uses no third-party
 recording, samples or borrowed melody. DM Sans and DM Serif Display retain their
 bundled SIL Open Font License notices. Brand and app footage provenance remains

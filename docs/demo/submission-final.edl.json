@@ -32,16 +32,6 @@
       "run": "36103033022",
       "commit": "67d0206d87a0c69329d9ed6e42dfe0275756ce2f"
     },
-    "paywall": {
-      "path": "sources/36103033131/production-purchase-1/production-purchase-artifacts/20260925T063747Z-002ca761/journey-001.mp4",
-      "sha256": "0058604d264df6e7def14c64ca2b1202ffb90e33f471a5cd9624affaa4d283d9",
-      "width": 480,
-      "height": 1040,
-      "kind": "native-recording",
-      "runtime": "Android API 35 emulator",
-      "run": "36103033131",
-      "commit": "67d0206d87a0c69329d9ed6e42dfe0275756ce2f"
-    },
     "purchase": {
       "path": "sources/36103033131/production-purchase-1/production-purchase-artifacts/20260925T063747Z-002ca761/journey-002.mp4",
       "sha256": "b6a67d29d9d924b0ef7001bd825346bab1f2361bd5fbf5e58065ff874002c107",
@@ -150,16 +140,10 @@
     },
     {
       "id": "free",
-      "kind": "single",
-      "source": "paywall",
-      "device": "phone",
-      "in": 67,
-      "out": 71,
-      "speed": 1,
-      "label": "Phone",
+      "kind": "card",
+      "duration": 4,
       "title": "One movie night is free.",
-      "caption": "Host once each day. Your guests always join free.",
-      "disclosure": "RevenueCat Test Store / no real charge"
+      "caption": "Host once per local day. Your guests always join free."
     },
     {
       "id": "purchase",

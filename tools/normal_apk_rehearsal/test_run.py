@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
-    FIXTURE_URL, history_context, join_sheet_ready, media_link_ready,
+    FIXTURE_URL, focused_text_field, history_context, join_sheet_ready, media_link_ready,
     unique_seekbar, unique_text_field, visible_code,
 )
 
@@ -14,11 +14,13 @@ def tree(*nodes: str) -> str:
     return '<hierarchy>' + ''.join(nodes) + '</hierarchy>'
 
 
-def node(label: str, *, kind: str = 'android.widget.TextView', clickable: bool = False) -> str:
+def node(label: str, *, kind: str = 'android.widget.TextView', clickable: bool = False,
+         focused: bool = False) -> str:
     label = escape(label, {'"': '&quot;'}).replace('\n', '&#10;')
     return (f'<node package="{PACKAGE}" enabled="true" '
             f'visible-to-user="true" class="{kind}" text="{label}" '
-            f'clickable="{str(clickable).lower()}" bounds="[0,0][200,80]"/>')
+            f'clickable="{str(clickable).lower()}" focused="{str(focused).lower()}" '
+            'bounds="[0,0][200,80]"/>')
 
 
 class VisibleUiContract(unittest.TestCase):
@@ -73,6 +75,12 @@ class VisibleUiContract(unittest.TestCase):
         with self.assertRaises(RuntimeFailure):
             media_link_ready(tree(node('Choose what to watch'),
                                   node(FIXTURE_URL, kind='android.widget.EditText', clickable=True)))
+
+    def test_text_entry_waits_for_native_focus(self):
+        self.assertTrue(focused_text_field(tree(node('', kind='android.widget.EditText',
+                                                 clickable=True, focused=True))))
+        with self.assertRaises(RuntimeFailure):
+            focused_text_field(tree(node('', kind='android.widget.EditText', clickable=True)))
 
 
 if __name__ == '__main__':

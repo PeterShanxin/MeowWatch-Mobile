@@ -59,6 +59,12 @@ def unique_text_field(xml: str) -> ET.Element:
     return fields[0]
 
 
+def focused_text_field(xml: str) -> bool:
+    if unique_text_field(xml).get("focused") != "true":
+        raise RuntimeFailure("visible text field has not received focus")
+    return True
+
+
 def join_sheet_ready(xml: str) -> bool:
     if len(exact(xml, "Join their movie night")) != 1:
         raise RuntimeFailure("expected the visible guest join sheet")
@@ -218,6 +224,7 @@ class Device:
         if not re.fullmatch(r"[A-Za-z0-9:/._@-]+", value):
             raise RuntimeFailure("unsafe text-entry value")
         self.tap_node(unique_text_field(self.observe()))
+        self.wait(f"{self.phase}-field-focused", focused_text_field, timeout=20)
         self.adb.run("shell", "input", "text", value)
 
     def player(self, phase: str, playing: bool):

@@ -20,9 +20,11 @@ from tools.android_native_ui.observer import (
 NONCE = "a" * 32
 
 
-def progress(stage="on_start", *, nonce=NONCE, pid=567, sequence=1, uptime=1000, attempt=0, nodes=0):
+def progress(stage="on_start", *, nonce=NONCE, pid=567, sequence=1, uptime=1000, attempt=0,
+             nodes=0, diagnostic=None):
+    extra = "" if diagnostic is None else f":{diagnostic}"
     return (f"INSTRUMENTATION_STATUS: observer_stage={nonce}:{pid}:{sequence}:{stage}:"
-            f"{uptime}:{attempt}:{nodes}\nINSTRUMENTATION_STATUS_CODE: 2\n").encode()
+            f"{uptime}:{attempt}:{nodes}{extra}\nINSTRUMENTATION_STATUS_CODE: 2\n").encode()
 
 
 def node(children="", **attributes):
@@ -181,6 +183,50 @@ class SnapshotParserTests(unittest.TestCase):
         self.assertEqual(broken_tail["stageStreamStatus"], "invalid_encoding")
         self.assertNotIn("private", str(broken_tail))
         self.assertEqual(stage_diagnostics(None, NONCE)["stages"], [])
+
+    def test_streamed_root_diagnostic_requires_matching_stage_identity_and_bounded_payload(self):
+        diagnostic = "1|7004|1|80|80|1|partial|2|0|42:1:1:1:1:1;7:2:0:0:3:0"
+        prefix = (startup_progress() + progress("root_start", sequence=6, uptime=7003, attempt=1)
+                  + progress("attempt_failed", sequence=7, uptime=7003, attempt=1))
+        valid = progress("root_diagnostic", sequence=8, uptime=7005, attempt=1,
+                         diagnostic=diagnostic)
+        retained = stage_diagnostics(prefix + valid, NONCE, previous_uptime_ms=7000)
+        self.assertEqual(retained["rootDiagnostic"]["windows"][1]["root"], "pending")
+        self.assertEqual(retained["stages"][-1]["helperPid"], 567)
+        with self.assertRaises(ObserverIntegrityFailure):
+            parse_snapshot(prefix + valid, NONCE)
+
+        invalid = (
+            progress("root_diagnostic", nonce="b" * 32, sequence=8, uptime=7005,
+                     attempt=1, diagnostic=diagnostic),
+            progress("root_diagnostic", pid=568, sequence=8, uptime=7005,
+                     attempt=1, diagnostic=diagnostic),
+            progress("root_diagnostic", sequence=9, uptime=7005, attempt=1,
+                     diagnostic=diagnostic),
+            progress("root_diagnostic", sequence=8, uptime=7005, attempt=2,
+                     diagnostic=diagnostic),
+            progress("root_diagnostic", sequence=8, uptime=7005, attempt=1,
+                     diagnostic="private-title-or-url"),
+            progress("root_diagnostic", sequence=8, uptime=7005, attempt=1,
+                     diagnostic=diagnostic + "x" * 513),
+            progress("root_diagnostic", sequence=8, uptime=7005, attempt=1,
+                     diagnostic=diagnostic.replace("|80|80|", "|0|0|")),
+        )
+        for record in invalid:
+            with self.subTest(record=record[:100]):
+                data = prefix + record
+                discarded = stage_diagnostics(data, NONCE, previous_uptime_ms=7000)
+                self.assertNotIn("rootDiagnostic", discarded)
+                self.assertNotIn("private", str(discarded))
+                with self.assertRaises(ObserverIntegrityFailure):
+                    parse_snapshot(data + response(), NONCE)
+        repeated = prefix + valid + progress("root_diagnostic", sequence=9,
+                                             uptime=7006, attempt=1, diagnostic=diagnostic)
+        self.assertEqual(stage_diagnostics(repeated, NONCE)["stageStreamStatus"], "invalid_stage")
+        with self.assertRaises(ObserverIntegrityFailure):
+            parse_snapshot(repeated + response(), NONCE)
+        self.assertNotIn("rootDiagnostic", stage_diagnostics(prefix + valid, NONCE,
+                                                               previous_uptime_ms=7004))
 
     def test_stage_bound_does_not_reduce_the_existing_maximum_xml_capacity(self):
         xml = "<hierarchy>" + node() + "</hierarchy>"
@@ -572,6 +618,44 @@ class NativeObserverTests(unittest.TestCase):
             self.assertEqual([kwargs["timeout"] for args, kwargs in adb.commands
                               if args[:3] == ("shell", "am", "instrument")], [30, 30])
 
+    def test_timeout_retains_first_missing_root_probe_when_later_refresh_stalls(self):
+        diagnostic = "1|7004|1|80|80|1|partial|2|0|42:1:1:1:1:1;7:2:0:0:3:0"
+
+        def stalled(nonce):
+            data = startup_progress(nonce=nonce)
+            sequence = 5
+            for attempt in range(1, 15):
+                for name in ("root_start", "attempt_failed"):
+                    sequence += 1
+                    data += progress(name, nonce=nonce, sequence=sequence, uptime=7000 + attempt * 4 - 1,
+                                     attempt=attempt)
+                if attempt == 1:
+                    sequence += 1
+                    data += progress("root_diagnostic", nonce=nonce, sequence=sequence,
+                                     uptime=7005, attempt=attempt, diagnostic=diagnostic)
+            for name in ("root_start", "root_ready", "refresh_start"):
+                sequence += 1
+                data += progress(name, nonce=nonce, sequence=sequence, uptime=7060, attempt=15)
+            return data + b"INSTRUMENTATION_RESULT: observer_xml=private partial UI payload"
+
+        with tempfile.TemporaryDirectory() as directory:
+            adb = FakeAdb(first_timeout=True, timeout_output=stalled)
+            observer = self.helper(Path(directory), adb)
+            observer.install()
+            with self.assertRaises(subprocess.TimeoutExpired):
+                observer.observe()
+            evidence = observer.observations[0]
+            self.assertEqual(evidence["failure"], "instrumentation_timeout")
+            self.assertEqual(evidence["instrumentationProgress"]["stages"][-1]["stage"], "refresh_start")
+            self.assertEqual(evidence["rootDiagnostic"]["windows"][0]["expectedPackage"], "yes")
+            self.assertEqual(evidence["rootDiagnostic"]["windows"][1]["root"], "pending")
+            self.assertEqual(evidence["rootDiagnostic"]["attempt"], 1)
+            self.assertNotIn("private", str(evidence))
+            self.assertFalse(any(args == ("shell", "am", "force-stop", PACKAGE)
+                                 for args, _ in adb.commands))
+            self.assertEqual([kwargs["timeout"] for args, kwargs in adb.commands
+                              if args[:3] == ("shell", "am", "instrument")], [30])
+
     def test_completed_capture_retains_stages_on_success_and_native_failure(self):
         with tempfile.TemporaryDirectory() as directory:
             adb = FakeAdb(capture_response=lambda nonce: progress(nonce=nonce) + response(nonce=nonce))
@@ -723,6 +807,23 @@ def startup_progress(*, nonce=NONCE, pid=567, ready_uptime=7000):
 
 
 class InstrumentationBudgetTests(unittest.TestCase):
+    def test_streamed_root_probe_does_not_refresh_capture_or_result_deadline(self):
+        diagnostic = "1|7004|1|80|80|1|budget|-1|0|-"
+        data = (startup_progress() + progress("root_start", sequence=6, uptime=7003, attempt=1)
+                + progress("attempt_failed", sequence=7, uptime=7003, attempt=1)
+                + progress("root_diagnostic", sequence=8, uptime=7005, attempt=1,
+                           diagnostic=diagnostic)
+                + progress("root_start", sequence=9, uptime=7006, attempt=2)
+                + progress("root_ready", sequence=10, uptime=7007, attempt=2)
+                + progress("refresh_start", sequence=11, uptime=7008, attempt=2))
+        budget = InstrumentationBudget(NONCE, 0, 100)
+        budget.progress(startup_progress(), 12)
+        budget.progress(data, 20)
+        self.assertEqual(budget.deadline, 22)
+        self.assertEqual(budget.phase, "capture")
+        with self.assertRaises(ObserverTimeout):
+            budget.progress(data, 22)
+
     def test_slow_cold_start_does_not_spend_the_hierarchy_budget(self):
         budget = InstrumentationBudget(NONCE, 0, 100)
         budget.progress(startup_progress(), 12)

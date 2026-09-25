@@ -102,6 +102,9 @@ public final class SnapshotInstrumentation extends Instrumentation {
                     appendAttempt(attempts, error.reason);
                     if (error.reason.equals("root_missing") && rootDiagnostic == null) {
                         rootDiagnostic = diagnoseMissingRoot(automation);
+                        // Publish the completed bounded probe before another
+                        // framework root/refresh call can block final delivery.
+                        stage("root_diagnostic", rootDiagnostic);
                     }
                     if (!error.retryable() || attempt == MAX_ATTEMPTS
                             || SystemClock.uptimeMillis() + RETRY_DELAY_MS >= deadline) {
@@ -322,6 +325,10 @@ public final class SnapshotInstrumentation extends Instrumentation {
     }
 
     private void stage(String name) {
+        stage(name, null);
+    }
+
+    private void stage(String name, String diagnostic) {
         if (nonce == null || !nonce.matches("[a-f0-9]{32}") || stageSequence >= MAX_STAGE_EVENTS) {
             return;
         }
@@ -330,6 +337,7 @@ public final class SnapshotInstrumentation extends Instrumentation {
         String value = nonce + ":" + Process.myPid() + ":" + (++stageSequence) + ":" + name
             + ":" + SystemClock.uptimeMillis() + ":" + captureAttempt
             + ":" + Math.min(nodes, MAX_NODES + 1);
+        if (diagnostic != null) value += ":" + diagnostic;
         Log.i("MWNativeUiStage", value);
         Bundle progress = new Bundle();
         progress.putString("observer_stage", value);

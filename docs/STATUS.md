@@ -13,7 +13,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Normal-release Local Mode audio focus 36074183098 passes. Together focus 36081445086 reaches native playback but fails HTTP framing before any focus request. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Normal-release Local Mode audio focus 36074183098 passes. Together focus 36084442812 reaches both native interruptions but detects transient-focus autoplay; this gate fails. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
@@ -116,6 +116,18 @@ is 160 KiB/s. Independent source review finds no remaining defect; 65 lightweigh
 contracts pass with one Windows-inapplicable skip. Fresh native acceptance is
 still required.
 
+The corrected failed-decoder run `36084305883` at `c16b53a` passes initial
+native convergence, then fails the native UI capture before any radio-disable
+action. The app PID remains unchanged and MainActivity is focused and
+unobscured. Fourteen root queries return no root; the fifteenth obtains one
+after 2.535 seconds, then `root.refresh()` does not complete within the fixed
+capture budget. System contention and skipped frames are observed, but the
+unique cause is not established. The observer now streams its already computed,
+bounded first-missing-root diagnostic immediately, preserving it even if a later
+framework call blocks. This adds no retry, changes no deadline, and cannot
+replace complete hierarchy acceptance. Mocked observer contracts pass; SDK
+compilation and a fresh native run remain required.
+
 The new Together-room audio-focus journey uses MainApp with one API 35 native
 decoder and an independent real TLS client in the same process. It continuously
 checks for native/room autoplay between focus loss and explicit Play. Its first
@@ -133,6 +145,16 @@ hit-testable Use this link button. No focus request occurs. The journey now
 reuses the verified text-entry helper and waits for the actual hit-testable
 control instead of a fixed 450 ms delay. This is separate from the accepted
 normal-release Local Mode focus evidence.
+
+Together focus `36084442812` at `60543ff` now exercises both interruptions with
+the same API 35 app PID and all four native UI captures. Permanent focus loss
+pauses within a 2,589 ms upper bound and remains paused until explicit Play.
+Transient loss pauses within 2,954 ms, but the continuous listener records a
+native playing event after focus returns, before the bridge pauses again. The
+release screenshot is paused and alone would miss the defect. This is a failed
+gate, not accepted Together focus behavior; the retained native play request
+must be cleared before focus returns. Its TLS peer shares the app process and
+is not evidence from a second physical device.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

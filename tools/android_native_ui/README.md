@@ -196,7 +196,12 @@ Each request emits at most 128 fixed stage records to the `MWNativeUiStage` Logc
 tag and to instrumentation progress status code `2`. Records contain only
 `nonce:helperPid:sequence:stage:uptimeMs:attempt:visitedNodes`. The stages identify
 `on_create`, `on_start`, UiAutomation connection start/readiness, service readiness,
-each root read, root refresh, traversal, failed attempt and `finish`. There are no
+each root read, root refresh, traversal, failed attempt, `root_diagnostic` and `finish`.
+The first `root_missing` probe is sent immediately as a bounded suffix on its
+`root_diagnostic` stage, tied to the same nonce, helper PID, sequence and attempt.
+This retains the already completed probe if a later framework call blocks before
+the final result bundle. The probe is diagnostic evidence only; a capture timeout
+still fails, and no window root is accepted as an app hierarchy. There are no
 per-node log messages, UI strings, window titles, resource IDs or exception text.
 The sequence and native uptime distinguish cold process startup, connection
 setup and actual hierarchy work. An absent stage does not establish which later
@@ -208,8 +213,10 @@ stages and bounded attempt/node counts. `instrumentationProgress` records these
 stages plus output byte count and SHA-256 on success and failure. On the unchanged
 startup/capture timeout it retains the validated prefix available in
 `TimeoutExpired.output`, then stops only the helper. Incomplete or
-malformed trailing diagnostics are classified with fixed codes. Arbitrary
-partial XML and stderr text are never copied into diagnostics; stderr retains
+malformed trailing diagnostics are classified with fixed codes. The root probe
+must immediately follow a failed attempt with the same attempt number and pass
+the existing numeric, window and freshness limits before it enters the receipt.
+Arbitrary partial XML and stderr text are never copied into diagnostics; stderr retains
 only the same bounded metadata. Logcat independently retains stages emitted
 before a watcher disappeared. No extra ADB observation or retry is added.
 

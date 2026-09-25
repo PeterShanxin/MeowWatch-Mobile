@@ -38,6 +38,7 @@ STAGES = frozenset({
     "on_create", "on_start", "automation_start", "automation_ready", "service_ready",
     "root_start", "root_ready", "refresh_start", "refresh_ready", "traverse_start",
     "traverse_ready", "attempt_failed", "finish",
+    "root_diagnostic",
 })
 STAGE_PREFIX = "INSTRUMENTATION_STATUS: observer_stage="
 STAGE_CODE = "INSTRUMENTATION_STATUS_CODE: 2"
@@ -261,8 +262,11 @@ def parse_attempts(value: str) -> tuple[dict[str, object], ...]:
 
 
 def parse_root_diagnostic(value: str, *, uptime: int, previous_uptime_ms: int,
-                          attempts: tuple[dict[str, object], ...]) -> dict[str, object]:
+                          attempts: tuple[dict[str, object], ...] | None = None,
+                          expected_attempt: int | None = None) -> dict[str, object]:
     """Validate a single content-free window probe tied to this failed request."""
+    if (attempts is None) == (expected_attempt is None):
+        raise ObserverIntegrityFailure("native root diagnostic is invalid")
     fields = value.split("|")
     if len(fields) != 10 or fields[0] != "1":
         raise ObserverIntegrityFailure("native root diagnostic is invalid")
@@ -276,14 +280,15 @@ def parse_root_diagnostic(value: str, *, uptime: int, previous_uptime_ms: int,
         return parsed
 
     at = number(fields[1], 1, uptime)
-    attempt = number(fields[2], 1, len(attempts))
+    attempt = number(fields[2], 1, len(attempts) if attempts is not None else MAX_CAPTURE_ATTEMPTS)
     requested = number(fields[3], 0, 2**31 - 1)
     reported = number(fields[4], 0, 2**31 - 1)
     capabilities = number(fields[5], 0, 2**31 - 1)
     status = fields[6]
     count = number(fields[7], -1, 64)
     truncated = number(fields[8], 0, 1)
-    if (at <= previous_uptime_ms or attempts[attempt - 1]["reason"] != "root_missing"
+    if (at <= previous_uptime_ms or (attempts is not None and attempts[attempt - 1]["reason"] != "root_missing")
+            or (expected_attempt is not None and attempt != expected_attempt)
             or requested & 0x50 != 0x50
             or status not in {"ok", "partial", "budget", "timeout", "unavailable"}):
         raise ObserverIntegrityFailure("native root diagnostic is invalid")
@@ -341,7 +346,7 @@ def installation_diagnostics(result: subprocess.CompletedProcess[bytes]) -> dict
 
 
 def _stage_output(
-    output: bytes, nonce: str, *, partial: bool = False,
+    output: bytes, nonce: str, *, partial: bool = False, previous_uptime_ms: int = -1,
 ) -> tuple[bytes, list[dict[str, object]], str]:
     """Separate validated progress from the unchanged final snapshot protocol."""
     events: list[dict[str, object]] = []
@@ -376,7 +381,8 @@ def _stage_output(
             return invalid("invalid_status")
         match = re.fullmatch(
             r"([a-f0-9]{32}):([0-9]{1,10}):([0-9]{1,3}):([a-z_]+):"
-            r"([0-9]{1,16}):([0-9]{1,2}):([0-9]{1,4})", line[len(STAGE_PREFIX):])
+            r"([0-9]{1,16}):([0-9]{1,2}):([0-9]{1,4})(?::([^\r\n]{1,512}))?",
+            line[len(STAGE_PREFIX):])
         if match is None or not secrets.compare_digest(match[1], nonce) or match[4] not in STAGES:
             return invalid("invalid_stage")
         helper_pid, sequence, uptime, attempt, nodes = map(int, (match[2], match[3], match[5], match[6], match[7]))
@@ -384,25 +390,46 @@ def _stage_output(
                 or not 0 <= attempt <= MAX_CAPTURE_ATTEMPTS or not 0 <= nodes <= MAX_NODES + 1
                 or (events and (helper_pid != events[-1]["helperPid"] or uptime < events[-1]["uptimeMs"]))):
             return invalid("invalid_sequence")
-        events.append({"nonce": nonce, "helperPid": helper_pid, "sequence": sequence,
-                       "stage": match[4], "uptimeMs": uptime, "attempt": attempt, "visitedNodes": nodes})
+        diagnostic = match[8]
+        if (match[4] == "root_diagnostic") != (diagnostic is not None):
+            return invalid("invalid_stage")
+        event = {"nonce": nonce, "helperPid": helper_pid, "sequence": sequence,
+                 "stage": match[4], "uptimeMs": uptime, "attempt": attempt, "visitedNodes": nodes}
+        if diagnostic is not None:
+            if (not events or events[-1]["stage"] != "attempt_failed"
+                    or events[-1]["attempt"] != attempt or attempt == 0
+                    or any(prior["stage"] == "root_diagnostic" for prior in events)):
+                return invalid("invalid_stage")
+            try:
+                event["rootDiagnostic"] = parse_root_diagnostic(
+                    diagnostic, uptime=uptime, previous_uptime_ms=previous_uptime_ms,
+                    expected_attempt=attempt)
+            except ObserverIntegrityFailure:
+                return invalid("invalid_diagnostic")
+        events.append(event)
         index += 2
     return "\n".join(payload).encode("utf-8"), events, "output_limit" if oversized else "valid"
 
 
-def stage_diagnostics(output: bytes | str | None, nonce: str) -> dict[str, object]:
+def stage_diagnostics(output: bytes | str | None, nonce: str, *,
+                      previous_uptime_ms: int = -1) -> dict[str, object]:
     """Keep only a bounded validated prefix; never retain arbitrary partial XML."""
     data = output.encode("utf-8", errors="replace") if isinstance(output, str) else output or b""
-    _, events, status = _stage_output(data, nonce, partial=True)
-    return {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
-            "stageStreamStatus": status, "stages": events}
+    _, events, status = _stage_output(data, nonce, partial=True,
+                                      previous_uptime_ms=previous_uptime_ms)
+    result = {"bytes": len(data), "sha256": hashlib.sha256(data).hexdigest(),
+              "stageStreamStatus": status, "stages": events}
+    for event in events:
+        if "rootDiagnostic" in event:
+            result["rootDiagnostic"] = event["rootDiagnostic"]
+    return result
 
 
 def parse_snapshot(output: bytes, nonce: str, *, previous_uptime_ms: int = -1) -> Snapshot:
     """Reject malformed/stale/oversized output without echoing its UI contents."""
     if len(output) > MAX_OUTPUT_BYTES or re.fullmatch(r"[a-f0-9]{32}", nonce) is None:
         raise ObserverIntegrityFailure("native observer output or request is invalid")
-    output, _, _ = _stage_output(output, nonce)
+    output, _, _ = _stage_output(output, nonce, previous_uptime_ms=previous_uptime_ms)
     try:
         decoded = output.decode("utf-8", errors="strict")
     except UnicodeError:
@@ -574,7 +601,11 @@ class NativeUiObserver:
             try:
                 result = self._instrument(nonce, deadline=deadline)
             except (subprocess.TimeoutExpired, ObserverIntegrityFailure) as error:
-                evidence["instrumentationProgress"] = stage_diagnostics(getattr(error, "output", None), nonce)
+                progress = stage_diagnostics(getattr(error, "output", None), nonce,
+                                             previous_uptime_ms=self.previous_uptime_ms)
+                evidence["instrumentationProgress"] = progress
+                if "rootDiagnostic" in progress:
+                    evidence["rootDiagnostic"] = progress["rootDiagnostic"]
                 evidence["instrumentationStderr"] = stage_diagnostics(getattr(error, "stderr", None), nonce)
                 if isinstance(error, subprocess.TimeoutExpired):
                     evidence["timeoutPhase"] = getattr(error, "phase", "instrumentation")
@@ -585,7 +616,11 @@ class NativeUiObserver:
                 raise
             evidence["stdoutBytes"] = len(result.stdout)
             evidence["stdoutSha256"] = hashlib.sha256(result.stdout).hexdigest()
-            evidence["instrumentationProgress"] = stage_diagnostics(result.stdout, nonce)
+            progress = stage_diagnostics(result.stdout, nonce,
+                                         previous_uptime_ms=self.previous_uptime_ms)
+            evidence["instrumentationProgress"] = progress
+            if "rootDiagnostic" in progress:
+                evidence["rootDiagnostic"] = progress["rootDiagnostic"]
             stage = "window"
             window = self.adb.run("shell", "dumpsys", "window", "displays",
                                   timeout=remaining_timeout(deadline)).stdout.decode(

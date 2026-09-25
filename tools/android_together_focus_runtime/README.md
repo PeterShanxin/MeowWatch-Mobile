@@ -9,6 +9,15 @@ physical phone.
 
 The host loopback stage bridge issues two fresh, nonce-bound native focus helper
 requests after the native player and peer both report settled playback.
+Before app installation, the dedicated API 35 AVD runs the repository's
+bounded SDK setup preparation once. It can recover only a verified current
+system Launcher or SDK setup ANR, with original screenshots and process/event
+identity retained. A second Home observation five seconds later must still
+show the same resolved Home, no current dialog, and no new ANR event. The
+preparation receipt is uploaded separately. If an ANR appears after the app
+starts, the stage still fails its exact foreground check; its failure receipt
+now retains Android ANR events, Launcher process listing, Home resolution,
+and the original window dump and screenshot. No app-stage recovery is attempted.
 Before those held cases, a separate short transient case pauses through the
 real TLS peer, records an Android monotonic uptime marker, and sends a real
 peer Play. Once native playback and the named peer Play are visible, the bridge

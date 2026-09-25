@@ -94,6 +94,7 @@ jobs:
           name: android-together-focus-${{ github.run_attempt }}
           path: |
             build/android-together-focus-artifacts/
+            build/android-together-focus-sdk-preparation/
             build/android-together-focus-server/
             build/android-together-focus-fixture/*.json
             build/android-together-focus-fixture/*.sha256

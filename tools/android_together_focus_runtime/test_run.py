@@ -16,7 +16,7 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_interruption_runtime.run import HELPER, FOCUS_HEADER, require_focus
 from tools.android_lifecycle_runtime.prepare_avd import ORIGINAL, prepare
 from tools.android_together_focus_runtime.run import (
-    AVD_NAME, STAGES, FocusSession, StageServer, validate_journey,
+    AVD_NAME, STAGES, FocusSession, StageServer, require_prelaunch_home, validate_journey,
 )
 
 
@@ -65,6 +65,48 @@ def receipt() -> tuple[dict, list[dict]]:
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_prelaunch_requires_same_ready_home_and_anr_history(self):
+        serial = "emulator-5554"
+        avd = "meowwatch_interruption_36088605515_1"
+        baseline = {"verifiedAvd": avd, "homeFocused": True, "anrWindow": None,
+                    "anrEvents": ["historical setup ANR"], "resolvedHome": "com.google.android.apps.nexuslauncher/.NexusLauncherActivity",
+                    "bootCompleted": "1", "provisioned": "1", "userSetupComplete": "1", "appInstalled": False}
+        report = {"status": "prepared", "devices": {serial: {"status": "not-needed", "before": baseline}}}
+        self.assertTrue(require_prelaunch_home(report, baseline, serial, avd)["freshHomeFocused"])
+        recovered = {"status": "prepared", "devices": {serial: {"status": "recovered-once",
+                                                              "before": {**baseline, "homeFocused": False},
+                                                              "after": baseline}}}
+        self.assertTrue(require_prelaunch_home(recovered, baseline, serial, avd)["freshHomeFocused"])
+        for change in ({"homeFocused": False}, {"anrWindow": "dialog"},
+                       {"anrEvents": [*baseline["anrEvents"], "new launcher ANR"]},
+                       {"verifiedAvd": "another-avd"}, {"appInstalled": True},
+                       {"provisioned": "0"}):
+            with self.subTest(change=change), self.assertRaises(RuntimeFailure):
+                require_prelaunch_home(report, {**baseline, **change}, serial, avd)
+
+    def test_stage_failure_retains_read_only_native_diagnostics(self):
+        class DiagnosticAdb:
+            serial = "emulator-5554"
+            calls = []
+
+            def run(self, *args, **kwargs):
+                self.calls.append(args)
+                return SimpleNamespace(returncode=0, stdout=b"native diagnostic\n", stderr=b"")
+
+        with TemporaryDirectory() as directory:
+            adb = DiagnosticAdb()
+            session = FocusSession(adb, "meowwatch_interruption_123_1", Path(directory),
+                                   Path("unused-helper.apk"), Path("unused-observer.apk"))
+            session.app_pid = "3301"
+            result = session.capture_failure_diagnostics("early-short-ready")
+            self.assertEqual(result["appPid"], "3301")
+            self.assertEqual(set(result["commands"]), {"window", "anr-events", "lifecycle-events",
+                                                       "launcher-process", "home-resolution"})
+            self.assertEqual(len(adb.calls), 5)
+            self.assertTrue(all(command[0] in ("shell", "logcat") for command in adb.calls))
+            self.assertEqual((Path(directory) / "early-short-ready-failure-anr-events.txt").read_text(),
+                             "native diagnostic\n")
+
     def test_focus_avd_is_preparable_and_exactly_owned(self):
         name = "meowwatch_interruption_36079974766_1"
         self.assertIsNotNone(AVD_NAME.fullmatch(name))

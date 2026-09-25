@@ -33,6 +33,28 @@ EARLY_WINDOW_MS = 3000
 AVD_NAME = re.compile(r"meowwatch_interruption_[0-9]+_[0-9]+")
 
 
+def require_prelaunch_home(preparation: dict, fresh: dict, serial: str, avd_name: str) -> dict:
+    """Admit only the prepared, unchanged Home after a fresh observation."""
+    devices = preparation.get("devices")
+    entry = devices.get(serial) if isinstance(devices, dict) else None
+    if preparation.get("status") != "prepared" or not isinstance(entry, dict):
+        raise RuntimeFailure("task AVD SDK preparation did not complete")
+    baseline = entry.get("after") if entry.get("status") == "recovered-once" else entry.get("before")
+    if entry.get("status") not in ("recovered-once", "not-needed") or not isinstance(baseline, dict):
+        raise RuntimeFailure("task AVD has no accepted SDK preparation snapshot")
+    if (not isinstance(fresh, dict) or baseline.get("verifiedAvd") != avd_name
+            or fresh.get("verifiedAvd") != avd_name
+            or baseline.get("homeFocused") is not True or fresh.get("homeFocused") is not True
+            or baseline.get("anrWindow") is not None or fresh.get("anrWindow") is not None
+            or baseline.get("anrEvents") != fresh.get("anrEvents")
+            or baseline.get("resolvedHome") != fresh.get("resolvedHome")
+            or fresh.get("bootCompleted") != "1" or fresh.get("provisioned") != "1"
+            or fresh.get("userSetupComplete") != "1" or fresh.get("appInstalled") is not False):
+        raise RuntimeFailure("task AVD Home, provisioning or ANR history changed before installation")
+    return {"avdName": avd_name, "serial": serial, "resolvedHome": fresh["resolvedHome"],
+            "anrEventCount": len(fresh["anrEvents"]), "freshHomeFocused": True}
+
+
 def validate_journey(value: object, stages: list[dict]) -> dict:
     if not isinstance(value, dict) or not isinstance(value.get("togetherFocus"), dict):
         raise RuntimeFailure("integration driver has no Together focus report")
@@ -149,6 +171,7 @@ class FocusSession:
         self.events: list[dict] = []
         self.lifecycle_baseline: list[str] | None = None
         self.completed: list[dict] = []
+        self.failure_diagnostics: dict | None = None
 
     def prepare(self) -> dict:
         if (not AVD_NAME.fullmatch(self.avd_name) or not re.fullmatch(r"emulator-[0-9]+", self.adb.serial)):
@@ -181,6 +204,33 @@ class FocusSession:
         result = self.adb.run(*command, timeout=20).stdout.decode("utf-8", errors="replace")
         (self.output / f"{stage}-{name}.txt").write_text(result, encoding="utf-8")
         return result
+
+    def capture_failure_diagnostics(self, stage: str) -> dict:
+        """Retain exact system failure evidence without mutating or retrying the AVD."""
+        commands = {
+            "window": ("shell", "dumpsys", "window", "displays"),
+            "anr-events": ("logcat", "-b", "events", "-d", "-v", "epoch", "am_anr:I", "am_crash:I", "*:S"),
+            "lifecycle-events": ("logcat", "-b", "events", "-d", "-v", "epoch",
+                                 *(tag + ":I" for tag in LIFECYCLE_TAGS), "*:S"),
+            "launcher-process": ("shell", "ps", "-A", "-o", "PID,UID,NAME"),
+            "home-resolution": ("shell", "cmd", "package", "resolve-activity", "--brief",
+                                "-a", "android.intent.action.MAIN", "-c", "android.intent.category.HOME"),
+        }
+        report = {"stage": stage, "appPid": self.app_pid, "commands": {}}
+        for name, command in commands.items():
+            path = self.output / f"{stage}-failure-{name}.txt"
+            try:
+                result = self.adb.run(*command, timeout=4, check=False)
+                raw = result.stdout.decode("utf-8", errors="replace")
+                path.write_text(raw, encoding="utf-8")
+                report["commands"][name] = {"exitCode": result.returncode, "path": path.name,
+                                            "stderr": result.stderr.decode("utf-8", errors="replace")}
+            except (OSError, subprocess.TimeoutExpired, RuntimeFailure) as error:
+                report["commands"][name] = {"error": type(error).__name__}
+        self.failure_diagnostics = report
+        (self.output / f"{stage}-failure-diagnostics.json").write_text(
+            json.dumps(report, indent=2) + "\n", encoding="utf-8")
+        return report
 
     def foreground(self, stage: str) -> None:
         pid = self.adb.run("shell", "pidof", PACKAGE).stdout.decode().strip()
@@ -350,6 +400,7 @@ class StageServer(ThreadingHTTPServer):
         self.session = session
         self.lock = threading.Lock()
         self.failed: str | None = None
+        self.diagnostic_error: str | None = None
 
 
 class StageHandler(BaseHTTPRequestHandler):
@@ -373,6 +424,10 @@ class StageHandler(BaseHTTPRequestHandler):
                 row = self.server.session.stage(stage)
             except Exception as error:
                 self.server.failed = f"{type(error).__name__}: {error}"
+                try:
+                    self.server.session.capture_failure_diagnostics(stage)
+                except Exception as diagnostic_error:
+                    self.server.diagnostic_error = type(diagnostic_error).__name__
                 return self._reply(500, {"error": self.server.failed})
         self._reply(200, row)
 
@@ -437,6 +492,8 @@ def main(argv=None) -> int:
                 raise RuntimeFailure("Together focus Flutter drive exceeded deadline")
         summary["driveExitCode"] = code
         if code != 0:
+            if server.failed:
+                summary["stageFailure"] = server.failed
             raise RuntimeFailure("Together focus integration journey failed")
         report = json.loads((args.output / "journey.json").read_text(encoding="utf-8"))
         summary["journey"] = validate_journey(report, session.completed)
@@ -467,6 +524,9 @@ def main(argv=None) -> int:
             summary["cleanupError"] = str(error)
             summary["passed"] = False
         summary["stages"] = session.completed
+        summary["stageFailureDiagnostics"] = session.failure_diagnostics
+        if server is not None and server.diagnostic_error is not None:
+            summary["stageDiagnosticError"] = server.diagnostic_error
         summary["nativeUiObservations"] = session.observer.observations
         (args.output / "run.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
     print("ANDROID_TOGETHER_FOCUS_" + ("PASS" if summary["passed"] else "FAIL"))

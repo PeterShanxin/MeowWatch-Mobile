@@ -32,7 +32,34 @@ HELD_STAGES = ("permanent-acquire", "permanent-release", "transient-acquire", "t
 STAGES = ("early-short-ready", "early-short-acquire", *HELD_STAGES)
 EARLY_AUTO_RELEASE_MS = 350
 EARLY_WINDOW_MS = 3000
+WARM_EXPIRY_MS = 15000
 AVD_NAME = re.compile(r"meowwatch_interruption_[0-9]+_[0-9]+")
+
+
+def require_warm_event(raw: str, nonce: str, uid: int, pid: int | None = None) -> dict:
+    rows = []
+    for line in raw.splitlines():
+        if nonce not in line:
+            continue
+        match = re.fullmatch(r"\s*\d+\.\d+\s+([0-9]+)\s+[0-9]+\s+I\s+MWFocusWarm\s*:\s*(\{.*\})", line)
+        if match is None:
+            raise RuntimeFailure("warm helper event has no Android log PID")
+        try:
+            row = json.loads(match[2])
+        except json.JSONDecodeError as error:
+            raise RuntimeFailure("warm helper event JSON is invalid") from error
+        if (not isinstance(row, dict)
+                or set(row) != {"protocol", "nonce", "event", "pid", "uid", "gain", "autoReleaseMs", "elapsedRealtimeMs"}
+                or type(row["protocol"]) is not int or row["protocol"] != 1
+                or row["nonce"] != nonce or row["event"] != "armed"
+                or row["pid"] != int(match[1]) or (pid is not None and row["pid"] != pid)
+                or row["uid"] != uid or row["gain"] != 2 or row["autoReleaseMs"] != EARLY_AUTO_RELEASE_MS
+                or type(row["elapsedRealtimeMs"]) is not int or row["elapsedRealtimeMs"] <= 0):
+            raise RuntimeFailure("warm helper identity, mode or device clock is invalid")
+        rows.append(row)
+    if len(rows) != 1:
+        raise RuntimeFailure("one live nonce-bound warm helper receipt is required")
+    return rows[0]
 
 
 def await_boot_ready(adb: str, serial: str, avd_name: str, output: Path, *,
@@ -107,7 +134,17 @@ def validate_journey(value: object, stages: list[dict]) -> dict:
     ready, acquire = stages[:2]
     request, release = acquire.get("request"), acquire.get("release")
     marker = ready.get("deviceElapsedRealtimeMs")
+    warm = ready.get("warmHelper")
     if (type(marker) is not int or not isinstance(request, dict) or not isinstance(release, dict)
+            or not isinstance(warm, dict) or warm.get("event") != "armed"
+            or type(warm.get("elapsedRealtimeMs")) is not int
+            or not warm["elapsedRealtimeMs"] <= marker < warm["elapsedRealtimeMs"] + WARM_EXPIRY_MS
+            or warm.get("uid") != ready.get("helperUid") or warm.get("pid") != ready.get("helperPid")
+            or warm.get("nonce") != ready.get("warmNonce")
+            or request.get("uid") != warm.get("uid") or request.get("pid") != warm.get("pid")
+            or request.get("nonce") != warm.get("nonce") or release.get("nonce") != warm.get("nonce")
+            or acquire.get("warmHelperPid") != warm.get("pid")
+            or ready.get("helperOwnedFocusBeforePeerPlay") is not False
             or ready.get("appForegroundBeforePeerPlay") is not True
             or acquire.get("appOwnedFocusAfterPeerPlay") is not True
             or ready.get("appPid") != acquire.get("appPid")
@@ -116,6 +153,7 @@ def validate_journey(value: object, stages: list[dict]) -> dict:
             or type(release.get("elapsedRealtimeMs")) is not int
             or not marker <= request["requestStartedElapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
                     < release["elapsedRealtimeMs"] < marker + EARLY_WINDOW_MS
+            or request["requestStartedElapsedRealtimeMs"] >= warm["elapsedRealtimeMs"] + WARM_EXPIRY_MS
             or not 200 <= release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] <= 500
             or request.get("gain") != 2 or release.get("gain") != 2
             or request.get("event") != "requested" or release.get("event") != "released"
@@ -288,19 +326,49 @@ class FocusSession:
         raw = self.raw(stage, "helper-events", "logcat", "-d", "-v", "epoch", "MWFocusProbe:I", "*:S")
         return probe_events(raw, self.nonce, self.helper_uid, self.helper_pid, gain=self.gain)
 
-    def _command(self, stage: str, action: str, *, early_short: bool = False) -> dict:
-        command = "start-foreground-service" if action == "acquire" else "startservice"
+    def _warm(self, stage: str) -> dict:
+        result = self.raw(stage, "warm-command", "shell", "am", "start-foreground-service", "--user", "0",
+                          "-n", SERVICE, "-a", "warm", "--es", "nonce", self.nonce,
+                          "--es", "mode", "transient", "--ei", "autoReleaseMs", str(EARLY_AUTO_RELEASE_MS))
+        if "Starting service:" not in result or "Error" in result or "Exception" in result:
+            raise RuntimeFailure("Android rejected the no-focus warm helper command")
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            raw = self.raw(stage, "warm-events", "logcat", "-d", "-v", "epoch", "MWFocusWarm:I", "*:S")
+            if self.nonce not in raw:
+                time.sleep(0.2)
+                continue
+            event = require_warm_event(raw, self.nonce, self.helper_uid)
+            actual = self.adb.run("shell", "pidof", HELPER).stdout.decode().strip()
+            if actual != str(event["pid"]):
+                raise RuntimeFailure("warm helper is not the current owned process")
+            self.helper_pid = int(actual)
+            return event
+        raise RuntimeFailure("nonce-bound no-focus warm helper event was not observed")
+
+    def _command(self, stage: str, action: str, *, early_short: bool = False,
+                 timing: dict | None = None) -> dict:
+        command = "startservice" if early_short or action == "release" else "start-foreground-service"
         mode = ("--es", "mode", "transient") if self.gain == 2 and action == "acquire" else ()
         auto_release = ("--ei", "autoReleaseMs", str(EARLY_AUTO_RELEASE_MS)) if early_short else ()
-        result = self.raw(stage, "command", "shell", "am", command, "--user", "0", "-n", SERVICE,
-                          "-a", action, "--es", "nonce", self.nonce, *mode, *auto_release)
+        require_warm = ("--ez", "requireWarm", "true") if early_short else ()
+        launched_at = time.monotonic_ns()
+        try:
+            result = self.raw(stage, "command", "shell", "am", command, "--user", "0", "-n", SERVICE,
+                              "-a", action, "--es", "nonce", self.nonce, *mode, *auto_release, *require_warm)
+        finally:
+            if timing is not None:
+                timing["serviceLaunchMs"] = (time.monotonic_ns() - launched_at) // 1_000_000
         if "Starting service:" not in result or "Error" in result or "Exception" in result:
             raise RuntimeFailure("Android rejected the native focus helper command")
         deadline = time.monotonic() + 15
+        polling_at = time.monotonic_ns()
         expected = ["requested", "released"] if early_short or action == "release" else ["requested"]
         while time.monotonic() < deadline:
             events = self._events(stage)
             if [row["event"] for row in events] == expected:
+                if timing is not None:
+                    timing["eventPollMs"] = (time.monotonic_ns() - polling_at) // 1_000_000
                 self.events = events
                 if action == "acquire" and not early_short:
                     actual = self.adb.run("shell", "pidof", HELPER).stdout.decode().strip()
@@ -317,27 +385,51 @@ class FocusSession:
         if stage == "early-short-ready":
             self.foreground(stage)
             self.app_uid = package_uid(self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", PACKAGE).stdout.decode(), PACKAGE)
+            self.gain = 2
+            self.nonce = secrets.token_hex(16)
+            self.helper_pid = None
+            self.events = []
+            warm = self._warm(stage)
+            stack = focus_stack(self.raw(stage, "warm-focus-stack", "shell", "dumpsys", "audio"))
+            if any(row["package"] == HELPER for row in stack) or self._events(stage):
+                raise RuntimeFailure("warm helper requested audio focus before peer Play")
+            self.foreground(stage + "-after-warm")
             uptime = self.adb.run("shell", "cat", "/proc/uptime").stdout.decode().strip()
             match = re.fullmatch(r"([0-9]+)\.([0-9]{2}) [0-9]+\.[0-9]{2}", uptime)
             if match is None:
                 raise RuntimeFailure("device monotonic uptime marker is invalid")
             marker = int(match[1]) * 1000 + int(match[2]) * 10
+            if not warm["elapsedRealtimeMs"] <= marker < warm["elapsedRealtimeMs"] + WARM_EXPIRY_MS:
+                raise RuntimeFailure("warm helper expired before the pre-Play marker")
             row = {"stage": stage, "completed": True, "deviceElapsedRealtimeMs": marker,
                    "appPid": self.app_pid, "appUid": self.app_uid,
+                   "warmHelper": warm, "warmNonce": self.nonce,
+                   "helperUid": self.helper_uid, "helperPid": self.helper_pid,
+                   "helperOwnedFocusBeforePeerPlay": False,
                    "appForegroundBeforePeerPlay": True}
             self.completed.append(row)
             return row
         if stage == "early-short-acquire":
             ready = self.completed[0]
             self.gain = 2
-            self.nonce = secrets.token_hex(16)
-            self.helper_pid = None
             self.events = []
-            require_focus(self.raw(stage, "app-focus", "shell", "dumpsys", "audio"), PACKAGE, self.app_uid)
-            release = self._command(stage, "acquire", early_short=True)
+            timing = {"clock": "host monotonic; diagnostic durations only"}
+            try:
+                focus_started = time.monotonic_ns()
+                try:
+                    audio_before = self.raw(stage, "app-focus", "shell", "dumpsys", "audio")
+                finally:
+                    timing["appFocusDumpMs"] = (time.monotonic_ns() - focus_started) // 1_000_000
+                require_focus(audio_before, PACKAGE, self.app_uid)
+                release = self._command(stage, "acquire", early_short=True, timing=timing)
+            finally:
+                (self.output / f"{stage}-host-timing.json").write_text(
+                    json.dumps(timing, indent=2) + "\n", encoding="utf-8")
             request = self.events[0]
             start = ready["deviceElapsedRealtimeMs"]
             if (request["requestStartedElapsedRealtimeMs"] < start
+                    or request["requestStartedElapsedRealtimeMs"] >= ready["warmHelper"]["elapsedRealtimeMs"] + WARM_EXPIRY_MS
+                    or request["pid"] != self.helper_pid or request["nonce"] != self.nonce
                     or release["elapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
                     or release["elapsedRealtimeMs"] - start >= EARLY_WINDOW_MS
                     or not 200 <= release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] <= 500):
@@ -357,6 +449,7 @@ class FocusSession:
                    "autoReleaseMs": EARLY_AUTO_RELEASE_MS,
                    "fromPrePeerPlayMarkerToReleaseMs": release["elapsedRealtimeMs"] - start,
                    "limitMs": EARLY_WINDOW_MS, "appPid": self.app_pid,
+                   "warmHelperPid": self.helper_pid, "hostTiming": timing,
                    "appOwnedFocusAfterPeerPlay": True,
                    "nativeUi": {"playing": native.playing, "positionSeconds": native.position_seconds,
                                 "durationSeconds": native.duration_seconds,

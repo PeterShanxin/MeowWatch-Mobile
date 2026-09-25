@@ -18,7 +18,8 @@ from tools.android_lifecycle_runtime.prepare_avd import ORIGINAL, prepare
 from tools.android_multi_device.device_readiness import MeasurementError
 from tools.android_multi_device.prepare_sdk_setup import LAUNCHER_HOME
 from tools.android_together_focus_runtime.run import (
-    AVD_NAME, STAGES, FocusSession, StageServer, await_boot_ready, require_prelaunch_home, validate_journey,
+    AVD_NAME, STAGES, FocusSession, StageServer, await_boot_ready, require_prelaunch_home,
+    require_warm_event, validate_journey,
 )
 
 
@@ -30,13 +31,20 @@ def snapshot(*, playing: bool, paused: bool, position: int) -> dict:
 
 def receipt() -> tuple[dict, list[dict]]:
     stages = [{"stage": name, "completed": True, "event": {"protocol": 2}} for name in STAGES]
-    stages[0].update(deviceElapsedRealtimeMs=100000, appPid="1234", appForegroundBeforePeerPlay=True)
+    nonce = "a" * 32
+    warm = {"protocol": 1, "nonce": nonce, "event": "armed", "pid": 901, "uid": 10179,
+            "gain": 2, "autoReleaseMs": 350, "elapsedRealtimeMs": 99500}
+    stages[0].update(deviceElapsedRealtimeMs=100000, appPid="1234", appForegroundBeforePeerPlay=True,
+                     warmHelper=warm, warmNonce=nonce, helperUid=10179, helperPid=901,
+                     helperOwnedFocusBeforePeerPlay=False)
     stages[1].update(appPid="1234", autoReleaseMs=350, limitMs=3000,
                      fromPrePeerPlayMarkerToReleaseMs=1230, nativeUi={"playing": False},
-                     appOwnedFocusAfterPeerPlay=True,
+                     appOwnedFocusAfterPeerPlay=True, warmHelperPid=901,
                      request={"event": "requested", "result": 1, "gain": 2,
+                              "nonce": nonce, "pid": 901, "uid": 10179,
                               "requestStartedElapsedRealtimeMs": 100800, "elapsedRealtimeMs": 100830},
                      release={"event": "released", "result": 1, "gain": 2,
+                              "nonce": nonce,
                               "elapsedRealtimeMs": 101230})
     cases = []
     for index, mode in enumerate(("permanent", "transient")):
@@ -286,6 +294,8 @@ class ReceiptTests(unittest.TestCase):
             lambda x: x["togetherFocus"]["earlyShort"]["noAutoplayMonitor"].update(
                 forbiddenRoomPlayEvents=[{"elapsedMs": 900}]),
             lambda x: x["togetherFocus"]["earlyShort"]["before"].update(peerSetter="Focus Host"),
+            lambda x: x["togetherFocus"]["earlyShort"]["ready"].update(
+                helperOwnedFocusBeforePeerPlay=True),
         ]
         for mutate in mutations:
             changed = copy.deepcopy(value)
@@ -311,6 +321,84 @@ class ReceiptTests(unittest.TestCase):
             with self.assertRaises(RuntimeFailure):
                 validate_journey(changed_value_report, changed)
 
+        for mutate in (
+                lambda x: x[0]["warmHelper"].update(elapsedRealtimeMs=84000),
+                lambda x: x[0].update(helperPid=902),
+                lambda x: x[1]["request"].update(pid=902),
+                lambda x: x[1]["release"].update(nonce="b" * 32),
+                lambda x: x[1].update(warmHelperPid=902)):
+            changed = copy.deepcopy(stages)
+            mutate(changed)
+            changed_value_report = copy.deepcopy(value)
+            changed_value_report["togetherFocus"]["earlyShort"]["ready"] = changed[0]
+            changed_value_report["togetherFocus"]["earlyShort"]["acquire"] = changed[1]
+            with self.subTest(mutate=mutate), self.assertRaises(RuntimeFailure):
+                validate_journey(changed_value_report, changed)
+
+    def test_warm_event_requires_one_owned_no_focus_identity(self):
+        nonce = "a" * 32
+        row = {"protocol": 1, "nonce": nonce, "event": "armed", "pid": 901, "uid": 10179,
+               "gain": 2, "autoReleaseMs": 350, "elapsedRealtimeMs": 99500}
+
+        def log(value, *, log_pid=901):
+            return f"1790310642.100 {log_pid} 901 I MWFocusWarm: {json.dumps(value)}\n"
+
+        self.assertEqual(require_warm_event(log(row), nonce, 10179, 901), row)
+        for invalid in ({**row, "pid": 902}, {**row, "uid": 10180},
+                        {**row, "gain": 1}, {**row, "autoReleaseMs": 351},
+                        {**row, "event": "expired"}, {**row, "elapsedRealtimeMs": 0}):
+            with self.subTest(invalid=invalid), self.assertRaises(RuntimeFailure):
+                require_warm_event(log(invalid), nonce, 10179, 901)
+        with self.assertRaises(RuntimeFailure):
+            require_warm_event(log(row) + log(row), nonce, 10179, 901)
+        with self.assertRaises(RuntimeFailure):
+            require_warm_event(log(row, log_pid=902), nonce, 10179, 901)
+
+    def test_receipt_rejects_request_after_warm_expiry_even_inside_peer_window(self):
+        value, stages = receipt()
+        forged = copy.deepcopy(stages)
+        forged[0]["warmHelper"]["elapsedRealtimeMs"] = 85010
+        marker = forged[0]["deviceElapsedRealtimeMs"]
+        expiry = forged[0]["warmHelper"]["elapsedRealtimeMs"] + 15000
+        request = forged[1]["request"]["requestStartedElapsedRealtimeMs"]
+        self.assertLess(marker, expiry)
+        self.assertGreaterEqual(request, expiry)
+        self.assertLess(forged[1]["release"]["elapsedRealtimeMs"], marker + 3000)
+        value["togetherFocus"]["earlyShort"]["ready"] = forged[0]
+        value["togetherFocus"]["earlyShort"]["acquire"] = forged[1]
+        with self.assertRaises(RuntimeFailure):
+            validate_journey(value, forged)
+
+    def test_warm_command_prepares_same_live_process_without_requesting_focus(self):
+        nonce = "a" * 32
+        row = {"protocol": 1, "nonce": nonce, "event": "armed", "pid": 901, "uid": 10179,
+               "gain": 2, "autoReleaseMs": 350, "elapsedRealtimeMs": 99500}
+        class FakeAdb:
+            serial = "emulator-5554"
+
+            def run(self, *args, **kwargs):
+                self_test.assertEqual(args, ("shell", "pidof", HELPER))
+                return SimpleNamespace(stdout=b"901\n")
+
+        self_test = self
+        session = FocusSession(FakeAdb(), "meowwatch_interruption_123_1", Path("unused"),
+                               Path("unused-helper.apk"), Path("unused-observer.apk"))
+        session.nonce = nonce
+        session.helper_uid = 10179
+        calls = []
+        def raw(stage, name, *command):
+            calls.append((name, command))
+            if name == "warm-command":
+                return "Starting service: Intent {}"
+            self.assertEqual(name, "warm-events")
+            return f"1790310642.100 901 901 I MWFocusWarm: {json.dumps(row)}\n"
+        session.raw = raw
+        self.assertEqual(session._warm("early-short-ready"), row)
+        self.assertEqual(session.helper_pid, 901)
+        self.assertEqual(calls[0][1][-9:], ("--es", "nonce", nonce, "--es", "mode", "transient",
+                                           "--ei", "autoReleaseMs", "350"))
+        self.assertNotIn("acquire", calls[0][1])
+
     def test_short_helper_command_requests_native_auto_release_without_host_release(self):
         class NoAdb:
             serial = "emulator-5554"
@@ -327,9 +415,15 @@ class ReceiptTests(unittest.TestCase):
         captured = []
         session.raw = lambda stage, name, *command: (captured.append(command) or "Starting service: Intent {}")
         session._events = lambda stage: [requested, released]
-        self.assertEqual(session._command("early-short-acquire", "acquire", early_short=True), released)
+        timing = {}
+        self.assertEqual(session._command("early-short-acquire", "acquire", early_short=True,
+                                          timing=timing), released)
         self.assertEqual(session.events, [requested, released])
-        self.assertEqual(captured[0][-6:], ("--es", "mode", "transient", "--ei", "autoReleaseMs", "350"))
+        self.assertIn("startservice", captured[0])
+        self.assertEqual(captured[0][-9:], ("--es", "mode", "transient", "--ei", "autoReleaseMs", "350",
+                                           "--ez", "requireWarm", "true"))
+        self.assertIn("serviceLaunchMs", timing)
+        self.assertIn("eventPollMs", timing)
 
     def test_bridge_rejects_out_of_order_and_repeated_native_commands(self):
         class Session:

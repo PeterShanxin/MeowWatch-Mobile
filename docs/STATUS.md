@@ -9,7 +9,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | 29eafe2 passes normal API 29/35 debug and API 35 release clean install in hosted run 36074182955. The original normal-release APK hash, clean-install receipt, first-use and shared-video screens are reviewed. These are normal lib/main.dart APKs; release is debug-signed with billing disabled. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36092738855 at 37adcf6 passes the secret scan, formatting, analysis, 837 app tests, 110 native player tests, normal debug APK build, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36095100513 at 8e31b65 passes the secret scan, formatting, analysis, 846 app tests, 110 native player tests, normal debug APK build, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
@@ -35,7 +35,7 @@ retains the complete prior results, original failures and repair rationale.
 
 ### Integrated source and current focus repair
 
-Check `36092738855` at `37adcf6` passes every required job: 837 app tests,
+Check `36095100513` at `8e31b65` passes every required job: 846 app tests,
 110 native player tests without skips, normal debug APK, formatting, analysis,
 Nearby/platform contracts, observer SDK compilation and media/secret checks.
 Original app logs and native JUnit XML are reviewed. The native suite uses
@@ -65,7 +65,11 @@ stable-Home gate without ANR repair. Its real 378 ms transient interruption is
 released 5,603 ms after the pre-Play marker, exceeding the required 3,000 ms
 early window. Native pause is observed, but room pause has not arrived when
 the runner aborts. This late trigger cannot establish early-focus acceptance;
-the trigger timing is being investigated without loosening the requirement.
+the test service is now prepared before the pre-Play marker without requesting
+focus. Its 15-second expiry, live PID/UID/nonce and absence of focus are checked.
+The existing app-focus ownership check and 3,000 ms/200–500 ms timing gates stay
+unchanged. Five focused mocked contracts pass, including an expired warm
+request that would otherwise fit the Play window. Fresh native proof is pending.
 
 Normal-release Local Mode `36093565684` at `37adcf6` passes the new focus policy
 in PID 3214 without setup ANR repair or observation timeout. Permanent pause
@@ -116,8 +120,10 @@ stall, setter changes and large jumps still revoke eligibility. Candidate
 observation tolerates temporary projection wobble, while actual calibration
 and its queued recheck retain the original 600 ms clock-error limit. A socket
 trace regression and stale/stalled/slow-clock counterexamples are added.
-Independent source review caught and corrected a test startup-clock issue;
-hosted tests and fresh native convergence remain required.
+Independent source review caught and corrected a test startup-clock issue.
+All 846 hosted app tests pass, including the socket trace regression; normal
+network `36095103607` and failed-decoder `36095106426` are running at `8e31b65`.
+Fresh native convergence and recovery remain required.
 
 Normal network `36091067116` stops before radio loss because its independent
 accessibility observer cannot obtain an app root within 15 attempts. PID 3155

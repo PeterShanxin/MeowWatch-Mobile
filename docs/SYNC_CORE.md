@@ -78,7 +78,12 @@ After that startup watch, a local decoder supporting `PlaybackRateTarget` can
 gently slow when it leads the room by 900 ms to less than four seconds. This
 requires consecutive advancing heartbeats from the same named peer; self,
 pending own-change handshakes, pause, seek, stall and stale heartbeats are
-excluded. A lead of at least 1.5 seconds enters 0.90 correction, which stays
+excluded. Small backward projections of at most 500 ms retain only the previous
+eligible sample and its original receive age. They do not count as fresh
+progress. A new sample must advance at least 100 ms past the raw position
+high-water mark; larger regressions, jumps over three seconds and setter
+changes require a new baseline. A stall immediately revokes eligibility.
+A lead of at least 1.5 seconds enters 0.90 correction, which stays
 active until the lead drops below 900 ms; closer playback uses 0.95. This
 separate entry/exit band avoids repeated rate switching around 1.5 seconds.
 Buffering immediately restores 1x but preserves the band within the original
@@ -96,6 +101,17 @@ cancels retry timers and invalidates this bridge's queued rate commands before
 its final bounded restore, so they cannot override a replacement bridge.
 Unit coverage establishes the boundary;
 native recordings must separately establish actual convergence.
+
+When a lead of at least two seconds cannot converge within the remaining rate
+window, the bridge may make one decoder-only calibration per user intent and
+source. It requires at least three distinct eligible samples over three
+seconds, at least 2.4 seconds of room progress, and net room/wall-clock agreement
+within 600 ms. Intermediate projections may temporarily deviate by up to two
+seconds while evidence accumulates; the tighter 600 ms limit still applies
+before scheduling the seek and again immediately before executing it. Stale
+or invalidated evidence, buffering, source/intent changes and uncertain native
+rate restoration prevent the calibration. The seek never becomes a room seek
+command, and it does not target the end of the video.
 
 All synchronized user controls go through `play()`, `pause()` and `seek()`.
 Player events update the cached heartbeat; they never infer or echo user

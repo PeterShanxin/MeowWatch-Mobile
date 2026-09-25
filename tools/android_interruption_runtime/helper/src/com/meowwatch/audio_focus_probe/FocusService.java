@@ -21,6 +21,8 @@ import org.json.JSONObject;
 /** A bounded, independent focus owner. It never launches or instruments MeowWatch. */
 public final class FocusService extends Service {
     private static final String TAG = "MWFocusProbe";
+    private static final String WARM_TAG = "MWFocusWarm";
+    private static final int WARM_EXPIRY_MS = 15000;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private AudioManager audio;
     private AudioFocusRequest request;
@@ -28,6 +30,7 @@ public final class FocusService extends Service {
     private int sequence;
     private int gain = AudioManager.AUDIOFOCUS_GAIN;
     private long requestStartedElapsed;
+    private boolean warmArmed;
 
     @Override public IBinder onBind(Intent intent) { return null; }
 
@@ -43,7 +46,32 @@ public final class FocusService extends Service {
             else stopSelf();
             return START_NOT_STICKY;
         }
-        if (!"acquire".equals(intent.getAction()) || nonce != null) return START_NOT_STICKY;
+        if ("warm".equals(intent.getAction())) {
+            if (nonce != null || request != null
+                    || !"transient".equals(intent.getStringExtra("mode"))
+                    || intent.getIntExtra("autoReleaseMs", 0) != 350) {
+                stopSelf();
+                return START_NOT_STICKY;
+            }
+            nonce = incoming;
+            gain = AudioManager.AUDIOFOCUS_GAIN_TRANSIENT;
+            warmArmed = true;
+            startFocusNotification(true);
+            warmEvent("armed");
+            handler.postDelayed(new Runnable() {
+                @Override public void run() {
+                    warmEvent("expired");
+                    release("warm-expired");
+                }
+            }, WARM_EXPIRY_MS);
+            return START_NOT_STICKY;
+        }
+        if (!"acquire".equals(intent.getAction())) return START_NOT_STICKY;
+        boolean requireWarm = intent.getBooleanExtra("requireWarm", false);
+        if (requireWarm ? !warmArmed || !incoming.equals(nonce) : nonce != null) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         String mode = intent.getStringExtra("mode");
         if (mode != null && !"permanent".equals(mode) && !"transient".equals(mode)) {
             stopSelf();
@@ -57,15 +85,17 @@ public final class FocusService extends Service {
             stopSelf();
             return START_NOT_STICKY;
         }
-        nonce = incoming;
-        NotificationManager notifications = getSystemService(NotificationManager.class);
-        notifications.createNotificationChannel(new NotificationChannel(
-            "focus-proof", "Temporary audio focus acceptance", NotificationManager.IMPORTANCE_MIN));
-        Notification notification = new Notification.Builder(this, "focus-proof")
-            .setContentTitle("Audio focus acceptance in progress")
-            .setContentText("Temporary test service; automatically ends within 120 seconds.")
-            .setSmallIcon(android.R.drawable.ic_media_pause).setOngoing(true).build();
-        startForeground(71, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+        if (requireWarm && (gain != AudioManager.AUDIOFOCUS_GAIN_TRANSIENT || autoReleaseMs != 350)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
+        if (requireWarm) {
+            warmArmed = false;
+            handler.removeCallbacksAndMessages(null);
+        } else {
+            nonce = incoming;
+            startFocusNotification(false);
+        }
         audio = getSystemService(AudioManager.class);
         request = new AudioFocusRequest.Builder(gain)
             .setAudioAttributes(new AudioAttributes.Builder().setUsage(AudioAttributes.USAGE_MEDIA)
@@ -91,6 +121,29 @@ public final class FocusService extends Service {
         return START_NOT_STICKY;
     }
 
+    private void startFocusNotification(boolean warming) {
+        NotificationManager notifications = getSystemService(NotificationManager.class);
+        notifications.createNotificationChannel(new NotificationChannel(
+            "focus-proof", "Temporary audio focus acceptance", NotificationManager.IMPORTANCE_MIN));
+        Notification notification = new Notification.Builder(this, "focus-proof")
+            .setContentTitle(warming ? "Preparing audio focus probe" : "Audio focus acceptance in progress")
+            .setContentText(warming ? "Preparing focus probe; automatically ends within 15 seconds."
+                                    : "Temporary test service; automatically ends within 120 seconds.")
+            .setSmallIcon(android.R.drawable.ic_media_pause).setOngoing(true).build();
+        startForeground(71, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_MEDIA_PLAYBACK);
+    }
+
+    private void warmEvent(String name) {
+        try {
+            JSONObject value = new JSONObject();
+            value.put("protocol", 1).put("nonce", nonce).put("event", name)
+                .put("pid", Process.myPid()).put("uid", Process.myUid())
+                .put("gain", gain).put("autoReleaseMs", 350)
+                .put("elapsedRealtimeMs", SystemClock.elapsedRealtime());
+            Log.i(WARM_TAG, value.toString());
+        } catch (JSONException impossible) { throw new IllegalStateException(impossible); }
+    }
+
     private void event(String name, int result) {
         try {
             JSONObject value = new JSONObject();
@@ -105,6 +158,7 @@ public final class FocusService extends Service {
 
     private void release(String reason) {
         handler.removeCallbacksAndMessages(null);
+        warmArmed = false;
         if (request != null) {
             int result = audio.abandonAudioFocusRequest(request);
             request = null;
@@ -117,6 +171,7 @@ public final class FocusService extends Service {
     @Override public void onDestroy() {
         if (request != null) release("destroyed");
         handler.removeCallbacksAndMessages(null);
+        stopForeground(STOP_FOREGROUND_REMOVE);
         super.onDestroy();
     }
 }

@@ -25,10 +25,16 @@ starts, the stage still fails its exact foreground check; its failure receipt
 now retains Android ANR events, Launcher process listing, Home resolution,
 and the original window dump and screenshot. No app-stage recovery is attempted.
 Before those held cases, a separate short transient case pauses through the
-real TLS peer, records an Android monotonic uptime marker, and sends a real
-peer Play. Once native playback and the named peer Play are visible, the bridge
-checks the app's current focus ownership and asks the helper to acquire
-`AUDIOFOCUS_GAIN_TRANSIENT`. The helper abandons focus itself after 350 ms; it
+real TLS peer and starts the independent helper as a foreground service without
+requesting audio focus. A nonce-bound Android log receipt records the live
+helper UID, PID, and device clock; the gate verifies that the helper owns no
+audio focus and that the app remains foreground. The warm service expires after
+15 seconds if unused. The gate then records an Android monotonic uptime marker
+and sends a real peer Play. Once native playback and the named peer Play are
+visible, the bridge retains its pre-acquire `dumpsys audio` check of the app's
+current focus ownership and asks the already running, same-nonce helper to
+acquire `AUDIOFOCUS_GAIN_TRANSIENT` before the warm expiry. The helper abandons
+focus itself after 350 ms; it
 does not wait for screenshots or host polling. The grant and release must both
 occur less than 3 seconds after the marker, which predates the peer Play.
 A listener armed while native playback is active rejects every native Play
@@ -36,7 +42,9 @@ event after its first pause until the test explicitly taps Play. Native UI,
 foreground/PID, helper UID/PID/nonce, and post-release focus-stack evidence
 are retained for the short case as well. The short case's window is measured
 on one device clock; the TLS command receipt has no native timestamp, so the
-pre-command marker deliberately gives a stricter bound.
+pre-command marker deliberately gives a stricter bound. Separate host-clock
+durations for the app-focus dump, helper service command and event polling are
+retained for diagnosis and do not replace the device-clock bound.
 `AUDIOFOCUS_GAIN` and `AUDIOFOCUS_GAIN_TRANSIENT` run in separate stages. The
 Flutter test never calls pause during an interruption. Both modes require the
 native player and peer to pause, stay paused after focus release, and resume

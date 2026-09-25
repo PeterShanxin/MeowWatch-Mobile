@@ -88,6 +88,18 @@ class VisibleUiContract(unittest.TestCase):
             join_sheet_ready(tree(node('', kind='android.widget.EditText', clickable=True),
                                   node('Join room', kind='android.widget.Button', clickable=True)))
 
+    def test_history_matches_complete_context_line_in_native_progress_card(self):
+        # Native tablet semantics from run 36132938666.
+        context = 'Room warm-bear-nabs-snowy-rose'
+        card = ('47, sync-fixture.mp4\n' + context + ' · 0:42 of 1:30\n'
+                'Last watched Sep 25, 2026 · 12:19 PM\n47 percent watched')
+        xml = tree(node('Continue Watching'),
+                   node(card, kind='android.widget.ProgressBar', clickable=True))
+        self.assertTrue(history_context(xml, context))
+        for wrong in ('Room warm-bear', context + '-other', 'Local'):
+            with self.subTest(wrong=wrong), self.assertRaises(RuntimeFailure):
+                history_context(xml, wrong)
+
     def test_media_link_requires_visible_submit_and_entered_fixture(self):
         ready = tree(node('Choose what to watch'),
                      node(FIXTURE_URL, kind='android.widget.EditText', clickable=True),

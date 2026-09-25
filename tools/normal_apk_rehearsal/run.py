@@ -341,7 +341,8 @@ def history_context(xml: str, context: str) -> bool:
               (node.get("text", ""), node.get("content-desc", "")) if value]
     if "Continue Watching" not in values or not any(FIXTURE_NAME in value for value in values):
         raise RuntimeFailure("controlled fixture is absent from visible watch history")
-    if not any(value.startswith(context + " · ") for value in values):
+    if not any(line.startswith(context + " · ")
+               for value in values for line in value.splitlines()):
         raise RuntimeFailure(f"visible watch history has no {context} position")
     return True
 

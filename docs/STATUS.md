@@ -9,14 +9,14 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | fdebec3 passes normal API 29/35 debug and API 35 release clean install in hosted run 36044617989. These are normal lib/main.dart APKs. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36074183204 at 29eafe2 passes the secret scan, formatting, analysis, 814 app tests, 87 Nearby tests, 14 platform tests and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36078119317 at 6daa1ea passes the secret scan, formatting, analysis, 824 app tests, 87 Nearby tests, 14 platform tests and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial; current replay convergence failed | fdebec3 Together 36053642428 passes all 26 host and 25 guest stages with repeated two-way controls. Settled native positions match at 12,416, 53,361 and 55,242 ms. Profile network 36055097185 passes at 0454176. Current 29eafe2 normal network 36074182939 fails replay convergence after an otherwise healthy paused rejoin; the bounded correction and failed-source rebuilding still need native acceptance. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Partial | Normal release lifecycle passes at fdebec3; permanent and transient foreground audio focus pass in 36063562267 at f56c8e8 with original UI/AudioService evidence. Profile network 36055097185 at 0454176 passes real radio loss, automatic pause, no-autoplay rejoin and explicit replay/Pause/Seek. Current 29eafe2 network replay misses the 30-second convergence gate; lifecycle 36074183011 returns paused but exceeds the four-second HOME tolerance. Both remain under investigation. Physical and Together-room transient-focus acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 6ad19ac production Test Store 36071310593 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original evidence and six selected screens are reviewed. Same-customer relaunch/expiry 36068920015 passes at 48e5a65. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | Native purchase verifies one free plus two distinct Plus sessions. fdebec3 Together verifies joining, shared links, media recovery and history do not recharge. Profile network 36055097185 retains the original quota ledger across a real outage and reconnect |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Fresh 48e5a65 five-viewport journey 36068920060 passes 20 steps per profile; nine selected original screens are reviewed. 29eafe2 normal-release phone fullscreen passes and selected original PNGs are reviewed; its tablet observer times out before fullscreen. Prior 6e46041 phone/tablet fullscreen evidence is retained. 9a3fc05 native Together verifies complete player/reaction bounds with tablet keyboard inset. Final film motion and physical checks remain open; the SDK candidate is unadopted |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
@@ -44,15 +44,21 @@ transient pause 2,513 ms, and transient resume 5,268 ms. Three original screens
 and recording hashes are reviewed; this does not establish Together-room focus
 delivery or physical-device behavior.
 
-The follow-up Check `36077388034` at `0ab6f1f` passes formatting, analysis, the
-four new midnight quota checks, Nearby/platform and observer/media/secret checks.
-Two new local-calibration tests time out; the other 822 app tests pass. The
-calibration patch remains unaccepted until those failures and native convergence
-are resolved. No emulator run is started for that unaccepted patch.
-The follow-up commits speed-reset success/failure state inside the queued native
-command, before a following calibration can inspect it. An already reported
-reset error is not reported again by the calibration. The original timeouts and
-new failure diagnostics remain retained for the next cloud check.
+Check `36078119317` at `6daa1ea` passes all 824 app tests, 87 Nearby tests,
+14 platform tests, formatting, analysis, native observer SDK compilation and
+media/secret checks. This includes four new midnight quota tests and six bounded
+calibration regressions. The preceding Check `36077388034` at `0ab6f1f` retained
+two calibration timeouts and 822 passing app tests. The fix commits speed-reset
+success/failure state inside the queued native command, before a following
+calibration can inspect it; an already reported reset error is not reported
+again. Both previously failing cases now pass. Native convergence remains
+unaccepted until the actual Android journey passes.
+
+Targeted cloud runs at `6daa1ea` are in progress: normal network `36078681672`,
+lifecycle `36078684061`, standard phone/tablet Together `36078687173`, and native
+fullscreen `36078690609`. The local machine remains limited to source edits,
+lightweight evidence reads and the bounded two-frame-per-second static showcase
+recording. Builds, emulators and video processing run only in GitHub Actions.
 
 The cohort also retains four failed scenarios, without treating retries as proof:
 
@@ -320,19 +326,20 @@ remain open. Historical runs and asset provenance are preserved in
 
 ## Live development recording
 
-At September 24 22:34 UTC the current bounded two-fps recorder has about 166 MB
-persisted. The latest scoped resource check finds about 10.2 GiB free RAM and no
-local Dart, Java, FFmpeg or Android emulator. The selected image is a single
+At September 25 00:44 UTC the current bounded two-fps recorder has about 187 MiB
+persisted and is still saving chunks. The latest scoped resource check finds
+about 10.2 GiB free RAM, a 29 MiB BelowNormal showcase service, and no local Dart,
+Java, FFmpeg or Android emulator. The selected image is a single
 static phone/tablet frame from the reviewed 100-second film candidate; it is
 labelled captured evidence, not live Android. Historical recording gaps below
 remain part of the record.
 
-Following two reported machine freezes, local heavy work is serialized and
-Android builds, emulator runs and full regression suites use hosted CI. No
+Following two reported machine freezes, local heavy work is disabled. Android
+builds, emulator runs, full regression suites and video processing use hosted CI. No
 Flutter, Gradle or emulator process was running at the September 24 10:20 UTC
 inspection; roughly 10 GiB RAM was free. This does not establish the cause of
-the earlier freezes. One reviewer handles bounded observer diagnostics and mocked
-contracts; no local Android compilation or emulator is used.
+the earlier freezes. Agent assignments are bounded source work and lightweight
+mocked contracts; no local Android compilation or emulator is used.
 
 The showcase now supports `--evidence-only`, disabling live ADB subprocesses.
 The evidence library loads media only after selection and retains unchanged

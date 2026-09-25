@@ -156,7 +156,9 @@ target changes consistent.
    `9a3fc05` with Local/fullscreen/purchase sources at `6e46041`. These share the
    tablet-layout fix, with different test drivers and development/release
    runtimes. Later history/rate fixes have separate acceptance evidence.
-   Source-held frames are retained; cloud render and review are pending. Its
+   Source-held frames are retained. Cloud render `36059267954` strictly decodes
+   all 2,940 output frames; 42 shot-boundary and 25 periodic static samples are
+   reviewed. Full-motion inspection remains open. Its
    [demo script](DEMO_SCRIPT.md) retains original-speed cuts, source hashes,
    runtime labels and Test Store/Restore boundaries. It is not a final-build
    rehearsal, one uninterrupted take or submission-ready footage.

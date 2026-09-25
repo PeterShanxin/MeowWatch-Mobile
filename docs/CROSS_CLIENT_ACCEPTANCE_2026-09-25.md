@@ -54,8 +54,15 @@ The fallback does not prove Windows remote-source stability. This public-room
 check also does not establish LAN discovery, Cast receiver behavior, physical
 two-Android synchronization or later builds. [Physical Nearby acceptance](PHYSICAL_ACCEPTANCE_2026-09-25.md)
 and the [complete ordinary-APK phone/tablet rehearsal](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270)
-retain their separate scopes. Desktop maintainer confirmation remains required
-before the companion's release gate can be closed.
+retain their separate scopes. The maintainer confirmed this two-instance check
+on September 25 and authorized desktop PR #279 closeout at unchanged source
+`3ebba3a`. The PR was merged as `3b8b976`; its application source matches the
+accepted build. [Signed release `v0.51.0-alpha`](https://github.com/PeterShanxin/MeowWatch/releases/tag/v0.51.0-alpha)
+passes [release run 36147584974](https://github.com/PeterShanxin/MeowWatch/actions/runs/36147584974).
+R2 latest/changelog contain the version and the public ZIP is reachable. The
+GitHub ZIP matches R2's checksum and its version-bound Ed25519 signature verifies
+against the public key baked into the app. The release was not relaunched for
+another manual test; unchanged application source preserves the accepted check.
 
 After inspection, the owned Windows review process and loopback media server
 were closed at 14:16 UTC. Both processes and their children were absent and

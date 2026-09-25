@@ -101,8 +101,8 @@ See [product specification](docs/PRODUCT_SPEC.md), [delivery goal](docs/GOAL_BRI
 
 Choose **Local mode** to watch alone. The screen selector includes this phone,
 [Nearby MeowWatch](docs/NEARBY_PROTOCOL.md), and [Google Cast](docs/CAST.md).
-Nearby requires the companion implementation in
-[desktop draft PR 279](https://github.com/PeterShanxin/MeowWatch/pull/279), explicit
+Nearby requires [MeowWatch desktop v0.51.0-alpha](https://github.com/PeterShanxin/MeowWatch/releases/tag/v0.51.0-alpha)
+or later, explicit
 pairing approval, and a trusted private LAN. Cast accepts public HTTPS MP4 links
 without URL parameters; no receiver is available for hardware acceptance, so
 receiver behavior remains unverified and **This phone** is the fallback. Ordinary

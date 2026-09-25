@@ -46,7 +46,7 @@ sources remain labeled.
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Current PR-head Check 36131237368 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks. Draft PR #1 at `9e3f033` has 25 successful and two skipped checks, with no pending or failed checks. Main still contains the foundation README. Repository merge/closeout remains open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Check 36146573344 at `8720496` passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks. Three initial runtime failures and their bounded follow-up are recorded below; the earlier `9e3f033` gate had 25 successful and two skipped checks. Main still contains the foundation README. Repository merge/closeout remains open |
 | 3 | Clear first-launch create/join | Verified on emulators | Ordinary-APK 36137630270 passes the first-run guide, visible Start and invitation code, and Join on independent API 35 phone/tablet emulators. Five-viewport run 36103033060 and Together 36103033024 attempt 2 also pass |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators and Windows/cloud Android | Ordinary-APK 36137630270 passes advancing native playback and play/pause/seek in both directions on independent phone/tablet emulators. [Cross-client 36143500404](CROSS_CLIENT_ACCEPTANCE_2026-09-25.md) also passes ordinary Windows/cloud Android controls in both directions, including matching paused 3:54 and 4:58 positions; Windows uses an unchanged downloaded copy after remote-source failure. Failed-decoder recovery passes 36101860905 on identical product code. Physical two-Android behavior and frame identity are not claimed |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Ordinary-APK 36137630270 visibly passes presence, chat in both directions and a peer reaction on the independent phone/tablet emulators. Earlier Together and Test Store journeys also pass; 36103033131 verifies a premium reaction received by a headless TLS peer |
@@ -59,9 +59,38 @@ sources remain labeled.
 | 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
 | 13 | No placeholders, dead ends or silent failures | Verified for the rehearsed demo path | Ordinary-APK 36137630270 completes the visible first-install path through two-client Together playback, history, quota paywall, native purchase, Restore and Local resume without a dead end. Earlier onboarding, recovery and failure-path checks retain their separate scope; physical acceptance and its corrected UI defects are recorded below |
 | 14 | Clean-install full demo rehearsal | Verified on two API 35 emulators | Ordinary `lib/main.dart` debug/Test Store APK run [36137630270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270) at `b5b9f77` completes on fresh independent phone/tablet emulators. It passes onboarding, visible invitation-code join, the same controlled URL and advancing native playback, two-way controls/chat, reaction, fullscreen/Back, both histories, free-host quota paywall, native Test Store success, a distinct Plus host, Settings Restore and Local leave/resume. This is emulator evidence, not physical two-device or production Google Play billing proof |
-| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and the 94-second hybrid film are prepared; complete ordinary-APK and Windows/cloud rehearsals pass. The final film is uploaded as a private YouTube draft with HD processing complete. The Devpost project page is public, its academic account email is verified, and the competition entry remains unsubmitted. Video access, final entry requirements, desktop maintainer confirmation and repository closeout remain open |
+| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and the 94-second hybrid film are prepared; complete ordinary-APK and Windows/cloud rehearsals pass. The final YouTube film is Unlisted with HD processing complete and is saved in the actual competition form. The Devpost project page is public, its academic account email is verified, and the competition entry remains unsubmitted. The desktop maintainer confirmed acceptance and PR #279 is merged. Desktop signed release and R2 verification pass. The form shows 4/5 steps complete; mobile repository closeout and final submission remain open |
 
 ## Current verification
+
+### Final repository checks
+
+At `8720496`, [Check 36146573344](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36146573344)
+passes formatting, analysis, tests, native player, normal debug APK, package,
+media and secret gates. The runtime checks retain three initial failures:
+
+- Tablet fullscreen `36146572960`: before entering fullscreen, a 1.437-second
+  UI traversal crossed a timeline tick and read both 0:43 and 0:44. The strict
+  parser rejected the sample. Original screenshots show advancing playback;
+  that attempt does not establish fullscreen acceptance.
+- Together focus `36146573123`: the native UI showed paused playback, but its
+  first observable capture began 4.311 seconds after the focus request and
+  finished at 4.480 seconds. It cannot establish the four-second pause bound
+  or prove that the app missed it. Both jobs pass their second attempts without
+  a code change. The focus report passes early-short, permanent and transient
+  interruption, retained pause and explicit replay; the tablet report has
+  `completed: true` with no error. Original failed attempts remain retained.
+- Test Store expiry `36146572929`: purchase, same-customer relaunch and Restore
+  pass, but expiration validation compares clocks from different sources.
+  RevenueCat reports inactive at 14:37:32.453 UTC, after its 14:37:32.000
+  expiration, while device time is 14:37:31.967. The final inactive-Restore
+  check was not reached. Test-only fix `6e7b03e` compares expiration with the
+  SDK's request time and retains inactive entitlement, customer continuity
+  and Restore assertions. Its regression fails before the fix; all 58 billing
+  host tests pass afterward. Fresh native acceptance runs in `36149213163`.
+
+Application code is unchanged from `0df32c6`; none of these test changes alters
+purchase, playback or quota behavior. Final mobile PR closeout remains pending.
 
 ### Physical acceptance and final presentation revision
 
@@ -115,11 +144,13 @@ mark taps. TypeScript checks and representative Studio/cloud still review pass.
 The downloaded export played to its 94.059-second ending at 1× in the browser
 without a media error; representative frames were visually inspected.
 This export replaces the earlier slow-moving editions. The final
-[YouTube review copy](https://youtu.be/gRUYlHb3LiI) is saved as **Private**;
+[YouTube video](https://youtu.be/gRUYlHb3LiI) is saved as **Unlisted**;
 SD and HD processing are complete, and the upload copyright check reports no
-issues. That automated check is not a legal determination. The private link is
-not yet suitable for submission; changing its visibility requires the entrant's
-publication approval. The earlier silent private upload is superseded.
+issues. That automated check is not a legal determination. On September 25
+the owner requested the final video update and submission link. Studio confirms
+the Unlisted change is saved. The project connector and actual competition form
+contain the final URL; the form now shows 4/5 steps done. The earlier silent
+private upload is superseded.
 
 The owner requested the phone back. At 10:36 UTC its original 30-second timeout
 and charging-awake setting were restored and read back; developer mode and USB
@@ -261,7 +292,7 @@ card are inspected. Sources, separate runtime boundaries and the complete story
 are in [DEMO_SCRIPT.md](DEMO_SCRIPT.md). The entrant authorized a private YouTube
 upload, which is saved and verified as private. A bounded 360p browser replay
 reached the end with sampled visual checks. The final Remotion export and
-private upload above supersede this candidate; public video access remains open.
+unlisted video above supersede this candidate.
 No local emulator or encoding process was started.
 
 The local delivery folder contains the normal Test Store APK, the film,
@@ -275,7 +306,8 @@ Shipaton registration and explicit rules/terms acceptance are complete.
 The [Devpost project](https://devpost.com/software/meowwatch-mobile) has project
 copy, technology tags, repository links, cover, original
 icon/screenshot, Android platform, RevenueCat project ID, authorized academic
-email and judge notes. The browser last showed 3/5 sections complete. Updating
+email and judge notes. The browser now shows 4/5 sections complete after saving
+the final video link. Updating
 the description through Devpost's project connector at 13:53 UTC published the
 project page (version 3); the hackathon entry still has no submission timestamp.
 This is a public project page, not a completed competition submission. The
@@ -286,8 +318,9 @@ domain is covered by JetBrains/swot, including its documented subdomain rule;
 the entrant confirms GitHub sign-in uses that school email. This is domain and
 entrant evidence. A September 25 authenticated account read also confirms its
 email exactly matches the entrant-authorized academic address; no address is
-stored here. This is not a separate Devpost eligibility decision. The final public
-video URL and project-specific declarations remain open. No final submission is made.
+stored here. This is not a separate Devpost eligibility decision. The final
+Submit page is ready with the previously accepted rules/terms checkbox; mobile
+repository closeout remains pending. No final submission is made.
 
 ### Frozen product candidate
 
@@ -524,16 +557,26 @@ from a fresh detached checkout with locked dependencies and official Flutter
 launcher, license and hashes. The normal Release window, Home, Settings, Local
 Mode and player menu were captured and visually inspected. This is not physical
 Android-to-Windows LAN acceptance. [Desktop PR #279](https://github.com/PeterShanxin/MeowWatch/pull/279)
-remains draft. Requested Copilot review returned an account-quota failure and
-performed no review; it is neither an approval nor a pending review.
+was merged on September 25 as `3b8b976` after the maintainer confirmed the final
+two-instance check at `3ebba3a`. Application source is unchanged by the merge.
+Tag `v0.51.0-alpha` passes [signed release 36147584974](https://github.com/PeterShanxin/MeowWatch/actions/runs/36147584974).
+The GitHub release is published; R2 latest/changelog contain `0.51.0-alpha`,
+and its 35,292,735-byte public ZIP is reachable. The downloaded GitHub ZIP
+matches R2 SHA-256 `f0a61b5489e6344c3dfa67ccb7a17a1d3ff1e74c01a24050b3aed6fd34cbb4dc`
+and its version-bound Ed25519 signature verifies against the app's public key.
+The merged feature branch is removed; three untracked deferred harness files
+are preserved in the companion worktree. Requested Copilot review returned an
+account-quota failure and performed no review; it is neither an approval nor a
+pending review.
 
 The companion at `dba4b57` adopts the `bd931d5` dependency pin and passes 38 Nearby tests,
 analysis and a normal Windows Release build. The first full local test process
 ended with incomplete tests; a separate retained run completed **1,494 tests**
 with exit zero. Its original log and exit receipt are retained. Hosted Windows
 [Analyze & Test](https://github.com/PeterShanxin/MeowWatch/actions/runs/35988145930)
-and Package Check also pass at `dba4b57`. Fresh native/manual acceptance remains
-a separate gate before merge or release.
+and Package Check also pass at `dba4b57`. The later physical and ordinary
+cross-client checks, current-head hosted gates and maintainer confirmation above
+close the native/manual gate for the final `3ebba3a` application source.
 
 The selected navy/cream/blue icon kit includes Android adaptive/themed icons,
 SVG/PNG and desktop ICO. The original 1179x2556 submission screenshot has no
@@ -564,7 +607,7 @@ rehearsal now passes as documented above. Historical runs and asset provenance a
 - The entrant confirmed active student status, local age of majority, access to an academic email, registration eligibility and explicit rules/terms acceptance. Registration is complete. The authenticated Devpost account email matches the authorized academic address. Project-specific ownership/new-work responsibility remains with the entrant; registration is not an organizer ruling.
 - RevenueCat login/Test Store catalog setup and user acceptance of the Android SDK license are complete. RevenueCat email confirmation remains visible.
 - Physical Android and trusted physical LAN are available and exercised as documented above. No physical Cast receiver has been established; phone playback remains the working fallback.
-- Desktop required native/manual review gates remain applicable before merge or release.
+- The desktop maintainer confirmed final two-instance acceptance; PR #279 is merged, and signed release `v0.51.0-alpha` and R2 verification pass.
 
 ## Live development recording
 

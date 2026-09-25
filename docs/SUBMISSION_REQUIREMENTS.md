@@ -182,17 +182,25 @@ rules and Devpost terms and confirmed registration eligibility. Registration
 succeeded, and [MeowWatch Mobile](https://devpost.com/software/meowwatch-mobile)
 was initially saved as an authenticated **Draft**. Its description,
 technology tags, source links, gallery cover, original icon/screenshot, Android
-platform, RevenueCat project ID and judge notes are saved. The UI reports
-**3/5 steps done**. The film is prepared for private review; the final public
-video URL and remaining project-specific declarations still need completion.
+platform, RevenueCat project ID and judge notes are saved. At that earlier
+browser checkpoint the UI reported **3/5 steps done**. The final public video
+URL and submission still need completion; that earlier progress count is not
+a current submission receipt.
 Personal registration answers are not stored in this repository.
 
 The project connector's September 25 13:53 UTC description update published the
 project page (version 3). Readback confirms `state: published` and a null
 hackathon `submitted_at`: the public portfolio page is not a submitted entry.
 The live submission requirements were fetched immediately beforehand and still
-show the first-version/store checkbox as optional. Video visibility and final
-submission remain outstanding.
+show the first-version/store checkbox as optional. No additional mandatory
+ownership/new-work declaration appears in the complete field list. The
+entrant's accepted rules and the disclosed desktop heritage remain applicable.
+Following the owner's instruction to update the video and submission link,
+the final [YouTube video](https://youtu.be/gRUYlHb3LiI) is saved as Unlisted with
+HD processing complete. The project connector's video URL is verified, and the
+actual competition form also saves the URL and updated judge notes, reaching
+**4/5 steps done**. The final Submit page is available; the entry remains a draft
+pending repository closeout and final submission.
 
 An authenticated Devpost account read on September 25 confirms the account
 email exactly matches the academic address already authorized for the entry.

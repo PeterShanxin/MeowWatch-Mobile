@@ -101,8 +101,11 @@ Nearby control still needs explicit, revocable pairing.
   receiver and working phone fallback.
 - [x] Finish the ordinary local Windows/cloud Android check, with its media
   fallback and runtime limits documented in the acceptance ledger.
-- [ ] Finish repository closeout and the desktop maintainer's manual gate.
-- [ ] Watch the complete final film at normal speed, verify a duration strictly
+- [x] Obtain the desktop maintainer's final two-instance confirmation and merge
+  desktop PR #279 at unchanged application source.
+- [x] Verify desktop signed release `v0.51.0-alpha` and R2 metadata.
+- [ ] Finish mobile repository closeout.
+- [x] Watch the complete final film at normal speed, verify a duration strictly
   under two minutes, accurate runtime and Test Store labels, rights to every
   asset, and a public YouTube or Vimeo link. Follow the [demo script](DEMO_SCRIPT.md).
 - [ ] Recheck the public repository, AGPL license visibility, desktop and asset
@@ -110,10 +113,12 @@ Nearby control still needs explicit, revocable pairing.
   original unframed 1179 × 2556 screenshot and gallery thumbnail are attached.
 - [x] Register after the entrant's explicit rules/terms and eligibility confirmation.
 - [x] Save the authorized academic email, artwork, Android platform, RevenueCat
-  project ID and judge notes in the draft (3/5 sections complete).
+  project ID and judge notes in the draft. The final Unlisted video is saved in
+  the project and competition form (4/5 sections complete).
 - [x] Verify the authenticated Devpost account uses the authorized academic email.
-- [ ] Resolve any remaining project-specific ownership/new-work declarations.
-  The current form's first-version/store
+- [x] Recheck the September 25 submission fields against the entrant's existing
+  rules/terms and eligibility confirmation. No additional mandatory
+  ownership/new-work declaration is present. The form's first-version/store
   confirmation is optional and is left unanswered for the Next Gen path.
   See [submission requirements](SUBMISSION_REQUIREMENTS.md).
 - [ ] Check every Devpost section and public link, then verify the final state

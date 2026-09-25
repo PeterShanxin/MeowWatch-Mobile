@@ -89,10 +89,12 @@ score and export 1920 × 1080 H.264/AAC at 30 fps on hosted Ubuntu. The timeline
 contains 2,820 frames; the encoded container can include a small audio tail.
 Verify that the final duration is strictly below two minutes.
 
-The current continuous-stage edition is saved as a
-[private YouTube review upload](https://youtu.be/gRUYlHb3LiI). YouTube reports
+The current continuous-stage edition is saved as an
+[unlisted YouTube video](https://youtu.be/gRUYlHb3LiI), following the owner's
+September 25 instruction to update the final video and submission link. YouTube reports
 SD and HD processing complete and no issues in its upload copyright check.
-Private visibility does not satisfy public submission availability. The
+Studio confirms the visibility change is saved, and the link is saved in the
+Devpost project and competition form. The
 earlier silent YouTube edit is superseded. The
 physical-footage Remotion edition `ec26bb8`, rendered by `36120725164`, is also
 superseded by this hybrid direction. Keep the final runtime/source labels,

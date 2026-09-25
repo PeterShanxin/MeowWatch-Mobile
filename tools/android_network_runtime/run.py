@@ -373,12 +373,24 @@ def validate_result(result: dict, run_id: str, build_mode: str = "debug", varian
         observations = result.get("observations", [])
         decoder_rows = [item for item in observations if isinstance(item, dict)
                         and item.get("phase") == "decoder-continuity"]
-        decoders = {item.get("role"): item for item in decoder_rows}
+        validated = [item for item in decoder_rows if item.get("validated") is True]
+        final = [item for item in decoder_rows if "validated" not in item]
+        decoders = {item.get("role"): item for item in validated}
+        final_decoders = {item.get("role"): item for item in final}
         injection = [item for item in observations if isinstance(item, dict)
                      and item.get("phase") == "offline-decoder-failure"]
-        if (len(injection) != 1 or len(decoder_rows) != 2
+        # The journey retains a verified recovery snapshot and a final teardown
+        # snapshot for each decoder. Keep both: a later replacement or extra
+        # failure must not be hidden by selecting only the verified rows.
+        if (len(injection) != 1 or len(decoder_rows) != 4
+                or len(validated) != 2 or len(final) != 2
                 or set(decoders) != {"host", "guest"}
-                or any(item.get("validated") is not True for item in decoder_rows)
+                or set(final_decoders) != {"host", "guest"}
+                or any(final_decoders[role] != {
+                    key: value for key, value in decoders[role].items()
+                    if key not in {"validated", "rebuiltFailedDecoder"}}
+                    or observations.index(final_decoders[role]) <= observations.index(decoders[role])
+                    for role in ("host", "guest"))
                 or not injection[0].get("nativeError")
                 or injection[0].get("controlledCacheMiss") is not True
                 or injection[0].get("seekMs") != 85000

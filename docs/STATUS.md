@@ -160,6 +160,22 @@ further buffering. The bridge now uses its existing bounded 0.90 rate from a
 25-second duration and native acceptance limits retained. A decoder-progression
 regression covers both 1.6-second and 1.45-second starting gaps and passes in
 all 855 hosted app tests. Fresh native recovery proof remains required.
+Fresh profile run `36100587579` at `5f5dd7f` completes every in-app assertion:
+initial native convergence in 3.814 seconds, real radio/socket loss, original
+guest Source error at 85 seconds, one paused rebuild from controller 2 to 3,
+paused rejoin, unchanged quota and explicit Play/Pause/Seek. Replay converges in
+6.478 seconds. The first replacement-ready state correctly retains 85 seconds.
+The overall job fails because the external verifier expects only two decoder
+receipts, while the integration journey intentionally retains both validated
+recovery receipts and final snapshots for each role. The corrected verifier
+requires both pairs and exact identity/transition agreement through teardown;
+missing, duplicate, reordered, false or changed receipts still fail. The original
+result reproduces the old rejection and passes the corrected pure parser, but
+the original workflow remains failed and a fresh full run is required. Four
+original PNGs are reviewed, all 300 position records are retained, and all four
+recording hashes match successful cloud decode (947 frames; gaps 2.512, 0.673
+and 1.913 seconds). No SDK Setup repair occurs. This remains one profile AVD
+with two native decoders; full motion and physical hardware are not established.
 
 Normal network `36091067116` stops before radio loss because its independent
 accessibility observer cannot obtain an app root within 15 attempts. PID 3155

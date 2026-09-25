@@ -481,15 +481,51 @@ class EvidenceTests(unittest.TestCase):
             {"phase": "decoder-continuity", "role": "guest", "validated": True,
              "rebuiltFailedDecoder": True},
         ])
+        injection, host, guest = value["observations"][-3:]
+        host.update(initialControllerId=1, currentControllerId=1,
+                    transitions=[{"connection": "ready", "controllerId": 1}])
+        guest.update(initialControllerId=2, currentControllerId=3,
+                     transitions=[{"connection": "ready", "controllerId": 2},
+                                  {"connection": "failed", "controllerId": 2, "nativeError": "source error"},
+                                  {"connection": "loading", "controllerId": None},
+                                  {"connection": "ready", "controllerId": 3, "playing": False}])
+        # The real integration journey adds these diagnostic copies in finally,
+        # after its two validated recovery receipts and explicit control checks.
+        value["observations"].extend([
+            {key: item for key, item in row.items()
+             if key not in {"validated", "rebuiltFailedDecoder"}}
+            for row in json.loads(json.dumps([host, guest]))
+        ])
         validate_result(value, RUN_ID, variant="decoder_failure")
         with self.assertRaisesRegex(RuntimeFailure, "variant"):
             validate_result(value, RUN_ID)
-        for item in (value["observations"][-3], value["observations"][-1]):
+        for item in (injection, guest):
             changed = json.loads(json.dumps(value))
             changed_item = changed["observations"][value["observations"].index(item)]
-            changed_item.pop("nativeError" if item is value["observations"][-3]
-                             else "rebuiltFailedDecoder")
+            changed_item.pop("nativeError" if item is injection else "rebuiltFailedDecoder")
             with self.assertRaisesRegex(RuntimeFailure, "original guest native failure"):
+                validate_result(changed, RUN_ID, variant="decoder_failure")
+
+        for fault in ("missing-final", "duplicate-validated", "false-validation", "new-controller",
+                      "new-transition", "wrong-role", "final-before-validation"):
+            changed = json.loads(json.dumps(value))
+            rows = changed["observations"]
+            if fault == "missing-final":
+                rows.pop()
+            elif fault == "duplicate-validated":
+                rows.append(dict(guest))
+            elif fault == "false-validation":
+                rows[-3]["validated"] = False
+            elif fault == "new-controller":
+                rows[-1]["currentControllerId"] = 4
+            elif fault == "new-transition":
+                rows[-1]["transitions"].append({"connection": "failed", "controllerId": 3})
+            elif fault == "wrong-role":
+                rows[-1]["role"] = "host"
+            else:
+                rows.insert(0, rows.pop())
+            with self.subTest(fault=fault), self.assertRaisesRegex(
+                    RuntimeFailure, "original guest native failure"):
                 validate_result(changed, RUN_ID, variant="decoder_failure")
 
     def test_checkpoint_requires_run_id_pid_and_known_phase(self):

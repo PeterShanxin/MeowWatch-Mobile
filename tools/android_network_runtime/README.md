@@ -38,6 +38,9 @@ position: the gate requires the original failed controller ID and error, followe
 by exactly one loading/ready transition to a new ID with the same media and a
 position difference no greater than 350 ms. Both sources must become ready within
 30 seconds. Controller identities must then remain stable through Play/Pause/Seek.
+The result retains both validated recovery receipts and final teardown snapshots.
+The runner requires one of each per role, with identical controller IDs and
+transition history; missing, duplicate, reordered or changed final evidence fails.
 
 The optional `decoder_failure` workflow variant adds controlled failed-source
 acceptance. The standard `normal` variant and all its checks remain unchanged.

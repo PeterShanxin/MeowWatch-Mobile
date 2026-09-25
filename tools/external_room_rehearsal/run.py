@@ -21,8 +21,8 @@ from tools.normal_apk_rehearsal.run import (
 )
 
 
-SAMPLE_URL = "https://media.w3.org/2010/05/bunny/movie.mp4"
-SAMPLE_TITLE = "movie.mp4"
+SAMPLE_URL = "https://storage.googleapis.com/exoplayer-test-media-0/BigBuckBunny_320x180.mp4"
+SAMPLE_TITLE = "BigBuckBunny_320x180.mp4"
 MAX_SECONDS = 20 * 60
 ROOM_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{2,35}", re.ASCII)
 STAGES = frozenset({

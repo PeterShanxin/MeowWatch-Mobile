@@ -2,9 +2,10 @@
 
 This manual gate pairs one **ordinary** `lib/main.dart` debug APK on a fresh
 hosted API 35 Pixel 6 emulator with a person operating the ordinary Windows
-MeowWatch client. It uses the public `syncplay.pl:8995` endpoint and W3C's
-[Big Buck Bunny MP4](https://media.w3.org/2010/05/bunny/movie.mp4), an
-approximately 10-minute [CC BY 3.0 Blender film](https://peach.blender.org/about/).
+MeowWatch client. It uses the public `syncplay.pl:8995` endpoint and the
+[Big Buck Bunny MP4](https://storage.googleapis.com/exoplayer-test-media-0/BigBuckBunny_320x180.mp4)
+used by [AndroidX's native media test activity](https://android.googlesource.com/platform/frameworks/support/+/0c3df10399d72871a0706423b30a7bb75dc8b36a/graphics/filters/filters/src/androidTest/kotlin/androidx/graphics/filters/TestFiltersActivity.kt).
+The approximately 10-minute Blender film is [CC BY 3.0](https://peach.blender.org/about/).
 The Windows client must join the same disposable room and load that exact URL.
 No test entry point, app-state injection, LAN connection or desktop control is
 used. The GitHub job itself takes at most 45 minutes including build; the guest

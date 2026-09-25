@@ -42,7 +42,7 @@ jobs:
           {
             echo '### Ordinary external room rehearsal'
             echo "Room: \`$room_code\` on \`syncplay.pl:8995\`"
-            echo 'Media: https://media.w3.org/2010/05/bunny/movie.mp4 (Big Buck Bunny, roughly 10 minutes)'
+            echo 'Media: https://storage.googleapis.com/exoplayer-test-media-0/BigBuckBunny_320x180.mp4 (Big Buck Bunny, roughly 10 minutes)'
             echo "Chat prefix: \`$prefix\`"
             echo 'Join and load media in the ordinary Windows app. Respond only after the action is visible there.'
             echo 'Cloud READY → desktop DESKTOP_READY.'

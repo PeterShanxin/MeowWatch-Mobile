@@ -41,7 +41,7 @@ class ExternalRoomContracts(unittest.TestCase):
         self.assertTrue(receipt(xml(("android.widget.TextView", f"desktop\n{expected}", "false")), expected))
 
     def test_sample_player_requires_real_title_timeline_and_duration(self):
-        good = xml(("android.widget.TextView", "movie.mp4", "false"),
+        good = xml(("android.widget.TextView", "BigBuckBunny_320x180.mp4", "false"),
                    ("android.widget.SeekBar", "", "true"),
                    ("android.widget.TextView", "3:12", "false"),
                    ("android.widget.TextView", "9:56", "false"),

@@ -5,7 +5,7 @@ from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
-    history_context, unique_seekbar, unique_text_field, visible_code,
+    history_context, join_sheet_ready, unique_seekbar, unique_text_field, visible_code,
 )
 
 
@@ -13,11 +13,11 @@ def tree(*nodes: str) -> str:
     return '<hierarchy>' + ''.join(nodes) + '</hierarchy>'
 
 
-def node(label: str, *, kind: str = 'android.widget.TextView') -> str:
+def node(label: str, *, kind: str = 'android.widget.TextView', clickable: bool = False) -> str:
     label = escape(label, {'"': '&quot;'}).replace('\n', '&#10;')
     return (f'<node package="{PACKAGE}" enabled="true" '
             f'visible-to-user="true" class="{kind}" text="{label}" '
-            'bounds="[0,0][200,80]"/>')
+            f'clickable="{str(clickable).lower()}" bounds="[0,0][200,80]"/>')
 
 
 class VisibleUiContract(unittest.TestCase):
@@ -54,6 +54,15 @@ class VisibleUiContract(unittest.TestCase):
         with self.assertRaises(RuntimeFailure):
             history_context(tree(node('Recent rooms'), node('Room sleepy-otter-stars')),
                             'Room sleepy-otter-stars')
+
+    def test_join_sheet_uses_visible_field_not_floating_label(self):
+        xml = tree(node('Join their movie night'),
+                   node('', kind='android.widget.EditText', clickable=True),
+                   node('Join room', kind='android.widget.Button', clickable=True))
+        self.assertTrue(join_sheet_ready(xml))
+        with self.assertRaises(RuntimeFailure):
+            join_sheet_ready(tree(node('', kind='android.widget.EditText', clickable=True),
+                                  node('Join room', kind='android.widget.Button', clickable=True)))
 
 
 if __name__ == '__main__':

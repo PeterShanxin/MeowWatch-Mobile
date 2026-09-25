@@ -59,6 +59,14 @@ def unique_text_field(xml: str) -> ET.Element:
     return fields[0]
 
 
+def join_sheet_ready(xml: str) -> bool:
+    if len(exact(xml, "Join their movie night")) != 1:
+        raise RuntimeFailure("expected the visible guest join sheet")
+    unique_text_field(xml)
+    button(xml, "Join room")
+    return True
+
+
 def unique_seekbar(xml: str) -> ET.Element:
     bars = [node for node in nodes(xml) if node.get("class", "").endswith("SeekBar")]
     if len(bars) != 1:
@@ -325,7 +333,7 @@ def run(phone: Device, tablet: Device, fixture: Path, report: dict[str, object])
     assert isinstance(code, str)
     phone.back()
     tablet.tap("Join a room")
-    tablet.capture("04-guest-join-sheet", present("Room code or invite link"))
+    tablet.capture("04-guest-join-sheet", join_sheet_ready)
     tablet.enter(code)
     tablet.tap("Join room")
     phone.capture("06-peer-present-phone", present("Together in this room"))

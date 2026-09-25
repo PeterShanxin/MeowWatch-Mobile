@@ -1,12 +1,16 @@
 """Small parser contracts for the visible invitation and native controls."""
 
 import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_lifecycle_runtime.run import button
 from tools.normal_apk_rehearsal.run import (
-    FIXTURE_URL, entered_text_field, focused_text_field, history_context,
+    FIXTURE_URL, acknowledge_fullscreen_tip, entered_text_field,
+    focused_text_field, history_context,
     join_sheet_ready, media_link_ready,
     rehearsed_playback, timeline_tap, unique_seekbar, unique_text_field,
     visible_chat_receipt, visible_code,
@@ -143,6 +147,61 @@ class VisibleUiContract(unittest.TestCase):
         self.assertEqual(button(xml, label).get('clickable'), 'true')
         with self.assertRaises(RuntimeFailure):
             button(xml, 'Local Player Mode')
+
+    def test_first_fullscreen_tip_uses_fresh_native_system_button(self):
+        xml = tree(
+            '<node package="android" class="android.widget.FrameLayout">'
+            '<node package="android" resource-id="android:id/immersive_cling_title" '
+            'text="Viewing full screen" class="android.widget.TextView" enabled="true" '
+            'clickable="false" bounds="[100,100][620,170]"/> '
+            '<node package="android" resource-id="android:id/immersive_cling_description" '
+            'text="To exit, swipe down from the top of your screen" '
+            'class="android.widget.TextView" enabled="true" clickable="false" '
+            'bounds="[100,170][620,240]"/> '
+            '<node package="android" resource-id="android:id/ok" text="Got it" '
+            'class="android.widget.Button" enabled="true" clickable="true" '
+            'bounds="[500,300][650,370]"/></node>')
+        window = ('mCurrentFocus=Window{abc u0 ImmersiveModeConfirmation}\n'
+                  'mFocusedApp=ActivityRecord{def u0 '
+                  f'{PACKAGE}/.MainActivity t8}}\ncur=720x1600\n')
+
+        class Adb:
+            def __init__(self):
+                self.observations = 0
+                self.taps = []
+
+            def observe(self):
+                self.observations += 1
+                return xml, window
+
+            def screenshot(self):
+                return b'png'
+
+            def run(self, *args):
+                self.taps.append(args)
+
+        with TemporaryDirectory() as directory:
+            adb = Adb()
+            device = SimpleNamespace(adb=adb, output=Path(directory), phase='ready', phases=[])
+            acknowledge_fullscreen_tip(device)
+            self.assertEqual(adb.observations, 2)
+            self.assertEqual(adb.taps, [('shell', 'input', 'tap', '575', '335')])
+            self.assertEqual(device.phases[0]['nativeButton'], 'Got it')
+            self.assertTrue((Path(directory) / '17-android-fullscreen-tip.xml').is_file())
+
+        class ChangedAdb(Adb):
+            def observe(self):
+                fresh_xml, fresh_window = super().observe()
+                if self.observations == 2:
+                    fresh_xml = fresh_xml.replace('text="Got it"', 'text="Allow"')
+                return fresh_xml, fresh_window
+
+        with TemporaryDirectory() as directory:
+            adb = ChangedAdb()
+            device = SimpleNamespace(adb=adb, output=Path(directory), phase='ready', phases=[])
+            with self.assertRaises(RuntimeFailure):
+                acknowledge_fullscreen_tip(device)
+            self.assertEqual(adb.taps, [])
 
     def test_tablet_player_uses_submitted_url_and_visible_ninety_second_timeline(self):
         landscape = tree(node('Together in this room'),

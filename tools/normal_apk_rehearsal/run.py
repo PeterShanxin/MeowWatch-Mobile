@@ -20,6 +20,7 @@ from tools.android_install.runner import (
     verify_build_mode,
 )
 from tools.android_native_ui.observer import NativeUiObserver, ObserverIntegrityFailure
+from tools.android_fullscreen_runtime.run import immersive_confirmation_button
 from tools.android_lifecycle_runtime.run import (
     FIXTURE_NAME, FIXTURE_URL, Playback, button, history_card, history_swipe,
     labels, parse_time, playback, require_playing_advance,
@@ -406,6 +407,27 @@ def native_purchase(device: Device) -> None:
     raise RuntimeFailure(last)
 
 
+def acknowledge_fullscreen_tip(device: Device) -> None:
+    xml, window = device.adb.observe()
+    if "Viewing full screen" not in xml:
+        focused_component(window)
+        button(xml, "Exit full screen")
+        return
+    immersive_confirmation_button(xml, window)
+    device.phase = "17-android-fullscreen-tip"
+    prefix = device.output / device.phase
+    prefix.with_suffix(".xml").write_text(xml, encoding="utf-8")
+    prefix.with_suffix(".window.txt").write_text(window, encoding="utf-8")
+    prefix.with_suffix(".png").write_bytes(device.adb.screenshot())
+    fresh_xml, fresh_window = device.adb.observe()
+    target = immersive_confirmation_button(fresh_xml, fresh_window)
+    prefix.with_suffix(".fresh.xml").write_text(fresh_xml, encoding="utf-8")
+    prefix.with_suffix(".fresh.window.txt").write_text(fresh_window, encoding="utf-8")
+    x, y = center(target)
+    device.adb.run("shell", "input", "tap", str(x), str(y))
+    device.phases.append({"phase": device.phase, "nativeButton": "Got it"})
+
+
 def run(phone: Device, tablet: Device, fixture: Path, report: dict[str, object]) -> dict[str, object]:
     if phone.adb.serial == tablet.adb.serial or phone.apk.resolve() != tablet.apk.resolve():
         raise RuntimeFailure("two independent devices must use the same APK")
@@ -469,6 +491,7 @@ def run(phone: Device, tablet: Device, fixture: Path, report: dict[str, object])
         phone.tap("❤️")
         received.result(timeout=PHASE_TIMEOUT + 10)
     phone.tap("Enter full screen")
+    acknowledge_fullscreen_tip(phone)
     phone.capture("17-phone-fullscreen", present("Exit full screen"))
     phone.back()
     phone.capture("18-phone-after-back", present("Enter full screen"))

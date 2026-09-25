@@ -1,6 +1,11 @@
 # Delivery status
 
-Last updated: 2026-09-26 (Asia/Shanghai). **Public Android preview and submission materials are ready for Next Gen review within the limits below. Devpost entry awaits final submission confirmation.**
+Last updated: 2026-09-26 (Asia/Shanghai). **Submitted to RevenueCat Shipaton 2026 for Next Gen review, with the hardware and runtime limits below disclosed.**
+
+The owner authorized final submission. Devpost confirms submission `1196850`
+at **2026-09-25 16:17:48 UTC** (September 26, 00:17:48 in China/Singapore).
+Both the live project API and authenticated form verify **Submitted, 5/5 steps**.
+Public entry: [MeowWatch Mobile](https://devpost.com/software/meowwatch-mobile).
 
 The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUCT_SPEC.md). P0/P1/P2 define order, not scope cuts.
 
@@ -65,7 +70,7 @@ sources remain labeled.
 | 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
 | 13 | No placeholders, dead ends or silent failures | Verified for the rehearsed demo path | Ordinary-APK 36137630270 completes the visible first-install path through two-client Together playback, history, quota paywall, native purchase, Restore and Local resume without a dead end. Earlier onboarding, recovery and failure-path checks retain their separate scope; physical acceptance and its corrected UI defects are recorded below |
 | 14 | Clean-install full demo rehearsal | Verified on two API 35 emulators | Ordinary `lib/main.dart` debug/Test Store APK run [36137630270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270) at `b5b9f77` completes on fresh independent phone/tablet emulators. It passes onboarding, visible invitation-code join, the same controlled URL and advancing native playback, two-way controls/chat, reaction, fullscreen/Back, both histories, free-host quota paywall, native Test Store success, a distinct Plus host, Settings Restore and Local leave/resume. This is emulator evidence, not physical two-device or production Google Play billing proof |
-| 15 | Shipaton submission confidence | Prepared; final submission pending | Mobile PR #1 and desktop PR #279 are merged. Android `v0.1.0` and signed Windows `v0.51.0-alpha` are public. Complete ordinary-APK and Windows/cloud rehearsals pass. The 94-second film is Unlisted with HD processing complete and saved in the actual competition form. Devpost's public page includes the video, APK link, artwork, new mobile work/provenance and validation limits. The academic account email is verified. The form is at 4/5 steps; it has not been submitted |
+| 15 | Shipaton submission confidence | Submitted and verified | Mobile PR #1 and desktop PR #279 are merged. Android `v0.1.0` and signed Windows `v0.51.0-alpha` are public. Complete ordinary-APK and Windows/cloud rehearsals pass. The 94-second film is Unlisted with HD processing complete and saved in the actual competition form. Devpost's public page includes the video, APK link, artwork, new mobile work/provenance and validation limits. The academic account email is verified. After owner authorization, Devpost confirms submission `1196850` and the form shows Submitted, 5/5 steps |
 
 ## Current verification
 
@@ -79,7 +84,7 @@ are attached. Application code, packaged assets and dependencies remain
 identical to `a65b8ef`. Devpost's public project page now embeds the final film,
 links this download and both source repositories/releases, and discloses the
 Nearby social-relay and Cast limits. The actual competition judge notes save
-the same release and video URLs. The entry remains a 4/5-step draft.
+the same release and video URLs. Final submission is verified above.
 
 Final PR head `a20921f` includes only the lifecycle test correction and delivery
 documentation after `31c28a4`. [Check 36156902449](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36156902449)
@@ -93,8 +98,15 @@ network recovery, five viewports, phone/tablet Together, focus interruptions,
 purchase, same-customer relaunch and actual expiry. PR #1 is merged as `7f05b9f`
 with the same application tree. The tag-triggered diagnostic contracts also
 pass, with their extraction job skipped; these are separate from product
-acceptance. The diagnostic motion probe `36157335828` was deliberately
-cancelled under the recording-tool freeze; it is not a product acceptance gate.
+acceptance. The tag- and merge-triggered diagnostic motion probes `36157335828`
+and `36158367765` were stopped under the recording-tool freeze; they are not
+product acceptance gates.
+
+Post-merge normal install, playback, Nearby, SAF and lifecycle workflows also
+pass at `7f05b9f`. The merge's initial Check run was superseded by documentation
+commit `b604a6d`; [Check 36158591927](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36158591927)
+passes in full. Later delivery-record updates change documentation only and
+reuse those checks; application and test source are unchanged.
 
 At PR head `31c28a4`, 24 checks pass and two conditional jobs skip. The Check
 workflow's tested merge tree is identical to that head. Its secret audit scans
@@ -209,8 +221,9 @@ SD and HD processing are complete, and the upload copyright check reports no
 issues. That automated check is not a legal determination. On September 25
 the owner requested the final video update and submission link. Studio confirms
 the Unlisted change is saved. The project connector and actual competition form
-contain the final URL; the form now shows 4/5 steps done. The earlier silent
-private upload is superseded.
+contain the final URL. The form initially showed 4/5 steps after saving the
+video; final submission now shows 5/5. The earlier silent private upload is
+superseded.
 
 The owner requested the phone back. At 10:36 UTC its original 30-second timeout
 and charging-awake setting were restored and read back; developer mode and USB
@@ -366,11 +379,11 @@ Shipaton registration and explicit rules/terms acceptance are complete.
 The [Devpost project](https://devpost.com/software/meowwatch-mobile) has project
 copy, technology tags, repository links, cover, original
 icon/screenshot, Android platform, RevenueCat project ID, authorized academic
-email and judge notes. The browser now shows 4/5 sections complete after saving
+email and judge notes. The browser initially showed 4/5 sections after saving
 the final video link. Updating
 the description through Devpost's project connector at 13:53 UTC published the
-project page (version 3); the hackathon entry still has no submission timestamp.
-This is a public project page, not a completed competition submission. The
+project page (version 3); the hackathon entry had no submission timestamp then.
+Publication alone did not submit the competition entry. The
 updated description includes physical Nearby/purchase acceptance and the complete
 ordinary-APK rehearsal, while retaining Cast and production-billing limits.
 The supplied academic
@@ -378,9 +391,9 @@ domain is covered by JetBrains/swot, including its documented subdomain rule;
 the entrant confirms GitHub sign-in uses that school email. This is domain and
 entrant evidence. A September 25 authenticated account read also confirms its
 email exactly matches the entrant-authorized academic address; no address is
-stored here. This is not a separate Devpost eligibility decision. The final
-Submit page is ready with the previously accepted rules/terms checkbox; mobile
-repository closeout remains pending. No final submission is made.
+stored here. This is not a separate Devpost eligibility decision. After mobile
+repository closeout and explicit owner authorization, the final Submit page
+now confirms Submitted with the accepted rules/terms checkbox and 5/5 steps.
 
 ### Frozen product candidate
 

@@ -1,10 +1,10 @@
-# MeowWatch Mobile — Devpost submission draft
+# MeowWatch Mobile — Devpost submission
 
-> **Prepared submission copy; competition entry not yet submitted.** The [acceptance ledger](STATUS.md)
-> records current evidence and open product gates. The [demo script](DEMO_SCRIPT.md)
+> **Submitted to Shipaton 2026; 5/5 steps verified on September 26.** The [acceptance ledger](STATUS.md)
+> records current evidence and runtime limits. The [demo script](DEMO_SCRIPT.md)
 > tracks the exported 94-second film and its source footage. The Devpost
 > [project page](https://devpost.com/software/meowwatch-mobile) is public with the
-> copy below, cover, icon and screenshot; its hackathon entry is not submitted.
+> copy below, cover, icon and screenshot. Submission ID: `1196850`.
 
 ## Project name and tagline
 
@@ -97,7 +97,7 @@ room and the network disagree. We learned to verify actual player state,
 preserve a paused recovery path and tie evidence to its runtime. Convenient
 Nearby control still needs explicit, revocable pairing.
 
-## Before publishing
+## Submission checklist
 
 - [x] Rehearse the ordinary APK from a clean install through Together, history,
   quota, Test Store purchase, Restore and Local resume on two independent emulators.
@@ -120,12 +120,12 @@ Nearby control still needs explicit, revocable pairing.
 - [x] Register after the entrant's explicit rules/terms and eligibility confirmation.
 - [x] Save the authorized academic email, artwork, Android platform, RevenueCat
   project ID and judge notes in the draft. The final Unlisted video is saved in
-  the project and competition form (4/5 sections complete).
+  the project and competition form (all 5 sections now complete).
 - [x] Verify the authenticated Devpost account uses the authorized academic email.
 - [x] Recheck the September 25 submission fields against the entrant's existing
   rules/terms and eligibility confirmation. No additional mandatory
   ownership/new-work declaration is present. The form's first-version/store
   confirmation is optional and is left unanswered for the Next Gen path.
   See [submission requirements](SUBMISSION_REQUIREMENTS.md).
-- [ ] Check every Devpost section and public link, then verify the final state
-  says **Submitted**. A saved draft is not a submission.
+- [x] With the owner's explicit final authorization, submit and verify the live
+  project API timestamp and form state: **Submitted**, **5/5 steps**.

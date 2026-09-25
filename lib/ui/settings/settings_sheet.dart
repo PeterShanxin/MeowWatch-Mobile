@@ -122,7 +122,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     });
     await WidgetsBinding.instance.endOfFrame;
     final feedback = _restoreFeedbackKey.currentContext;
-    if (mounted && feedback != null) {
+    if (mounted && feedback != null && feedback.mounted) {
       await Scrollable.ensureVisible(
         feedback,
         alignment: 0.8,

@@ -14,8 +14,9 @@ from unittest.mock import Mock
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_interruption_runtime.run import HELPER, FOCUS_HEADER, require_focus
+from tools.android_lifecycle_runtime.prepare_avd import ORIGINAL, prepare
 from tools.android_together_focus_runtime.run import (
-    STAGES, FocusSession, StageServer, validate_journey,
+    AVD_NAME, STAGES, FocusSession, StageServer, validate_journey,
 )
 
 
@@ -45,6 +46,55 @@ def receipt() -> tuple[dict, list[dict]]:
 
 
 class ReceiptTests(unittest.TestCase):
+    def test_focus_avd_is_preparable_and_exactly_owned(self):
+        name = "meowwatch_interruption_36079974766_1"
+        self.assertIsNotNone(AVD_NAME.fullmatch(name))
+        for other in ("meowwatch_together_focus_36079974766_1",
+                      "meowwatch_interruption_other_1", "meowwatch_interruption_123_1/../other"):
+            with self.subTest(other=other):
+                self.assertIsNone(AVD_NAME.fullmatch(other))
+
+        with TemporaryDirectory() as directory:
+            root = Path(directory)
+            config = root / f"{name}.avd" / "config.ini"
+            config.parent.mkdir()
+            config.write_text("".join(f"{key}={value}\n" for key, value in ORIGINAL.items()))
+            prepare(root, name, root / "preparation")
+            self.assertEqual(json.loads((root / "preparation/preparation.json").read_text())["avdName"], name)
+
+    def test_streamed_helper_install_is_confirmed_on_owned_avd(self):
+        name = "meowwatch_interruption_36079974766_1"
+
+        class Adb:
+            serial = "emulator-5554"
+
+            def run(self, *args, **kwargs):
+                if args == ("emu", "avd", "name"):
+                    return SimpleNamespace(stdout=(name + "\nOK\n").encode())
+                if args[:3] == ("shell", "getprop", "ro.kernel.qemu"):
+                    return SimpleNamespace(stdout=b"1\n")
+                if args[:3] == ("shell", "getprop", "ro.build.version.sdk"):
+                    return SimpleNamespace(stdout=b"35\n")
+                if args[:3] == ("shell", "getprop", "ro.product.cpu.abi"):
+                    return SimpleNamespace(stdout=b"x86_64\n")
+                if args[:3] == ("shell", "pm", "path"):
+                    return SimpleNamespace(stdout=b"")
+                if args[:1] == ("install",):
+                    return SimpleNamespace(stdout=b"Performing Streamed Install\nSuccess\n")
+                if args[:4] == ("shell", "pm", "list", "packages"):
+                    return SimpleNamespace(stdout=f"package:{HELPER} uid:10179\n".encode())
+                if args == ("shell", "getprop", "ro.product.model"):
+                    return SimpleNamespace(stdout=b"Pixel 6\n")
+                raise AssertionError(f"unexpected adb command: {args}")
+
+        with TemporaryDirectory() as directory:
+            apk = Path(directory) / "focus.apk"
+            apk.write_bytes(b"mock apk")
+            session = FocusSession(Adb(), name, Path(directory), apk, Path("unused-observer.apk"))
+            session.observer.install = Mock(return_value={"installed": True})
+            self.assertEqual(session.prepare()["avdName"], name)
+            self.assertEqual(session.helper_uid, 10179)
+
     def test_permanent_focus_accepts_original_api35_helper_only_stack(self):
         def row(package, uid, loss):
             return (f"source:android.os.BinderProxy@abc -- pack: {package} -- gain: GAIN"
@@ -122,13 +172,13 @@ class ReceiptTests(unittest.TestCase):
 
             def run(self, *args, **kwargs):
                 if args == ("emu", "avd", "name"):
-                    return SimpleNamespace(stdout=b"meowwatch_together_focus_123_1\nOK\n")
+                    return SimpleNamespace(stdout=b"meowwatch_interruption_123_1\nOK\n")
                 if args[:1] == ("uninstall",):
                     return SimpleNamespace(stdout=b"Failure\n")
                 return SimpleNamespace(stdout=b"")
 
         with TemporaryDirectory() as directory:
-            session = FocusSession(Adb(), "meowwatch_together_focus_123_1", Path(directory),
+            session = FocusSession(Adb(), "meowwatch_interruption_123_1", Path(directory),
                                    Path("unused-helper.apk"), Path("unused-observer.apk"))
             session.helper_owned = True
             session.observer.cleanup = Mock()

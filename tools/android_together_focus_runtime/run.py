@@ -15,7 +15,7 @@ import subprocess
 import threading
 import time
 
-from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, focused_component
+from tools.android_install.runner import Adb, PACKAGE, RuntimeFailure, focused_component, install_output_succeeded
 from tools.android_interruption_runtime.run import (
     HELPER, HELPER_APK, SERVICE, LIFECYCLE_TAGS, lifecycle_events,
     package_uid, probe_events, require_focus, require_foreground_history,
@@ -27,7 +27,7 @@ from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver
 
 
 STAGES = ("permanent-acquire", "permanent-release", "transient-acquire", "transient-release")
-AVD_NAME = re.compile(r"meowwatch_together_focus_[A-Za-z0-9_]{1,80}")
+AVD_NAME = re.compile(r"meowwatch_interruption_[0-9]+_[0-9]+")
 
 
 def validate_journey(value: object, stages: list[dict]) -> dict:
@@ -114,7 +114,7 @@ class FocusSession:
             raise RuntimeFailure("refusing to replace a pre-existing focus helper")
         self.helper_owned = True
         installed = self.adb.run("install", "--no-incremental", "-t", str(self.helper_apk), timeout=60)
-        if installed.stdout.strip() != b"Success":
+        if not install_output_succeeded(installed.stdout.decode()):
             raise RuntimeFailure("focus helper installation was not confirmed")
         self.helper_uid = package_uid(self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", HELPER).stdout.decode(), HELPER)
         observer = self.observer.install()
@@ -312,7 +312,7 @@ def main(argv=None) -> int:
         summary["device"] = session.prepare()
         summary["apkSha256"] = hashlib.sha256(args.apk.read_bytes()).hexdigest()
         installed = adb.run("install", "--no-incremental", "-t", str(args.apk), timeout=120)
-        if installed.stdout.strip() != b"Success":
+        if not install_output_succeeded(installed.stdout.decode()):
             raise RuntimeFailure("integration APK installation was not confirmed")
         if adb.run("shell", "pm", "clear", PACKAGE).stdout.strip() != b"Success":
             raise RuntimeFailure("clean app data was not confirmed")

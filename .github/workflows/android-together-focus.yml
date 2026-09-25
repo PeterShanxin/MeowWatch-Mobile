@@ -28,8 +28,8 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 35
     env:
-      TOGETHER_FOCUS_AVD_NAME: meowwatch_together_focus_${{ github.run_id }}_${{ github.run_attempt }}
-      PHONE_ACCEPTANCE_AVD_NAME: meowwatch_together_focus_${{ github.run_id }}_${{ github.run_attempt }}
+      TOGETHER_FOCUS_AVD_NAME: meowwatch_interruption_${{ github.run_id }}_${{ github.run_attempt }}
+      PHONE_ACCEPTANCE_AVD_NAME: meowwatch_interruption_${{ github.run_id }}_${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
         with:
@@ -43,7 +43,7 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - name: Check runner contracts
         run: |
-          python3 -m unittest tools.android_together_focus_runtime.test_run tools.android_interruption_runtime.test_run -v
+          python3 -m unittest tools.android_together_focus_runtime.test_run tools.android_interruption_runtime.test_run tools.android_lifecycle_runtime.test_prepare_avd -v
           python3 -m tools.android_together_focus_runtime.run --help
           bash -n tools/android_together_focus_runtime/ci.sh
       - name: Prepare controlled 180-second fixture

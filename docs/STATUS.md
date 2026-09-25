@@ -87,9 +87,13 @@ passes analysis/app tests, Nearby package contracts, media contracts, observer
 compilation and native player checks. The fresh secret
 audit scans 645 tracked files and 274 fetched commits with zero snapshot or
 history findings and no suspicious paths. Final-head lifecycle `36156901899`
-also passes. PR #1 is merged as `7f05b9f` with the same application tree. Some
-duplicate automatic runtime checks remain running; these are not counted as
-passed. The tag-triggered diagnostic motion probe `36157335828` was deliberately
+also passes. All 25 product/check jobs at that final PR head pass, with two
+conditional jobs skipped. This includes final ordinary installs, fullscreen,
+network recovery, five viewports, phone/tablet Together, focus interruptions,
+purchase, same-customer relaunch and actual expiry. PR #1 is merged as `7f05b9f`
+with the same application tree. The tag-triggered diagnostic contracts also
+pass, with their extraction job skipped; these are separate from product
+acceptance. The diagnostic motion probe `36157335828` was deliberately
 cancelled under the recording-tool freeze; it is not a product acceptance gate.
 
 At PR head `31c28a4`, 24 checks pass and two conditional jobs skip. The Check

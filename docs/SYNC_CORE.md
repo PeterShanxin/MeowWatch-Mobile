@@ -98,9 +98,10 @@ eligible sample and its original receive age. They do not count as fresh
 progress. A new sample must advance at least 100 ms past the raw position
 high-water mark; larger regressions, jumps over three seconds and setter
 changes require a new baseline. A stall immediately revokes eligibility.
-A lead of at least 1.5 seconds enters 0.90 correction, which stays
-active until the lead drops below 900 ms; closer playback uses 0.95. This
-separate entry/exit band avoids repeated rate switching around 1.5 seconds.
+A lead of at least 900 ms enters 0.90 correction, which stays active until the
+lead drops below 700 ms; closer playback uses 0.95. Starting with 0.95 at a
+roughly one-second lead was too slow after early buffering and intermittent
+heartbeats. The separate entry/exit band avoids repeated rate switching.
 Buffering immediately restores 1x but preserves the band within the original
 25-second window. Resuming correction still requires an uninterrupted second
 of ready playback and a new eligible heartbeat. Correction ends below 450 ms,

@@ -498,7 +498,7 @@ class PlaybackSyncBridge {
       _stopRateCorrection(cooldown: ahead < const Duration(milliseconds: 450));
       return;
     }
-    if (ahead < const Duration(milliseconds: 900)) {
+    if (ahead < const Duration(milliseconds: 700)) {
       _strongRateCorrection = false;
     }
     _observeStableRoomClock(room, age, ahead);
@@ -518,10 +518,11 @@ class PlaybackSyncBridge {
     _rateExpiry = Timer(const Duration(seconds: 2) - age, () {
       _stopRateCorrection(preserveWindow: true, waitForFreshHeartbeat: true);
     });
-    // Keep stronger correction through moderate drift instead of switching
-    // back and forth at 1.5 s. Buffering still restores 1x; only this bounded
-    // window's band survives so a fresh heartbeat can resume the correction.
-    if (ahead >= const Duration(milliseconds: 1500)) {
+    // A roughly one-second lead already makes shared playback noticeably late.
+    // Use the bounded 10% correction immediately, then finish gently below
+    // 700 ms. Separate entry/exit thresholds avoid switching on every sample.
+    // Buffering still restores 1x and requires a fresh advancing heartbeat.
+    if (ahead >= const Duration(milliseconds: 900)) {
       _strongRateCorrection = true;
     }
     _requestRate(_strongRateCorrection ? 0.90 : 0.95);

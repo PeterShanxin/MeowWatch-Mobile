@@ -1322,50 +1322,52 @@ void main() {
       },
     );
 
-    test(
-      'strong correction reaches subsecond sync through moderate drift',
-      () async {
-        await useRateTarget();
-        var roomMs = 30000;
-        var nativeMs = 31600;
-        // Model two advancing decoders after the slower player becomes the
-        // room anchor. Feed the rate actually requested by the bridge back
-        // into the leading decoder; no peer seek or user command occurs.
-        for (var tick = 0; tick < 14; tick++) {
-          heartbeat(Duration(milliseconds: roomMs));
+    for (final initialLeadMs in [1600, 1450]) {
+      test(
+        '$initialLeadMs ms lead reaches subsecond sync within seven seconds',
+        () async {
+          await useRateTarget();
+          var roomMs = 30000;
+          var nativeMs = roomMs + initialLeadMs;
+          // Model two advancing decoders after the slower player becomes the
+          // room anchor. Feed the rate actually requested by the bridge back
+          // into the leading decoder; no peer seek or user command occurs.
+          for (var tick = 0; tick < 14; tick++) {
+            heartbeat(Duration(milliseconds: roomMs));
+            emitNativePosition(
+              target,
+              Duration(milliseconds: nativeMs),
+              playing: true,
+            );
+            // Drain the serialized native command, without waiting for a real
+            // seven-second movie. Each pair above is a fresh room observation.
+            await Future<void>.delayed(Duration.zero);
+            final rate = rateTarget.rates.isEmpty ? 1.0 : rateTarget.rates.last;
+            roomMs += 500;
+            nativeMs += (500 * rate).round();
+          }
+          expect(nativeMs - roomMs, lessThan(1000));
+          expect(target.commands, isEmpty);
+          expect(sync.changes, isEmpty);
+
+          // Once close, keep the gentler finish and then restore normal speed.
+          heartbeat(Duration(milliseconds: nativeMs - 650));
           emitNativePosition(
             target,
             Duration(milliseconds: nativeMs),
             playing: true,
           );
-          // Drain the serialized native command, without waiting for a real
-          // seven-second movie. Each pair above is a fresh room observation.
-          await Future<void>.delayed(Duration.zero);
-          final rate = rateTarget.rates.isEmpty ? 1.0 : rateTarget.rates.last;
-          roomMs += 500;
-          nativeMs += (500 * rate).round();
-        }
-        expect(nativeMs - roomMs, lessThan(1000));
-        expect(target.commands, isEmpty);
-        expect(sync.changes, isEmpty);
-
-        // Once close, keep the gentler finish and then restore normal speed.
-        heartbeat(Duration(milliseconds: nativeMs - 700));
-        emitNativePosition(
-          target,
-          Duration(milliseconds: nativeMs),
-          playing: true,
-        );
-        await until(() => rateTarget.rates.last == 0.95);
-        heartbeat(Duration(milliseconds: nativeMs - 400));
-        emitNativePosition(
-          target,
-          Duration(milliseconds: nativeMs),
-          playing: true,
-        );
-        await until(() => rateTarget.rates.last == 1);
-      },
-    );
+          await until(() => rateTarget.rates.last == 0.95);
+          heartbeat(Duration(milliseconds: nativeMs - 400));
+          emitNativePosition(
+            target,
+            Duration(milliseconds: nativeMs),
+            playing: true,
+          );
+          await until(() => rateTarget.rates.last == 1);
+        },
+      );
+    }
 
     test(
       'large drift uses one local correction after a stable room clock',
@@ -1806,7 +1808,7 @@ void main() {
     );
 
     test(
-      'buffer recovery below 900 ms leaves the strong correction band',
+      'buffer recovery waits for a fresh 900 ms lead before correcting',
       () async {
         await useRateTarget();
         heartbeat(const Duration(seconds: 8));
@@ -1827,7 +1829,7 @@ void main() {
           const Duration(milliseconds: 11500),
           playing: true,
         );
-        await until(() => rateTarget.rates.last == 0.95);
+        await until(() => rateTarget.rates.last == 0.90);
         expect(target.commands, isEmpty);
         expect(sync.changes, isEmpty);
       },

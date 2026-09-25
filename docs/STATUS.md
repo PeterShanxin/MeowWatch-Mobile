@@ -197,6 +197,21 @@ about 2.3 seconds while the guest advances. The decoder now retains ten seconds
 behind playback, using the upstream native back-buffer option, to allow short
 rewinds to reuse media samples. This mitigation needs fresh native verification;
 the original profile run remains failed.
+Profile run `36099125076` at `6dfc120` observes only the two original HTTP body
+requests, with no subsequent refetch, but fails initial convergence before any
+outage. All 55 eligible advancing pairs remain over one second apart; the best
+is 23,717 / 22,677 ms (1,040 ms) at 29.793 seconds. The later guest read biases
+this gap smaller, so sampling cannot establish a hidden pass. The 276 native
+position records are retained without rejection/drop, and the 288-frame
+recording hash matches its successful cloud decode. No setup repair occurs.
+Early self-setter, stalled or borderline room observations defer the first
+eligible rate correction until roughly thirteen seconds into playback. At
+about one second of lead, 0.95 correction then converges too slowly through
+further buffering. The bridge now uses its existing bounded 0.90 rate from a
+900 ms lead and returns to 0.95 below 700 ms, with all freshness, buffering,
+25-second duration and native acceptance limits retained. A decoder-progression
+regression covers both 1.6-second and 1.45-second starting gaps; hosted tests
+and fresh native recovery proof remain required.
 
 Normal network `36091067116` stops before radio loss because its independent
 accessibility observer cannot obtain an app root within 15 attempts. PID 3155

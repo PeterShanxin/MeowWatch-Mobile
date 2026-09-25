@@ -3,8 +3,8 @@
 > **Working copy, not ready to publish.** The [acceptance ledger](STATUS.md)
 > records current evidence and open product gates. The [demo script](DEMO_SCRIPT.md)
 > tracks the exported 94-second film and its source footage. The Devpost
-> [project draft](https://devpost.com/software/meowwatch-mobile) has been created
-> with the copy below, cover, icon and screenshot; it is not submitted.
+> [project page](https://devpost.com/software/meowwatch-mobile) is public with the
+> copy below, cover, icon and screenshot; its hackathon entry is not submitted.
 
 ## Project name and tagline
 
@@ -99,7 +99,9 @@ Nearby control still needs explicit, revocable pairing.
 - [x] Verify the final UI fixes after physical playback, purchase and trusted-LAN
   Nearby acceptance. Prove Cast on a receiver or document the unavailable
   receiver and working phone fallback.
-- [ ] Finish the accepted local Windows/cloud Android check and repository closeout.
+- [x] Finish the ordinary local Windows/cloud Android check, with its media
+  fallback and runtime limits documented in the acceptance ledger.
+- [ ] Finish repository closeout and the desktop maintainer's manual gate.
 - [ ] Watch the complete final film at normal speed, verify a duration strictly
   under two minutes, accurate runtime and Test Store labels, rights to every
   asset, and a public YouTube or Vimeo link. Follow the [demo script](DEMO_SCRIPT.md).
@@ -109,8 +111,9 @@ Nearby control still needs explicit, revocable pairing.
 - [x] Register after the entrant's explicit rules/terms and eligibility confirmation.
 - [x] Save the authorized academic email, artwork, Android platform, RevenueCat
   project ID and judge notes in the draft (3/5 sections complete).
-- [ ] Verify academic-email recognition and the remaining project-specific
-  ownership/new-work declarations. The current form's first-version/store
+- [x] Verify the authenticated Devpost account uses the authorized academic email.
+- [ ] Resolve any remaining project-specific ownership/new-work declarations.
+  The current form's first-version/store
   confirmation is optional and is left unanswered for the Next Gen path.
   See [submission requirements](SUBMISSION_REQUIREMENTS.md).
 - [ ] Check every Devpost section and public link, then verify the final state

@@ -180,9 +180,21 @@ entrant's statement, not an independent Devpost eligibility decision.
 On September 25 the entrant explicitly accepted the official
 rules and Devpost terms and confirmed registration eligibility. Registration
 succeeded, and [MeowWatch Mobile](https://devpost.com/software/meowwatch-mobile)
-now exists as an authenticated **Draft**, not Submitted. Its description,
+was initially saved as an authenticated **Draft**. Its description,
 technology tags, source links, gallery cover, original icon/screenshot, Android
 platform, RevenueCat project ID and judge notes are saved. The UI reports
 **3/5 steps done**. The film is prepared for private review; the final public
 video URL and remaining project-specific declarations still need completion.
 Personal registration answers are not stored in this repository.
+
+The project connector's September 25 13:53 UTC description update published the
+project page (version 3). Readback confirms `state: published` and a null
+hackathon `submitted_at`: the public portfolio page is not a submitted entry.
+The live submission requirements were fetched immediately beforehand and still
+show the first-version/store checkbox as optional. Video visibility and final
+submission remain outstanding.
+
+An authenticated Devpost account read on September 25 confirms the account
+email exactly matches the academic address already authorized for the entry.
+The address is deliberately excluded from this repository. This closes the
+account-email check, not an independent organizer eligibility determination.

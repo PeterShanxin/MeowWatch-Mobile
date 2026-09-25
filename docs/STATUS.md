@@ -21,8 +21,10 @@ on the September 25 phone check. The owner requested virtual/client testing
 instead of further physical-phone testing; the phone remains released with
 its settings restored. The local Windows ARM host is not supported by Google's
 Android Emulator. The owner accepted an ordinary local Windows client on the
-secondary monitor plus one cloud Android emulator. That cross-client check is
-being prepared; it is not a second physical Android check.
+secondary monitor plus one cloud Android emulator. That ordinary cross-client
+check passes in run 36143500404, with the identical downloaded-media fallback
+and limits documented in [cross-client acceptance](CROSS_CLIENT_ACCEPTANCE_2026-09-25.md).
+It is not a second physical Android check.
 No Cast receiver is available. Receiver behavior remains unverified, with phone
 playback as the fallback.
 Additional emulator runs cannot establish hardware behavior.
@@ -46,7 +48,7 @@ sources remain labeled.
 | 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
 | 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Current PR-head Check 36131237368 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks. Draft PR #1 at `9e3f033` has 25 successful and two skipped checks, with no pending or failed checks. Main still contains the foundation README. Repository merge/closeout remains open |
 | 3 | Clear first-launch create/join | Verified on emulators | Ordinary-APK 36137630270 passes the first-run guide, visible Start and invitation code, and Join on independent API 35 phone/tablet emulators. Five-viewport run 36103033060 and Together 36103033024 attempt 2 also pass |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators | Ordinary-APK 36137630270 passes advancing native playback and play/pause/seek in both directions on independent phone/tablet emulators using the same controlled 90-second URL. Together 36103033024 attempt 2 passes 26 host and 25 guest stages, with settled positions matching at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators and Windows/cloud Android | Ordinary-APK 36137630270 passes advancing native playback and play/pause/seek in both directions on independent phone/tablet emulators. [Cross-client 36143500404](CROSS_CLIENT_ACCEPTANCE_2026-09-25.md) also passes ordinary Windows/cloud Android controls in both directions, including matching paused 3:54 and 4:58 positions; Windows uses an unchanged downloaded copy after remote-source failure. Failed-decoder recovery passes 36101860905 on identical product code. Physical two-Android behavior and frame identity are not claimed |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Ordinary-APK 36137630270 visibly passes presence, chat in both directions and a peer reaction on the independent phone/tablet emulators. Earlier Together and Test Store journeys also pass; 36103033131 verifies a premium reaction received by a headless TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Verified within stated runtime limits | Failed-decoder profile 36101860905 and current-head normal network 36131237104 pass. The latter uses one API 35 AVD, two real STARTTLS clients/decoders and one rendered MainApp. It verifies actual emulator radio loss, paused same-room recovery, unchanged quota and explicit replay/seek. Hosted lifecycle and physical Local/Nearby restart also pass; physical Together radio-loss recovery is not claimed |
 | 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
@@ -57,7 +59,7 @@ sources remain labeled.
 | 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
 | 13 | No placeholders, dead ends or silent failures | Verified for the rehearsed demo path | Ordinary-APK 36137630270 completes the visible first-install path through two-client Together playback, history, quota paywall, native purchase, Restore and Local resume without a dead end. Earlier onboarding, recovery and failure-path checks retain their separate scope; physical acceptance and its corrected UI defects are recorded below |
 | 14 | Clean-install full demo rehearsal | Verified on two API 35 emulators | Ordinary `lib/main.dart` debug/Test Store APK run [36137630270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270) at `b5b9f77` completes on fresh independent phone/tablet emulators. It passes onboarding, visible invitation-code join, the same controlled URL and advancing native playback, two-way controls/chat, reaction, fullscreen/Back, both histories, free-host quota paywall, native Test Store success, a distinct Plus host, Settings Restore and Local leave/resume. This is emulator evidence, not physical two-device or production Google Play billing proof |
-| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and the 94-second hybrid film are prepared; the complete ordinary-APK rehearsal passes. The final film is uploaded as a private YouTube draft with HD processing complete. Registration and Devpost draft fields are saved (3/5 sections). Public video access, project declarations, external Windows/cloud rehearsal and repository closeout remain open |
+| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and the 94-second hybrid film are prepared; complete ordinary-APK and Windows/cloud rehearsals pass. The final film is uploaded as a private YouTube draft with HD processing complete. The Devpost project page is public, its academic account email is verified, and the competition entry remains unsubmitted. Video access, final entry requirements, desktop maintainer confirmation and repository closeout remain open |
 
 ## Current verification
 
@@ -270,13 +272,21 @@ and Windows CI `36103713926` pass at `3ebba3a`. This is a build receipt, not
 physical Nearby or current Windows UI acceptance.
 
 Shipaton registration and explicit rules/terms acceptance are complete.
-The [Devpost project](https://devpost.com/software/meowwatch-mobile) is saved as
-**Draft**, with project copy, technology tags, repository links, cover, original
+The [Devpost project](https://devpost.com/software/meowwatch-mobile) has project
+copy, technology tags, repository links, cover, original
 icon/screenshot, Android platform, RevenueCat project ID, authorized academic
-email and judge notes. The form shows 3/5 sections complete. The supplied academic
+email and judge notes. The browser last showed 3/5 sections complete. Updating
+the description through Devpost's project connector at 13:53 UTC published the
+project page (version 3); the hackathon entry still has no submission timestamp.
+This is a public project page, not a completed competition submission. The
+updated description includes physical Nearby/purchase acceptance and the complete
+ordinary-APK rehearsal, while retaining Cast and production-billing limits.
+The supplied academic
 domain is covered by JetBrains/swot, including its documented subdomain rule;
 the entrant confirms GitHub sign-in uses that school email. This is domain and
-entrant evidence, not a separate Devpost eligibility decision. The final public
+entrant evidence. A September 25 authenticated account read also confirms its
+email exactly matches the entrant-authorized academic address; no address is
+stored here. This is not a separate Devpost eligibility decision. The final public
 video URL and project-specific declarations remain open. No final submission is made.
 
 ### Frozen product candidate
@@ -551,7 +561,7 @@ rehearsal now passes as documented above. Historical runs and asset provenance a
 
 ## Human/external dependencies
 
-- The entrant confirmed active student status, local age of majority, access to an academic email, registration eligibility and explicit rules/terms acceptance. Registration is complete. Academic-email recognition and project-specific ownership/new-work declarations remain separate checks.
+- The entrant confirmed active student status, local age of majority, access to an academic email, registration eligibility and explicit rules/terms acceptance. Registration is complete. The authenticated Devpost account email matches the authorized academic address. Project-specific ownership/new-work responsibility remains with the entrant; registration is not an organizer ruling.
 - RevenueCat login/Test Store catalog setup and user acceptance of the Android SDK license are complete. RevenueCat email confirmation remains visible.
 - Physical Android and trusted physical LAN are available and exercised as documented above. No physical Cast receiver has been established; phone playback remains the working fallback.
 - Desktop required native/manual review gates remain applicable before merge or release.

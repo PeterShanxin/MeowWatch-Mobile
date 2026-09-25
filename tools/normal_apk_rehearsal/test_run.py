@@ -6,7 +6,7 @@ from xml.sax.saxutils import escape
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
     FIXTURE_URL, focused_text_field, history_context, join_sheet_ready, media_link_ready,
-    unique_seekbar, unique_text_field, visible_code,
+    rehearsed_playback, unique_seekbar, unique_text_field, visible_code,
 )
 
 
@@ -81,6 +81,19 @@ class VisibleUiContract(unittest.TestCase):
                                                  clickable=True, focused=True))))
         with self.assertRaises(RuntimeFailure):
             focused_text_field(tree(node('', kind='android.widget.EditText', clickable=True)))
+
+    def test_tablet_player_uses_submitted_url_and_visible_ninety_second_timeline(self):
+        landscape = tree(node('Together in this room'),
+                         node('0:00'), node('1:30'),
+                         node('', kind='android.widget.SeekBar', clickable=True),
+                         node('Play', kind='android.widget.Button', clickable=True))
+        state = rehearsed_playback(landscape, direct_fixture_submitted=True)
+        self.assertEqual((state.position_seconds, state.duration_seconds, state.playing),
+                         (0, 90, False))
+        with self.assertRaises(RuntimeFailure):
+            rehearsed_playback(landscape, direct_fixture_submitted=False)
+        with self.assertRaises(RuntimeFailure):
+            rehearsed_playback(landscape.replace('1:30', '1:00'), direct_fixture_submitted=True)
 
 
 if __name__ == '__main__':

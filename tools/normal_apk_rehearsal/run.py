@@ -21,8 +21,8 @@ from tools.android_install.runner import (
 )
 from tools.android_native_ui.observer import NativeUiObserver, ObserverIntegrityFailure
 from tools.android_lifecycle_runtime.run import (
-    FIXTURE_NAME, FIXTURE_URL, button, history_card, history_swipe,
-    playback, require_playing_advance,
+    FIXTURE_NAME, FIXTURE_URL, Playback, button, history_card, history_swipe,
+    labels, parse_time, playback, require_playing_advance,
 )
 from tools.incoming_media_runtime.run import center, exact, nodes
 from tools.billing_runtime.native_dialog import select_target, UnsafeDialog
@@ -89,6 +89,25 @@ def unique_seekbar(xml: str) -> ET.Element:
     return bars[0]
 
 
+def rehearsed_playback(xml: str, *, direct_fixture_submitted: bool) -> Playback:
+    if any(FIXTURE_NAME in value for value in labels(xml)):
+        return playback(xml)
+    # The tablet's two-column landscape player omits the media title. Its
+    # immediately preceding visible sheet must have submitted the exact URL;
+    # the native room player must still expose the controlled 90-second timeline.
+    if not direct_fixture_submitted or len(exact(xml, "Together in this room")) != 1:
+        raise RuntimeFailure("the loaded playback source is not the controlled fixture")
+    unique_seekbar(xml)
+    times = sorted({value for label in labels(xml) if (value := parse_time(label)) is not None})
+    if len(times) != 2 or not 89 <= times[1] <= 91 or times[0] >= times[1]:
+        raise RuntimeFailure("native landscape player lacks the controlled 90-second timeline")
+    play = [node for label in ("Play", "Play together") for node in exact(xml, label, clickable=True)]
+    pause = [node for label in ("Pause", "Pause together") for node in exact(xml, label, clickable=True)]
+    if len(play) + len(pause) != 1:
+        raise RuntimeFailure("native landscape player lacks a unique Play or Pause action")
+    return Playback(times[0], times[1], bool(pause))
+
+
 class Device:
     def __init__(self, serial: str, apk: Path, observer_apk: Path, output: Path):
         self.adb = Adb(serial, f"rehearsal-{serial.replace('-', '')}-{time.time_ns()}")
@@ -100,6 +119,7 @@ class Device:
         self.last_window = ""
         self.phases: list[dict[str, object]] = []
         self.installed = False
+        self.direct_fixture_submitted = False
 
     def prepare(self) -> dict[str, object]:
         self.output.mkdir(parents=True, exist_ok=False)
@@ -229,7 +249,7 @@ class Device:
 
     def player(self, phase: str, playing: bool):
         def check(xml: str):
-            state = playback(xml)
+            state = rehearsed_playback(xml, direct_fixture_submitted=self.direct_fixture_submitted)
             if state.playing != playing:
                 raise RuntimeFailure("visible player play state differs")
             return state
@@ -237,7 +257,7 @@ class Device:
 
     def seek(self, fraction: float) -> None:
         xml = self.observe()
-        playback(xml)
+        rehearsed_playback(xml, direct_fixture_submitted=self.direct_fixture_submitted)
         node = unique_seekbar(xml)
         match = re.fullmatch(r"\[(\d+),(\d+)\]\[(\d+),(\d+)\]", node.get("bounds", ""))
         if match is None:
@@ -294,12 +314,16 @@ def onboard(device: Device, role: str) -> None:
 
 
 def load_link(device: Device, role: str) -> None:
+    device.direct_fixture_submitted = False
     device.tap("Video")
     device.capture(f"07-{role}-media-choice", present("Direct video link"))
     device.enter(FIXTURE_URL)
     device.back()  # Dismiss the keyboard so the visible submit action is reachable.
     device.capture(f"07-{role}-link-ready", media_link_ready)
     device.tap("Use this link")
+    # Only the tablet landscape layout omits the media title; phone and Local
+    # playback retain the stricter filename-visible proof in playback().
+    device.direct_fixture_submitted = role == "tablet"
     device.player(f"08-{role}-loaded", False)
 
 

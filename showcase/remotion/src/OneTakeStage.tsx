@@ -33,10 +33,42 @@ const chapters: Chapter[] = [
   {id: 'another', start: 2550, duration: 150, label: '13 / ANOTHER SESSION', title: ['And then,', 'another.'], note: 'A second Plus session, in Cinema Noir.', disclosure: 'Android emulator · 1× / RevenueCat Test Store · No charge', accent: peach, titleSize: 98},
 ];
 
-const cameraFrames = [0, 90, 330, 570, 870, 1050, 1350, 1410, 1530, 1560, 1860, 1980, 2160, 2280, 2400, 2550, 2700, 2819];
-const cameraX = [180, 80, -250, -330, -280, 40, 40, -695, -695, 40, -90, 25, -40, 10, -50, 25, 50, 80];
-const cameraY = [80, 0, 60, 0, 45, -30, -30, 130, 130, -30, 30, -30, -35, -25, -35, -30, 90, 100];
-const cameraScale = [0.71, 1, 0.84, 0.9, 0.86, 1.05, 1.05, 0.89, 0.89, 1.05, 0.88, 1.03, 1.06, 1.04, 1.06, 1.05, 0.72, 0.68];
+const cameraStops = [
+  {frame: 0, x: 1200, y: 80, scale: 0.71},
+  {frame: 60, x: 1200, y: 80, scale: 0.71},
+  {frame: 75, x: 80, y: 0, scale: 1},
+  {frame: 330, x: 80, y: 0, scale: 1},
+  {frame: 345, x: -250, y: 60, scale: 0.84},
+  {frame: 570, x: -250, y: 60, scale: 0.84},
+  {frame: 585, x: -330, y: 0, scale: 0.9},
+  {frame: 870, x: -330, y: 0, scale: 0.9},
+  {frame: 885, x: -280, y: 45, scale: 0.86},
+  {frame: 1050, x: -280, y: 45, scale: 0.86},
+  {frame: 1065, x: 40, y: -30, scale: 1.05},
+  {frame: 1350, x: 40, y: -30, scale: 1.05},
+  {frame: 1365, x: -695, y: 130, scale: 0.89},
+  {frame: 1545, x: -695, y: 130, scale: 0.89},
+  {frame: 1560, x: 40, y: -30, scale: 1.05},
+  {frame: 1860, x: 40, y: -30, scale: 1.05},
+  {frame: 1875, x: -90, y: 30, scale: 0.88},
+  {frame: 1980, x: -90, y: 30, scale: 0.88},
+  {frame: 1995, x: 25, y: -30, scale: 1.03},
+  {frame: 2160, x: 25, y: -30, scale: 1.03},
+  {frame: 2172, x: -40, y: -35, scale: 1.06},
+  {frame: 2280, x: -40, y: -35, scale: 1.06},
+  {frame: 2292, x: 10, y: -25, scale: 1.04},
+  {frame: 2400, x: 10, y: -25, scale: 1.04},
+  {frame: 2412, x: -50, y: -35, scale: 1.06},
+  {frame: 2550, x: -50, y: -35, scale: 1.06},
+  {frame: 2562, x: 25, y: -30, scale: 1.05},
+  {frame: 2700, x: 25, y: -30, scale: 1.05},
+  {frame: 2715, x: -1800, y: 100, scale: 0.68},
+  {frame: 2819, x: -1800, y: 100, scale: 0.68},
+];
+const cameraFrames = cameraStops.map((stop) => stop.frame);
+const cameraX = cameraStops.map((stop) => stop.x);
+const cameraY = cameraStops.map((stop) => stop.y);
+const cameraScale = cameraStops.map((stop) => stop.scale);
 const drift = Easing.inOut(Easing.cubic);
 
 const cameraValue = (frame: number, values: number[]) =>
@@ -96,34 +128,32 @@ const Footage: React.FC<{id: string; start: number; duration: number}> = ({id, s
 
 const ChapterText: React.FC<{chapter: Chapter; frame: number}> = ({chapter, frame}) => {
   const local = frame - chapter.start;
-  const visible = interpolate(local, [0, 16, chapter.duration - 15, chapter.duration], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const travel = interpolate(local, [0, 12, chapter.duration - 12, chapter.duration], [-1800, 0, 0, -1800], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift});
   const accent = chapter.accent ?? blue;
   const fullscreen = chapter.id === 'physical-fullscreen';
   const free = chapter.id === 'free';
   return (
-    <div style={{position: 'absolute', left: 104, top: fullscreen ? 115 : chapter.id === 'join' || chapter.id === 'controls' || chapter.id === 'chat' ? 170 : free ? 257 : 260, width: fullscreen ? 1510 : free ? 850 : chapter.id === 'join' ? 550 : chapter.id === 'controls' || chapter.id === 'chat' ? 610 : 900, color: cream, opacity: visible, pointerEvents: 'none', zIndex: 5}}>
+    <div style={{position: 'absolute', left: 104, top: fullscreen ? 115 : chapter.id === 'join' || chapter.id === 'controls' || chapter.id === 'chat' ? 170 : free ? 257 : 260, width: fullscreen ? 1510 : free ? 850 : chapter.id === 'join' ? 550 : chapter.id === 'controls' || chapter.id === 'chat' ? 610 : 900, color: cream, translate: `${travel}px 0`, pointerEvents: 'none', zIndex: 5}}>
       <div style={{display: 'flex', alignItems: 'center', gap: 17, fontFamily: 'DM Sans', fontSize: 21, color: accent, letterSpacing: 4.2, fontWeight: 700}}>
         <span style={{width: 50, height: 2, background: accent}} />{chapter.label}
       </div>
       <div style={{fontFamily: 'DM Serif Display', fontSize: chapter.titleSize ?? 95, lineHeight: 0.98, letterSpacing: -3.8, marginTop: 27}}>
-        {chapter.title.map((line, index) => (
-          <div key={line} style={{opacity: reveal(local, 5 + index * 8, 20), translate: `0 ${interpolate(reveal(local, 5 + index * 8, 20), [0, 1], [39, 0])}px`}}>{line}</div>
-        ))}
+        {chapter.title.map((line) => <div key={line}>{line}</div>)}
       </div>
-      {chapter.note && <div style={{fontFamily: 'DM Sans', fontSize: 30, lineHeight: 1.35, color: muted, maxWidth: free ? 725 : chapter.id === 'controls' ? 390 : 690, marginTop: free ? 6 : 33, opacity: reveal(local, 27, 18)}}>{chapter.note}</div>}
+      {chapter.note && <div style={{fontFamily: 'DM Sans', fontSize: 30, lineHeight: 1.35, color: muted, maxWidth: free ? 725 : chapter.id === 'controls' ? 390 : 690, marginTop: free ? 6 : 33}}>{chapter.note}</div>}
     </div>
   );
 };
 
 const OpeningType: React.FC<{frame: number}> = ({frame}) => {
-  const exit = interpolate(frame, [69, 90], [1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const exitY = interpolate(frame, [70, 85], [0, -1200], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift});
   return (
-    <div style={{position: 'absolute', inset: 0, opacity: exit, pointerEvents: 'none', zIndex: 7}}>
-      <div style={{position: 'absolute', left: 101, top: 240, fontFamily: 'DM Sans', color: cream, fontSize: 162, fontWeight: 800, letterSpacing: -8, lineHeight: 1, opacity: reveal(frame, 5, 17), translate: `${interpolate(reveal(frame, 5, 17), [0, 1], [-140, 0])}px 0`}}>MOVIE NIGHT.</div>
-      <div style={{position: 'absolute', left: 113, top: 430, fontFamily: 'DM Serif Display', fontSize: 68, color: peach, opacity: reveal(frame, 20, 17), rotate: '-7deg'}}>even</div>
-      <div style={{position: 'absolute', left: 100, top: 523, fontFamily: 'DM Serif Display', color: 'transparent', WebkitTextStroke: `2px ${blue}`, fontSize: 137, letterSpacing: -4, opacity: reveal(frame, 27, 19), translate: `${interpolate(reveal(frame, 27, 19), [0, 1], [-130, 0])}px 0`}}>MILES APART.</div>
+    <div style={{position: 'absolute', inset: 0, translate: `0 ${exitY}px`, pointerEvents: 'none', zIndex: 7}}>
+      <div style={{position: 'absolute', left: 101, top: 240, fontFamily: 'DM Sans', color: cream, fontSize: 162, fontWeight: 800, letterSpacing: -8, lineHeight: 1, translate: `${interpolate(frame, [5, 17], [-1850, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px 0`}}>MOVIE NIGHT.</div>
+      <div style={{position: 'absolute', left: 113, top: 430, fontFamily: 'DM Serif Display', fontSize: 68, color: peach, rotate: '-7deg', translate: `${interpolate(frame, [18, 30], [-800, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px 0`}}>even</div>
+      <div style={{position: 'absolute', left: 100, top: 523, fontFamily: 'DM Serif Display', color: 'transparent', WebkitTextStroke: `2px ${blue}`, fontSize: 137, letterSpacing: -4, translate: `${interpolate(frame, [25, 37], [1900, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px 0`}}>MILES APART.</div>
       <div style={{position: 'absolute', left: 106, top: 748, width: 1650 * reveal(frame, 46, 26), height: 3, background: `linear-gradient(90deg, ${peach}, ${blue})`}} />
-      <div style={{position: 'absolute', left: 109, top: 805, fontFamily: 'DM Serif Display', color: cream, fontSize: 68, opacity: reveal(frame, 52, 17)}}>Watch together. Stay close.</div>
+      <div style={{position: 'absolute', left: 109, top: 805, fontFamily: 'DM Serif Display', color: cream, fontSize: 68, translate: `0 ${interpolate(frame, [43, 55], [340, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px`}}>Watch together. Stay close.</div>
     </div>
   );
 };
@@ -133,12 +163,11 @@ const ClosingType: React.FC<{frame: number}> = ({frame}) => {
   if (local < 0) return null;
   return (
     <div style={{position: 'absolute', inset: 0, zIndex: 8, pointerEvents: 'none'}}>
-      <div style={{position: 'absolute', inset: 0, background: ink, opacity: 0.54 * reveal(local, 0, 28)}} />
-      <div style={{position: 'absolute', left: 95, right: 95, top: 320, textAlign: 'center', fontFamily: 'DM Sans', color: cream, fontSize: 169, fontWeight: 800, letterSpacing: -9, opacity: reveal(local, 26, 27), translate: `0 ${interpolate(reveal(local, 26, 27), [0, 1], [80, 0])}px`}}>TOGETHER.</div>
-      <div style={{position: 'absolute', left: 465, top: 582, width: 990 * reveal(local, 49, 31), height: 3, background: `linear-gradient(90deg, ${peach}, ${blue})`}} />
-      <div style={{position: 'absolute', left: 0, right: 0, top: 642, textAlign: 'center', fontFamily: 'DM Serif Display', color: cream, fontSize: 68, opacity: reveal(local, 59, 21)}}>Watch together, wherever you are.</div>
-      <div style={{position: 'absolute', left: 0, right: 0, bottom: 112, textAlign: 'center', fontFamily: 'DM Sans', color: muted, fontSize: 25, opacity: reveal(local, 77, 17)}}>An Android counterpart to open-source MeowWatch.</div>
-      <div style={{position: 'absolute', left: 0, right: 0, bottom: 63, textAlign: 'center', fontFamily: 'DM Sans', color: blue, fontSize: 18, fontWeight: 700, letterSpacing: 3, opacity: reveal(local, 86, 17)}}>ANDROID · OPEN SOURCE · AGPL-3.0-ONLY</div>
+      <div style={{position: 'absolute', left: 95, right: 95, top: 320, textAlign: 'center', fontFamily: 'DM Sans', color: cream, fontSize: 169, fontWeight: 800, letterSpacing: -9, translate: `${interpolate(local, [15, 28], [1900, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px 0`}}>TOGETHER.</div>
+      <div style={{position: 'absolute', left: 465, top: 582, width: 990 * reveal(local, 49, 13), height: 3, background: `linear-gradient(90deg, ${peach}, ${blue})`}} />
+      <div style={{position: 'absolute', left: 0, right: 0, top: 642, textAlign: 'center', fontFamily: 'DM Serif Display', color: cream, fontSize: 68, translate: `0 ${interpolate(local, [44, 57], [510, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px`}}>Watch together, wherever you are.</div>
+      <div style={{position: 'absolute', left: 0, right: 0, bottom: 112, textAlign: 'center', fontFamily: 'DM Sans', color: muted, fontSize: 25, translate: `0 ${interpolate(local, [64, 76], [280, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px`}}>An Android counterpart to open-source MeowWatch.</div>
+      <div style={{position: 'absolute', left: 0, right: 0, bottom: 63, textAlign: 'center', fontFamily: 'DM Sans', color: blue, fontSize: 18, fontWeight: 700, letterSpacing: 3, translate: `0 ${interpolate(local, [79, 91], [230, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})}px`}}>ANDROID · OPEN SOURCE · AGPL-3.0-ONLY</div>
     </div>
   );
 };
@@ -149,20 +178,29 @@ export const OneTakeStage: React.FC = () => {
   const camX = cameraValue(frame, cameraX);
   const camY = cameraValue(frame, cameraY);
   const camScale = cameraValue(frame, cameraScale);
-  const wide = interpolate(frame, [1350, 1390, 1530, 1560], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift});
+  const wide = interpolate(frame, [1350, 1365, 1545, 1560], [0, 1, 1, 0], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift});
   const phoneWidth = interpolate(wide, [0, 1], [360, 1390]);
   const phoneHeight = interpolate(wide, [0, 1], [800, 637]);
   const phoneTilt = interpolate(wide, [0, 1], [-5, 0]);
   const isCapture = (frame >= 1050 && frame < 1860) || (frame >= 1980 && frame < 2700);
   const phoneBadge = frame < 1050 || (frame >= 1860 && frame < 1980) || frame >= 2700 ? 'UI ANIMATION' : frame < 1560 ? 'PHYSICAL ONEPLUS' : frame < 1860 ? 'ANDROID EMULATOR' : 'REVENUECAT TEST STORE';
-  const tabletOpacity = interpolate(frame, [1015, 1080, 2670, 2735], [1, 0, 0, 0.65], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'});
+  const tabletTravel = interpolate(frame, [1035, 1050], [0, -1500], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift});
+  const chapterLocal = chapter ? frame - chapter.start : 0;
+  const sourceTravel = chapter
+    ? interpolate(chapterLocal, [0, 10, chapter.duration - 10, chapter.duration], [-1650, 0, 0, -1650], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift})
+    : -1650;
+  const controlLocal = frame - 570;
+  const controlWord = controlLocal < 82 ? 'PLAY' : controlLocal < 166 ? 'PAUSE' : 'SEEK';
+  const controlWordStart = controlLocal < 82 ? 0 : controlLocal < 166 ? 82 : 166;
+  const controlWordEnd = controlLocal < 82 ? 82 : controlLocal < 166 ? 166 : 300;
+  const controlWordTravel = interpolate(controlLocal, [controlWordStart, controlWordStart + 9, controlWordEnd - 9, controlWordEnd], [-530, 0, 0, -530], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp', easing: drift});
 
   return (
     <AbsoluteFill style={{background: ink, overflow: 'hidden'}}>
       <div style={{position: 'absolute', inset: 0, background: 'radial-gradient(circle at 71% 61%, #123B52 0%, transparent 53%)', opacity: 0.65}} />
       <div style={{position: 'absolute', left: -300, top: 108, width: 1800, height: 3, background: '#244A60', rotate: '-16deg', opacity: 0.6}} />
 
-      <div style={{position: 'absolute', left: 0, top: 0, width: 3000, height: 1280, transform: `translate3d(${camX}px, ${camY}px, 0) scale(${camScale})`, transformOrigin: 'top left', willChange: 'transform', opacity: interpolate(frame, [0, 55, 90], [0.12, 0.22, 1], {extrapolateRight: 'clamp'})}}>
+      <div style={{position: 'absolute', left: 0, top: 0, width: 3000, height: 1280, transform: `translate3d(${camX}px, ${camY}px, 0) scale(${camScale})`, transformOrigin: 'top left', willChange: 'transform'}}>
         <svg width="3000" height="1180" style={{position: 'absolute', inset: 0, pointerEvents: 'none'}}>
           <path d="M 1230 150 C 1010 570, 1440 1090, 1850 650 S 2440 320, 2650 780" fill="none" stroke="#3B748F" strokeWidth="3" strokeDasharray="14 22" opacity="0.6" />
           <path d="M 1280 580 C 1430 388, 1695 413, 1980 630" fill="none" stroke={peach} strokeWidth="4" strokeDasharray="840" strokeDashoffset={840 * (1 - reveal(frame, 373, 89))} opacity="0.75" />
@@ -170,7 +208,7 @@ export const OneTakeStage: React.FC = () => {
           <circle cx="1980" cy="630" r={12 * reveal(frame, 429, 24)} fill={blue} />
         </svg>
 
-        <div style={{position: 'absolute', left: 1500, top: 330, padding: 9, background: '#182935', border: '1px solid #7996A7', borderRadius: 25, boxShadow: '0 42px 90px #00000091', opacity: tabletOpacity, transform: `perspective(1800px) rotateY(${interpolate(frame, [0, 1050], [12, 3], {extrapolateRight: 'clamp'})}deg)`, transformOrigin: 'center center'}}>
+        <div style={{position: 'absolute', left: 1500, top: 330, padding: 9, background: '#182935', border: '1px solid #7996A7', borderRadius: 25, boxShadow: '0 42px 90px #00000091', transform: `translateY(${tabletTravel}px) perspective(1800px) rotateY(3deg)`, transformOrigin: 'center center'}}>
           {tabletAnimation(frame)}
           <div style={{position: 'absolute', bottom: -38, left: 4, color: muted, fontFamily: 'DM Sans', fontSize: 20, fontWeight: 700, letterSpacing: 1.6}}>ILLUSTRATED TABLET</div>
         </div>
@@ -190,10 +228,10 @@ export const OneTakeStage: React.FC = () => {
       <div style={{position: 'absolute', left: 102, top: 70, zIndex: 9}}><Brand size={34} /></div>
       <div style={{position: 'absolute', right: 100, top: 83, zIndex: 9, fontFamily: 'DM Sans', color: blue, fontSize: 19, fontWeight: 700, letterSpacing: 3.3}}>MEOWWATCH / MOBILE</div>
       {chapter && <ChapterText chapter={chapter} frame={frame} />}
-      {chapter?.id === 'controls' && <div style={{position: 'absolute', left: 105, top: 589, color: blue, fontFamily: 'DM Sans', fontSize: 80, fontWeight: 800, letterSpacing: -2}}>{frame - 570 < 82 ? 'PLAY' : frame - 570 < 166 ? 'PAUSE' : 'SEEK'}</div>}
+      {chapter?.id === 'controls' && <div style={{position: 'absolute', left: 105, top: 589, color: blue, fontFamily: 'DM Sans', fontSize: 80, fontWeight: 800, letterSpacing: -2, translate: `${controlWordTravel}px 0`}}>{controlWord}</div>}
       <OpeningType frame={frame} />
       <ClosingType frame={frame} />
-      <div style={{position: 'absolute', left: 105, bottom: 58, zIndex: 9, fontFamily: 'DM Sans', fontSize: 24, color: muted, opacity: chapter ? reveal(frame - chapter.start, 11, 19) : 0}}>{chapter?.disclosure}</div>
+      <div style={{position: 'absolute', left: 105, bottom: 58, zIndex: 9, fontFamily: 'DM Sans', fontSize: 24, color: muted, translate: `${sourceTravel}px 0`}}>{chapter?.disclosure}</div>
       <div style={{position: 'absolute', left: 0, bottom: 0, width: `${(frame / 2820) * 100}%`, height: 4, zIndex: 9, background: `linear-gradient(90deg, ${peach}, ${blue})`}} />
     </AbsoluteFill>
   );

@@ -26,8 +26,7 @@ export const TapPulse: React.FC<{frame: number; at: number; x: number; y: number
         border: `3px solid ${color}`,
         boxShadow: '0 0 0 2px #071522, inset 0 0 0 2px #071522',
         borderRadius: '50%',
-        scale: interpolate(age, [0, 23], [0.35, 2.55]),
-        opacity: interpolate(age, [0, 23], [0.85, 0]),
+        scale: interpolate(age, [0, 14, 23], [0.35, 2.35, 0], {extrapolateRight: 'clamp'}),
         pointerEvents: 'none',
         zIndex: 30,
       }}

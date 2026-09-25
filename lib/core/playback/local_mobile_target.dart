@@ -75,8 +75,13 @@ class LocalMobileTarget extends PlaybackTarget
             _appliedExplicitResume == required) {
           return;
         }
+        // This pinned extension addresses video_player 2.14.0's native player.
+        // Its ID accessor is public but test-annotated; isolate that dependency
+        // here and verify compatibility through the native integration gates.
+        // ignore: invalid_use_of_visible_for_testing_member
+        final playerId = controller.playerId;
         await _configureInterruptionPolicy(
-          controller.playerId,
+          playerId,
           required,
         ).timeout(const Duration(seconds: 5));
         if (_closed || !identical(controller, _controller)) return;
@@ -168,12 +173,15 @@ class LocalMobileTarget extends PlaybackTarget
       _controller = next;
       await _applyInterruptionPolicy(next);
       if (generation != _loadGeneration || _closed) return;
-      next.addListener(_onPlayerChanged);
       if (position > Duration.zero) {
         await next.seekTo(
           position > next.value.duration ? next.value.duration : position,
         );
       }
+      if (generation != _loadGeneration || _closed) return;
+      // Native buffering events may arrive while the initial seek is pending.
+      // Keep the requested loading clock until the restored position is ready.
+      next.addListener(_onPlayerChanged);
       _onPlayerChanged();
     } catch (_) {
       await next.dispose();

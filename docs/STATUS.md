@@ -129,6 +129,19 @@ replace complete hierarchy acceptance. Mocked observer contracts pass; SDK
 compilation passes in hosted Check `36085892139` at `e94015e`. A fresh native
 run remains required.
 
+Failed-decoder `36086036490` at `4be67e8` now passes both offline checkpoints:
+the cached public address is unreachable, the original guest decoder reports
+a real Source error at 85,000 ms, and the byte proof shows every served span
+below the unserved seek keyframe before the owned cap release. After reconnect,
+the host retains controller 1 and the guest rebuilds controller 2 as 3, paused.
+The strict continuity gate fails because the new decoder's first ready event
+reports 0 ms while its initial 85-second seek is pending. Later room state is
+paused at 37.133 seconds. The offline original PNG and all 88 accepted native
+position records are reviewed; there is no SDK Setup repair. The target now
+keeps loading through the restore seek and only then publishes ready, with a
+regression that injects native buffering events during that pending seek.
+Fresh failed-decoder acceptance remains required.
+
 The new Together-room audio-focus journey uses MainApp with one API 35 native
 decoder and an independent real TLS client in the same process. It continuously
 checks for native/room autoplay between focus loss and explicit Play. Its first
@@ -179,6 +192,13 @@ overlapping ownership, pending policy updates, failure and Play cancellation.
 The second independent review finds no remaining source defect. Hosted checks
 now include the pinned player's native unit suite and a normal debug APK build;
 this repair still requires fresh cloud and Android runtime evidence.
+
+Initial policy Check `36087060781` at `ebc8f9c` accepts the pinned path lockfile
+but finds two missing explicit capability casts and the frontend controller's
+test-annotated player-ID accessor during analysis. The casts are corrected;
+the ID use is isolated and documented at the Android adapter boundary. The
+native extension and frontend versions are pinned and must pass the native
+integration gates. These compiler findings are not runtime acceptance.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

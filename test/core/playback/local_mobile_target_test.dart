@@ -458,6 +458,43 @@ void main() {
   });
 
   test(
+    'restored source stays loading until its initial seek is confirmed',
+    () async {
+      final target = createTarget();
+      await target.load(_media('restore-clock'));
+      final seek = Completer<void>();
+      final started = Completer<void>();
+      platform.nextSeekGate = seek;
+      platform.seekRequested = started;
+      final observed = <PlaybackSnapshot>[];
+      final subscription = target.states.listen(observed.add);
+      const restored = Duration(seconds: 85);
+      try {
+        final loading = target.load(
+          _media('restore-clock'),
+          position: restored,
+        );
+        await started.future;
+        platform.emit(VideoEvent(eventType: VideoEventType.bufferingStart));
+        platform.emit(VideoEvent(eventType: VideoEventType.bufferingEnd));
+        await _flushEvents();
+        expect(target.snapshot.connection, PlaybackConnection.loading);
+        expect(target.snapshot.position, restored);
+        expect(observed.where((state) => state.ready), isEmpty);
+        seek.complete();
+        await loading;
+        await _flushEvents();
+        expect(target.snapshot.ready, isTrue);
+        expect(target.snapshot.playing, isFalse);
+        expect(observed.firstWhere((state) => state.ready).position, restored);
+      } finally {
+        if (!seek.isCompleted) seek.complete();
+        await subscription.cancel();
+      }
+    },
+  );
+
+  test(
     'native error and a later pause retain the last confirmed media clock',
     () async {
       final target = createTarget();
@@ -604,6 +641,8 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
   Completer<Duration>? nextPosition;
   Completer<void>? positionRequested;
   Completer<void>? nextRateGate;
+  Completer<void>? nextSeekGate;
+  Completer<void>? seekRequested;
   PlatformException? nextInitializationError;
   final rates = <double>[];
 
@@ -665,6 +704,11 @@ final class _FakeVideoPlayerPlatform extends VideoPlayerPlatform {
 
   @override
   Future<void> seekTo(int playerId, Duration position) async {
+    final gate = nextSeekGate;
+    nextSeekGate = null;
+    seekRequested?.complete();
+    seekRequested = null;
+    await gate?.future;
     _positions[playerId] = position;
   }
 

@@ -85,7 +85,8 @@ class PlaybackSyncBridge {
     if (playback is PlaybackInterruptionTarget) {
       // Acquire synchronously so even a source loaded immediately after start
       // receives the native policy before it can play.
-      final ready = playback.requireExplicitResume(this);
+      final ready = (playback as PlaybackInterruptionTarget)
+          .requireExplicitResume(this);
       _background(_enqueue(() => ready));
     }
     _connected =
@@ -1184,7 +1185,9 @@ class PlaybackSyncBridge {
     final playback = target;
     if (playback is PlaybackInterruptionTarget) {
       try {
-        await playback.releaseExplicitResume(this).timeout(commandTimeout);
+        await (playback as PlaybackInterruptionTarget)
+            .releaseExplicitResume(this)
+            .timeout(commandTimeout);
       } catch (error) {
         try {
           onError?.call(error);

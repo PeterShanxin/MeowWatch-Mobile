@@ -7,7 +7,8 @@ from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
     FIXTURE_URL, entered_text_field, focused_text_field, history_context,
     join_sheet_ready, media_link_ready,
-    rehearsed_playback, timeline_tap, unique_seekbar, unique_text_field, visible_code,
+    rehearsed_playback, timeline_tap, unique_seekbar, unique_text_field,
+    visible_chat_receipt, visible_code,
 )
 
 
@@ -105,6 +106,26 @@ class VisibleUiContract(unittest.TestCase):
             entered_text_field(
                 tree(node('g' + expected, kind='android.widget.EditText', focused=True)),
                 expected)
+
+    def test_chat_receipt_matches_complete_message_in_visible_sender_bubble(self):
+        # Extracted semantics shape from tablet failure XML in run 36126715801.
+        bubble = (f'<node package="{PACKAGE}" enabled="true" visible-to-user="true" '
+                  'class="android.view.View" text="" '
+                  'content-desc="AmberOtter&#10;HelloFromPhone" '
+                  'bounds="[960,570][1260,644]"/>')
+        self.assertTrue(visible_chat_receipt(tree(bubble), 'HelloFromPhone'))
+        self.assertTrue(visible_chat_receipt(
+            tree(node('HelloFromTablet', kind='android.view.View')), 'HelloFromTablet'))
+        for wrong in ('AmberOtter\nHelloFromPhoneAgain',
+                      'AmberOtter\nxHelloFromPhone',
+                      'AmberOtter\nHelloFromPhone\nmore'):
+            with self.subTest(wrong=wrong), self.assertRaises(RuntimeFailure):
+                visible_chat_receipt(
+                    tree(node(wrong, kind='android.view.View')), 'HelloFromPhone')
+        with self.assertRaises(RuntimeFailure):
+            visible_chat_receipt(
+                tree(node('HelloFromPhone', kind='android.widget.EditText')),
+                'HelloFromPhone')
 
     def test_tablet_player_uses_submitted_url_and_visible_ninety_second_timeline(self):
         landscape = tree(node('Together in this room'),

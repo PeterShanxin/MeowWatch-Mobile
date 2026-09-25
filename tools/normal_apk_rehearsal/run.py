@@ -324,6 +324,17 @@ def present(label: str) -> Callable[[str], bool]:
     return check
 
 
+def visible_chat_receipt(xml: str, message: str) -> bool:
+    for node in nodes(xml):
+        if node.get("class", "").endswith("EditText"):
+            continue
+        for value in (node.get("text", ""), node.get("content-desc", "")):
+            sender, separator, body = value.partition("\n")
+            if value == message or (separator and sender.strip() and body == message):
+                return True
+    raise RuntimeFailure(f"complete received chat message {message!r} is not visible")
+
+
 def history_context(xml: str, context: str) -> bool:
     values = [value for node in nodes(xml) for value in
               (node.get("text", ""), node.get("content-desc", "")) if value]
@@ -366,7 +377,8 @@ def chat(device: Device, recipient: Device, message: str, phase: str) -> None:
     device.capture(f"{phase}-composer", present("Send message"))
     device.enter(message)
     device.tap("Send message")
-    recipient.capture(f"{phase}-received", present(message))
+    recipient.capture(f"{phase}-received",
+                      lambda xml: visible_chat_receipt(xml, message))
     device.tap("Close chat")
 
 

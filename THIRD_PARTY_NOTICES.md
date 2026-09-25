@@ -53,6 +53,8 @@ copyright and complete license are retained in
 [`third_party/video_player_android/LICENSE`](third_party/video_player_android/LICENSE).
 [`VENDOR.md`](third_party/video_player_android/VENDOR.md) records the source and
 local focus-policy change.
+The new MeowWatch `PlayerAudioFocus.java` extension uses the project's
+AGPL-3.0-only license; the retained upstream files keep their BSD notices.
 
 The app uses Flutter and the packages locked by `pubspec.lock`. Flutter’s
 built-in license page displays the complete license texts bundled by the

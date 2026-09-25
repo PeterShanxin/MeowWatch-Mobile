@@ -7,6 +7,7 @@ package io.flutter.plugins.videoplayer;
 import static androidx.media3.common.Player.REPEAT_MODE_ALL;
 import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
+import android.content.Context;
 import android.os.Handler;
 import android.os.Looper;
 import androidx.annotation.NonNull;
@@ -38,19 +39,13 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @Nullable private DisposeHandler disposeHandler;
   @Nullable private ExoPlayerEventListener exoPlayerEventListener;
   @NonNull protected ExoPlayer exoPlayer;
+  @NonNull private final PlayerAudioFocus audioFocus;
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi @Nullable protected DefaultTrackSelector trackSelector;
 
   private final Handler mainHandler = new Handler(Looper.getMainLooper());
   private boolean isDisposed = false;
-  private boolean requireExplicitResume = false;
-  private final Player.Listener explicitResumeListener =
-      new Player.Listener() {
-        @Override
-        public void onPlaybackSuppressionReasonChanged(int playbackSuppressionReason) {
-          pauseForTransientAudioFocusLoss(playbackSuppressionReason);
-        }
-      };
+  private final Player.Listener playbackStateListener;
 
   /** A closure-compatible signature since {@link java.util.function.Supplier} is API level 24. */
   public interface ExoPlayerProvider {
@@ -76,6 +71,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   // https://github.com/flutter/packages/pull/10193
   @SuppressWarnings("this-escape")
   public VideoPlayer(
+      @NonNull Context context,
       @NonNull VideoPlayerCallbacks events,
       @NonNull MediaItem mediaItem,
       @NonNull VideoPlayerOptions options,
@@ -84,6 +80,22 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     this.videoPlayerEvents = events;
     this.surfaceProducer = surfaceProducer;
     exoPlayer = exoPlayerProvider.get();
+    AudioAttributes audioAttributes =
+        new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build();
+    // The wrapper is the sole focus owner. A single looper also keeps its callbacks and
+    // ExoPlayer public calls on the Flutter player's application thread.
+    exoPlayer.setAudioAttributes(audioAttributes, false);
+    audioFocus =
+        new PlayerAudioFocus(context, exoPlayer, audioAttributes, options.mixWithOthers, events);
+    playbackStateListener =
+        new Player.Listener() {
+          @Override
+          public void onPlaybackStateChanged(int playbackState) {
+            if (playbackState == Player.STATE_IDLE || playbackState == Player.STATE_ENDED) {
+              audioFocus.onPlaybackStopped();
+            }
+          }
+        };
 
     // Try to get the track selector from the ExoPlayer if it was built with one
     if (exoPlayer.getTrackSelector() instanceof DefaultTrackSelector) {
@@ -94,24 +106,12 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     exoPlayer.prepare();
     exoPlayerEventListener = createExoPlayerEventListener(exoPlayer, surfaceProducer);
     exoPlayer.addListener(exoPlayerEventListener);
-    exoPlayer.addListener(explicitResumeListener);
-    setAudioAttributes(exoPlayer, options.mixWithOthers);
+    exoPlayer.addListener(playbackStateListener);
   }
 
   /** Requires a fresh play command after transient audio focus loss for this player only. */
   public void setRequireExplicitResume(boolean required) {
-    requireExplicitResume = required;
-    if (required && !isDisposed) {
-      pauseForTransientAudioFocusLoss(exoPlayer.getPlaybackSuppressionReason());
-    }
-  }
-
-  private void pauseForTransientAudioFocusLoss(int suppressionReason) {
-    if (!isDisposed
-        && requireExplicitResume
-        && suppressionReason == Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS) {
-      exoPlayer.pause();
-    }
+    audioFocus.setRequireExplicitResume(required);
   }
 
   public void setDisposeHandler(@Nullable DisposeHandler handler) {
@@ -121,12 +121,6 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @NonNull
   protected abstract ExoPlayerEventListener createExoPlayerEventListener(
       @NonNull ExoPlayer exoPlayer, @Nullable SurfaceProducer surfaceProducer);
-
-  private static void setAudioAttributes(ExoPlayer exoPlayer, boolean isMixMode) {
-    exoPlayer.setAudioAttributes(
-        new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
-        !isMixMode);
-  }
 
   /**
    * Helper method to extract a long value from a Format field, returning null if the value is
@@ -152,12 +146,12 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
   @Override
   public void play() {
-    exoPlayer.play();
+    audioFocus.play();
   }
 
   @Override
   public void pause() {
-    exoPlayer.pause();
+    audioFocus.pause();
   }
 
   @Override
@@ -168,7 +162,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @Override
   public void setVolume(double volume) {
     float bracketedValue = (float) Math.max(0.0, Math.min(1.0, volume));
-    exoPlayer.setVolume(bracketedValue);
+    audioFocus.setUserVolume(bracketedValue);
   }
 
   @Override
@@ -424,6 +418,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     // https://github.com/flutter/flutter/issues/183824
     if (dimensionsChanged) {
       final boolean wasPlaying = exoPlayer.isPlaying();
+      final int interruptionVersion = audioFocus.getInterruptionVersion();
       final long currentPosition = exoPlayer.getCurrentPosition();
 
       // Disable video track type to force renderer release
@@ -462,8 +457,8 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
 
             // Restore playback state
             exoPlayer.seekTo(currentPosition);
-            if (wasPlaying) {
-              exoPlayer.play();
+            if (wasPlaying && interruptionVersion == audioFocus.getInterruptionVersion()) {
+              audioFocus.play();
             }
           },
           150);
@@ -478,6 +473,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   public void dispose() {
     isDisposed = true;
     mainHandler.removeCallbacksAndMessages(null);
+    audioFocus.release();
     if (disposeHandler != null) {
       disposeHandler.onDispose();
     }
@@ -485,7 +481,12 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
       exoPlayerEventListener.dispose();
       exoPlayerEventListener = null;
     }
-    exoPlayer.removeListener(explicitResumeListener);
+    exoPlayer.removeListener(playbackStateListener);
     exoPlayer.release();
+  }
+
+  @NonNull
+  PlayerAudioFocus getAudioFocusForTesting() {
+    return audioFocus;
   }
 }

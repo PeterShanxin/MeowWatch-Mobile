@@ -34,7 +34,8 @@ flutter build apk --debug
 
 The Android player is pinned in `third_party/video_player_android`. Its small
 native extension keeps Together playback paused after a brief audio-focus
-interruption, while Local Mode retains the upstream policy. See its
+interruption, while Local Mode can resume after transient focus returns. Each
+player has one focus owner that handles system callbacks directly. See its
 [provenance and patch notes](third_party/video_player_android/VENDOR.md).
 The **Check** workflow also builds the normal APK and runs the player's native
 unit suite. That suite needs **Java 21** for its Android SDK 36 Robolectric

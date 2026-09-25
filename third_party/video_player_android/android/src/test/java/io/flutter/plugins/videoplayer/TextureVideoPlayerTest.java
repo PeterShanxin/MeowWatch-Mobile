@@ -29,6 +29,7 @@ import org.mockito.MockedConstruction;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 
 /**
  * Unit tests for {@link TextureVideoPlayer}.
@@ -65,7 +66,12 @@ public final class TextureVideoPlayerTest {
 
   private TextureVideoPlayer createVideoPlayer(VideoPlayerOptions options) {
     return new TextureVideoPlayer(
-        mockEvents, mockProducer, fakeVideoAsset.getMediaItem(), options, () -> mockExoPlayer);
+        RuntimeEnvironment.getApplication(),
+        mockEvents,
+        mockProducer,
+        fakeVideoAsset.getMediaItem(),
+        options,
+        () -> mockExoPlayer);
   }
 
   @Test
@@ -77,7 +83,7 @@ public final class TextureVideoPlayerTest {
     verify(mockProducer).getSurface();
     verify(mockExoPlayer).setVideoSurface(any());
 
-    verify(mockExoPlayer).setAudioAttributes(attributesCaptor.capture(), eq(true));
+    verify(mockExoPlayer).setAudioAttributes(attributesCaptor.capture(), eq(false));
     assertEquals(C.AUDIO_CONTENT_TYPE_MOVIE, attributesCaptor.getValue().contentType);
 
     videoPlayer.dispose();

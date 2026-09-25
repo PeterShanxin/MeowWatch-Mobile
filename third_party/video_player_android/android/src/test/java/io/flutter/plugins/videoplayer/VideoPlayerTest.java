@@ -24,6 +24,7 @@ import androidx.media3.common.Player;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.audio.AudioFocusManager;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import com.google.common.collect.ImmutableList;
@@ -37,10 +38,12 @@ import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.MockitoJUnit;
 import org.mockito.junit.MockitoRule;
 import org.robolectric.RobolectricTestRunner;
+import org.robolectric.RuntimeEnvironment;
 import org.robolectric.shadows.ShadowLooper;
 
 /**
@@ -75,7 +78,13 @@ public final class VideoPlayerTest {
         @NonNull VideoPlayerOptions options,
         @Nullable SurfaceProducer surfaceProducer,
         @NonNull ExoPlayerProvider exoPlayerProvider) {
-      super(events, mediaItem, options, surfaceProducer, exoPlayerProvider);
+      super(
+          RuntimeEnvironment.getApplication(),
+          events,
+          mediaItem,
+          options,
+          surfaceProducer,
+          exoPlayerProvider);
     }
 
     @NonNull
@@ -101,55 +110,137 @@ public final class VideoPlayerTest {
         mockEvents, fakeVideoAsset.getMediaItem(), options, null, () -> mockExoPlayer);
   }
 
-  private Player.Listener focusPolicyListener(ExoPlayer player) {
-    verify(player, atLeast(2)).addListener(listenerCaptor.capture());
-    return listenerCaptor.getAllValues().get(listenerCaptor.getAllValues().size() - 1);
-  }
-
   @Test
-  public void transientFocusLossKeepsDefaultPlaybackPolicy() {
+  public void transientFocusLossResumesLocalWithoutSuppressionEvent() {
     VideoPlayer videoPlayer = createVideoPlayer();
-    focusPolicyListener(mockExoPlayer)
-        .onPlaybackSuppressionReasonChanged(
-            Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS);
-    verify(mockExoPlayer, never()).pause();
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    verify(mockExoPlayer).pause();
+    verify(mockEvents).onIsPlayingStateUpdate(false);
+    verify(mockExoPlayer).play();
     videoPlayer.dispose();
   }
 
   @Test
-  public void explicitResumePolicyPausesOnlyTransientFocusLoss() {
+  public void togetherShortLossAndGainDoNotResumeWithoutSuppressionEvent() {
     VideoPlayer videoPlayer = createVideoPlayer();
-    Player.Listener listener = focusPolicyListener(mockExoPlayer);
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
     videoPlayer.setRequireExplicitResume(true);
-
-    listener.onPlaybackSuppressionReasonChanged(
-        Player.PLAYBACK_SUPPRESSION_REASON_UNSUITABLE_AUDIO_OUTPUT);
-    verify(mockExoPlayer, never()).pause();
-    listener.onPlaybackSuppressionReasonChanged(
-        Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    assertFalse(mockExoPlayer.isPlaying());
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
     verify(mockExoPlayer).pause();
-
+    verify(mockEvents).onIsPlayingStateUpdate(false);
+    verify(mockEvents, never()).onIsPlayingStateUpdate(true);
+    verify(mockExoPlayer, never()).play();
     videoPlayer.setRequireExplicitResume(false);
-    listener.onPlaybackSuppressionReasonChanged(
-        Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS);
-    verify(mockExoPlayer, times(1)).pause();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
     verify(mockExoPlayer, never()).play();
     videoPlayer.dispose();
   }
 
   @Test
-  public void enablingPolicyDuringTransientFocusLossPausesImmediately() {
+  public void enablingTogetherDuringLocalTransientCancelsDeferredResume() {
     VideoPlayer videoPlayer = createVideoPlayer();
-    when(mockExoPlayer.getPlaybackSuppressionReason())
-        .thenReturn(Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS);
-
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
     videoPlayer.setRequireExplicitResume(true);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
     verify(mockExoPlayer).pause();
+    verify(mockExoPlayer, never()).play();
     videoPlayer.dispose();
   }
 
   @Test
-  public void explicitResumePolicyIsPerPlayerAndRemovedOnDispose() {
+  public void explicitPauseCancelsLocalResumeAndPermanentLossNeverResumes() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    videoPlayer.pause();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    verify(mockExoPlayer, never()).play();
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void permanentLossClearsPendingLocalResume() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    verify(mockEvents, times(2)).onIsPlayingStateUpdate(false);
+    verify(mockExoPlayer, never()).play();
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void duckRestoresUserVolumeWithoutPausing() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.setVolume(0.5);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.setVolumeMultiplier(0.2f);
+    focus.setVolumeMultiplier(1f);
+    verify(mockExoPlayer).setVolume(0.1f);
+    verify(mockExoPlayer, times(2)).setVolume(0.5f);
+    verify(mockExoPlayer, never()).pause();
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void mixWithOthersIgnoresFocusCommands() {
+    VideoPlayerOptions options = new VideoPlayerOptions();
+    options.mixWithOthers = true;
+    VideoPlayer videoPlayer = createVideoPlayer(options);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY);
+    verify(mockExoPlayer, never()).pause();
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void unknownFocusCommandPausesBeforeReportingError() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    assertThrows(IllegalArgumentException.class, () -> focus.executePlayerCommand(99));
+    verify(mockExoPlayer).pause();
+    verify(mockEvents).onIsPlayingStateUpdate(false);
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void deniedFocusReportsPauseBeforePlayWithoutListenerEvent() {
+    AudioFocusManager focusManager = mock(AudioFocusManager.class);
+    when(focusManager.updateAudioFocus(true, Player.STATE_BUFFERING))
+        .thenReturn(AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY);
+    PlayerAudioFocus focus =
+        new PlayerAudioFocus(
+            mockExoPlayer,
+            new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
+            false,
+            mockEvents,
+            control -> focusManager);
+    assertFalse(mockExoPlayer.isPlaying());
+    focus.play();
+    InOrder order = inOrder(focusManager, mockExoPlayer);
+    order.verify(focusManager).updateAudioFocus(true, Player.STATE_BUFFERING);
+    order.verify(mockExoPlayer).pause();
+    verify(mockExoPlayer, never()).play();
+    verify(mockEvents).onIsPlayingStateUpdate(false);
+    focus.release();
+  }
+
+  @Test
+  public void explicitResumePolicyIsPerPlayerAndReleasedOnDispose() {
     ExoPlayer otherExoPlayer = mock(ExoPlayer.class);
     VideoPlayer togetherPlayer = createVideoPlayer();
     VideoPlayer localPlayer =
@@ -159,40 +250,40 @@ public final class VideoPlayerTest {
             new VideoPlayerOptions(),
             null,
             () -> otherExoPlayer);
-    Player.Listener togetherListener = focusPolicyListener(mockExoPlayer);
-    Player.Listener localListener = focusPolicyListener(otherExoPlayer);
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    when(otherExoPlayer.getPlayWhenReady()).thenReturn(true);
+    PlayerAudioFocus togetherFocus = togetherPlayer.getAudioFocusForTesting();
+    PlayerAudioFocus localFocus = localPlayer.getAudioFocusForTesting();
     togetherPlayer.setRequireExplicitResume(true);
-
-    localListener.onPlaybackSuppressionReasonChanged(
-        Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS);
-    verify(otherExoPlayer, never()).pause();
-    togetherListener.onPlaybackSuppressionReasonChanged(
-        Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS);
+    togetherFocus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    localFocus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    togetherFocus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    localFocus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
     verify(mockExoPlayer).pause();
+    verify(mockExoPlayer, never()).play();
+    verify(otherExoPlayer).play();
 
     togetherPlayer.dispose();
-    verify(mockExoPlayer).removeListener(togetherListener);
-    togetherListener.onPlaybackSuppressionReasonChanged(
-        Player.PLAYBACK_SUPPRESSION_REASON_TRANSIENT_AUDIO_FOCUS_LOSS);
+    togetherFocus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
     verify(mockExoPlayer, times(1)).pause();
     localPlayer.dispose();
   }
 
   @Test
-  public void loadsAndPreparesProvidedMediaEnablesAudioFocusByDefault() {
+  public void loadsAndPreparesProvidedMediaWithExternalFocusOwner() {
     VideoPlayer videoPlayer = createVideoPlayer();
 
     verify(mockExoPlayer).setMediaItem(fakeVideoAsset.getMediaItem());
     verify(mockExoPlayer).prepare();
 
-    verify(mockExoPlayer).setAudioAttributes(attributesCaptor.capture(), eq(true));
+    verify(mockExoPlayer).setAudioAttributes(attributesCaptor.capture(), eq(false));
     assertEquals(C.AUDIO_CONTENT_TYPE_MOVIE, attributesCaptor.getValue().contentType);
 
     videoPlayer.dispose();
   }
 
   @Test
-  public void loadsAndPreparesProvidedMediaDisablesAudioFocusWhenMixModeSet() {
+  public void mixModeAlsoDisablesExoPlayerFocusOwner() {
     VideoPlayerOptions options = new VideoPlayerOptions();
     options.mixWithOthers = true;
 
@@ -1032,6 +1123,81 @@ public final class VideoPlayerTest {
 
     verify(mockExoPlayer, never()).seekTo(anyLong());
     verify(mockExoPlayer, never()).play();
+  }
+
+  private VideoPlayer scheduleRendererResetWhilePlaying() {
+    DefaultTrackSelector selector = mock(DefaultTrackSelector.class);
+    DefaultTrackSelector.Parameters parameters = mock(DefaultTrackSelector.Parameters.class);
+    DefaultTrackSelector.Parameters.Builder builder =
+        mock(DefaultTrackSelector.Parameters.Builder.class);
+    Tracks tracks = mock(Tracks.class);
+    Tracks.Group videoGroup = mock(Tracks.Group.class);
+    Format oldFormat = new Format.Builder().setWidth(1280).setHeight(720).build();
+    Format newFormat = new Format.Builder().setWidth(1920).setHeight(1080).build();
+    when(videoGroup.getType()).thenReturn(C.TRACK_TYPE_VIDEO);
+    when(videoGroup.getMediaTrackGroup()).thenReturn(new TrackGroup(newFormat));
+    setGroupLength(videoGroup, 1);
+    when(tracks.getGroups()).thenReturn(ImmutableList.of(videoGroup));
+    when(mockExoPlayer.getTrackSelector()).thenReturn(selector);
+    when(mockExoPlayer.getCurrentTracks()).thenReturn(tracks);
+    when(mockExoPlayer.getVideoFormat()).thenReturn(oldFormat);
+    when(mockExoPlayer.isPlaying()).thenReturn(true);
+    when(selector.buildUponParameters()).thenReturn(builder);
+    when(builder.setTrackTypeDisabled(anyInt(), anyBoolean())).thenReturn(builder);
+    when(builder.setOverrideForType(any(TrackSelectionOverride.class))).thenReturn(builder);
+    when(builder.build()).thenReturn(parameters);
+    VideoPlayer videoPlayer = createVideoPlayer();
+    videoPlayer.selectVideoTrack(0, 0);
+    return videoPlayer;
+  }
+
+  @Test
+  public void focusLossDuringRendererResetDoesNotRestartPlayback() {
+    VideoPlayer videoPlayer = scheduleRendererResetWhilePlaying();
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    videoPlayer.setRequireExplicitResume(true);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    ShadowLooper.shadowMainLooper().idleFor(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+    verify(mockExoPlayer, never()).play();
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void explicitPauseDuringRendererResetDoesNotRestartPlayback() {
+    VideoPlayer videoPlayer = scheduleRendererResetWhilePlaying();
+    videoPlayer.pause();
+    ShadowLooper.shadowMainLooper().idleFor(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+    verify(mockExoPlayer, never()).play();
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void playbackEndDuringRendererResetDoesNotRestartPlayback() {
+    VideoPlayer videoPlayer = scheduleRendererResetWhilePlaying();
+    verify(mockExoPlayer, atLeast(2)).addListener(listenerCaptor.capture());
+    for (Player.Listener listener : listenerCaptor.getAllValues()) {
+      listener.onPlaybackStateChanged(Player.STATE_ENDED);
+    }
+    ShadowLooper.shadowMainLooper().idleFor(200, java.util.concurrent.TimeUnit.MILLISECONDS);
+    verify(mockExoPlayer, never()).play();
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void decoderFailureCancelsPendingLocalResume() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    verify(mockExoPlayer, atLeast(2)).addListener(listenerCaptor.capture());
+    for (Player.Listener listener : listenerCaptor.getAllValues()) {
+      listener.onPlaybackStateChanged(Player.STATE_IDLE);
+    }
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    verify(mockExoPlayer, never()).play();
+    videoPlayer.dispose();
   }
 
   @Test

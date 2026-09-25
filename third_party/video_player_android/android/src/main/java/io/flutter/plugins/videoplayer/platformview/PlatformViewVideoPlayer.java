@@ -28,11 +28,12 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
   @UnstableApi
   @VisibleForTesting
   public PlatformViewVideoPlayer(
+      @NonNull Context context,
       @NonNull VideoPlayerCallbacks events,
       @NonNull MediaItem mediaItem,
       @NonNull VideoPlayerOptions options,
       @NonNull ExoPlayerProvider exoPlayerProvider) {
-    super(events, mediaItem, options, /* surfaceProducer */ null, exoPlayerProvider);
+    super(context, events, mediaItem, options, /* surfaceProducer */ null, exoPlayerProvider);
   }
 
   /**
@@ -53,6 +54,7 @@ public class PlatformViewVideoPlayer extends VideoPlayer {
       @NonNull VideoAsset asset,
       @NonNull VideoPlayerOptions options) {
     return new PlatformViewVideoPlayer(
+        context,
         events,
         asset.getMediaItem(),
         options,

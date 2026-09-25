@@ -262,6 +262,17 @@ updates while native commands are pending; the repair must receive focus
 commands directly, with one focus owner and separate Local/Together resume
 policies. Fresh native proof is still required.
 
+The replacement now gives each player one Media3 AudioFocusManager on its
+application thread and disables ExoPlayer's automatic focus owner. Direct loss
+callbacks pause and report false to Dart even if buffering already made native
+isPlaying false. Together cancels pending resume; Local Mode can resume on gain,
+unless explicitly paused or the decoder stops. End/error and disposal release
+focus. The deferred renderer reset checks for intervening pause or interruption
+before restoring playback. Source tests cover direct callbacks without any
+suppression-listener event, denied focus, ducking, mixing, per-player isolation
+and delayed reset. Source review and whitespace checks pass; compilation,
+native unit results and both Local/Together runtime gates remain outstanding.
+
 Failed-decoder `36090309937` at `1ab03e7` now gets through real radio loss,
 socket unreachability and the original native decoder failure. It stops at
 `offline-confirmed` because the second recording's frame-clock comparison
@@ -272,6 +283,23 @@ adjustment. This original run remains failed, and never validates the
 reconnected decoder. The recording contract needs the platform's actual
 timestamp mapping, without weakening frame count, coverage, hash or decode
 requirements.
+
+The recording mapping is now corrected using Android 15's actual 90 kHz
+quantization and sub-100-microsecond duration reuse, with only a 0.51-microsecond
+allowance for ffprobe's decimal output. Four focused metadata contracts pass,
+including rejection of negative raw duration before adjustment. Independent
+metadata reads reproduce all 158 and 233 original encoded timestamps without
+decoding media locally. The original failed run is unchanged; fresh native
+failed-decoder recovery still must pass.
+
+Normal-network `36091067116` at `1ab03e7` stops before radio loss at its
+initial native UI capture. MainActivity remains focused with the same PID 3155
+and the original PNG shows both participants and playing video, but the
+independent observer cannot retrieve an active app root in 15 bounded attempts.
+Its early diagnostic contains only a non-active system window; no app ANR or
+fatal exception is found in the retained log. The screenshot does not replace
+the required complete accessibility capture. This run is failed, and the
+precise observer/platform cause is not established.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

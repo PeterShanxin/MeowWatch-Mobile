@@ -56,7 +56,7 @@ def validate_journey(value: object, stages: list[dict]) -> dict:
             or type(release.get("elapsedRealtimeMs")) is not int
             or not marker <= request["requestStartedElapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
                     < release["elapsedRealtimeMs"] < marker + EARLY_WINDOW_MS
-            or release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] > 500
+            or not 200 <= release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] <= 500
             or request.get("gain") != 2 or release.get("gain") != 2
             or request.get("event") != "requested" or release.get("event") != "released"
             or request.get("result") != 1 or release.get("result") != 1
@@ -85,7 +85,9 @@ def validate_journey(value: object, stages: list[dict]) -> dict:
         raise RuntimeFailure("early TLS peer Play, focus pause or explicit replay failed")
     early_monitor = early.get("noAutoplayMonitor")
     if (not isinstance(early_monitor, dict) or early_monitor.get("sawNativePause") is not True
+            or early_monitor.get("sawRoomPause") is not True
             or early_monitor.get("forbiddenNativePlayEvents") != []
+            or early_monitor.get("forbiddenRoomPlayEvents") != []
             or type(early_monitor.get("monitoredMs")) is not int or early_monitor["monitoredMs"] < 4000):
         raise RuntimeFailure("early native playback was not continuously monitored after its first pause")
     cases = journey.get("cases")
@@ -250,7 +252,7 @@ class FocusSession:
             if (request["requestStartedElapsedRealtimeMs"] < start
                     or release["elapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
                     or release["elapsedRealtimeMs"] - start >= EARLY_WINDOW_MS
-                    or release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] > 500):
+                    or not 200 <= release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] <= 500):
                 raise RuntimeFailure("short focus grant and auto-release did not fit the measured early window")
             xml, window = self.observer.observe()
             (self.output / f"{stage}.xml").write_text(xml, encoding="utf-8")

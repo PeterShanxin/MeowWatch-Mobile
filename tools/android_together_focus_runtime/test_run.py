@@ -57,8 +57,9 @@ def receipt() -> tuple[dict, list[dict]]:
              "afterRelease": snapshot(playing=False, paused=True, position=3100),
              "explicitReplay": snapshot(playing=True, paused=False, position=3900),
              "noAutoplayMonitor": {"monitoredMs": 4300, "nativeEvents": 3,
-                                   "sawNativePause": True, "firstNativePauseElapsedMs": 300,
-                                   "forbiddenNativePlayEvents": []}}
+                                   "sawNativePause": True, "sawRoomPause": True,
+                                   "firstNativePauseElapsedMs": 300,
+                                   "forbiddenNativePlayEvents": [], "forbiddenRoomPlayEvents": []}}
     return {"togetherFocus": {"result": "passed", "peerCompletedTlsHello": True,
                                "earlyShort": early, "cases": cases}}, stages
 
@@ -147,6 +148,8 @@ class ReceiptTests(unittest.TestCase):
             lambda x: x["togetherFocus"]["earlyShort"].update(tlsPeerPlay=False),
             lambda x: x["togetherFocus"]["earlyShort"]["noAutoplayMonitor"].update(
                 forbiddenNativePlayEvents=[{"elapsedMs": 500}]),
+            lambda x: x["togetherFocus"]["earlyShort"]["noAutoplayMonitor"].update(
+                forbiddenRoomPlayEvents=[{"elapsedMs": 900}]),
             lambda x: x["togetherFocus"]["earlyShort"]["before"].update(peerSetter="Focus Host"),
         ]
         for mutate in mutations:

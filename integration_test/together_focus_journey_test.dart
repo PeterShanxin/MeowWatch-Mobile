@@ -142,7 +142,7 @@ void main() {
         seconds: 3,
       );
       final earlyBefore = _snapshot(app, peer);
-      final earlyMonitor = _EarlyNativePauseMonitor(app);
+      final earlyMonitor = _EarlyNativePauseMonitor(app, peer);
       final earlyCase = <String, Object?>{
         'peerName': peer.username,
         'tlsPeerPlay': true,
@@ -276,8 +276,9 @@ void main() {
 }
 
 final class _EarlyNativePauseMonitor {
-  _EarlyNativePauseMonitor(AppController app) {
-    if (!app.target.snapshot.playing) {
+  _EarlyNativePauseMonitor(AppController app, SyncplayClient peer) {
+    if (!app.target.snapshot.playing ||
+        peer.lastObservedRoomState?.paused != false) {
       throw TestFailure('early native monitor must arm while playing');
     }
     _native = app.target.states.listen((state) {
@@ -291,16 +292,34 @@ final class _EarlyNativePauseMonitor {
         });
       }
     });
+    _room = peer.observedRoomState.listen((state) {
+      roomEvents++;
+      if (state.paused) {
+        firstRoomPauseElapsedMs ??= _clock.elapsedMilliseconds;
+      } else if (firstRoomPauseElapsedMs != null) {
+        forbiddenRoomPlay.add({
+          'elapsedMs': _clock.elapsedMilliseconds,
+          'positionMs': state.position.inMilliseconds,
+        });
+      }
+    });
   }
 
   final Stopwatch _clock = Stopwatch()..start();
   late final StreamSubscription<PlaybackSnapshot> _native;
+  late final StreamSubscription<PeerPlayState> _room;
   final List<Map<String, Object>> forbidden = [];
+  final List<Map<String, Object>> forbiddenRoomPlay = [];
   int nativeEvents = 0;
+  int roomEvents = 0;
   int? firstNativePauseElapsedMs;
+  int? firstRoomPauseElapsedMs;
 
   void requireNoPlay() {
-    if (firstNativePauseElapsedMs == null || forbidden.isNotEmpty) {
+    if (firstNativePauseElapsedMs == null ||
+        firstRoomPauseElapsedMs == null ||
+        forbidden.isNotEmpty ||
+        forbiddenRoomPlay.isNotEmpty) {
       throw TestFailure(
         'native playback resumed after the first early focus pause',
       );
@@ -310,14 +329,19 @@ final class _EarlyNativePauseMonitor {
   Map<String, Object?> receipt() => {
     'monitoredMs': _clock.elapsedMilliseconds,
     'nativeEvents': nativeEvents,
+    'roomEvents': roomEvents,
     'sawNativePause': firstNativePauseElapsedMs != null,
+    'sawRoomPause': firstRoomPauseElapsedMs != null,
     'firstNativePauseElapsedMs': firstNativePauseElapsedMs,
+    'firstRoomPauseElapsedMs': firstRoomPauseElapsedMs,
     'forbiddenNativePlayEvents': List<Map<String, Object>>.of(forbidden),
+    'forbiddenRoomPlayEvents': List<Map<String, Object>>.of(forbiddenRoomPlay),
   };
 
   Future<void> close() async {
     _clock.stop();
     await _native.cancel();
+    await _room.cancel();
   }
 }
 

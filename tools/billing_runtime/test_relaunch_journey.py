@@ -156,6 +156,12 @@ class EvidenceContract(unittest.TestCase):
 
 
 class ExpiryContract(unittest.TestCase):
+    def test_sdk_expiration_uses_server_time_when_device_clock_lags(self) -> None:
+        snapshot = entitlement(active=False, renewed=True)
+        snapshot["customerRequestDate"] = "2026-09-17T08:25:00.453Z"
+        snapshot["observedAtUtc"] = "2026-09-17T08:24:59.967Z"
+        runner.validate_entitlement(snapshot, CUSTOMER_HASH, False)
+
     def test_accepts_real_historical_expiry_and_inactive_restore_after_renewals(self) -> None:
         result = runner.validate_evidence(expiry_evidence(), "expiry_wait", CUSTOMER_HASH)
         runner.validate_expiry_continuity(result, entitlement())

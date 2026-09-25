@@ -327,9 +327,9 @@ void _expectExpiredPlus(RevenueCatBillingService billing) {
   expect(entitlement.productIdentifier, _product);
   final expiration = DateTime.tryParse(entitlement.expirationDate ?? '');
   expect(expiration, isNotNull);
-  expect(expiration!.isBefore(DateTime.now().toUtc()), isTrue);
+  // Compare SDK timestamps: the device clock may lag the server at expiry.
   final requested = DateTime.parse(billing.customerInfo!.requestDate);
-  expect(expiration.isAfter(requested), isFalse);
+  expect(expiration!.isAfter(requested), isFalse);
 }
 
 Map<String, Object?> _entitlementEvidence(RevenueCatBillingService billing) {

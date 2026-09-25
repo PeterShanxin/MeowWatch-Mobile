@@ -209,10 +209,11 @@ def validate_entitlement(
     latest = _timestamp(snapshot.get("latestPurchaseDate"))
     expiration = _timestamp(snapshot.get("expirationDate"))
     requested = _timestamp(snapshot.get("customerRequestDate"))
-    observed = _timestamp(snapshot.get("observedAtUtc"))
+    _timestamp(snapshot.get("observedAtUtc"))
     if not original <= latest < expiration:
         raise RuntimeError("Entitlement purchase and expiration timestamps are invalid")
-    if not active and (expiration > requested or expiration >= observed):
+    # Expiry and requestDate share the SDK's clock; observedAt uses the device's.
+    if not active and expiration > requested:
         raise RuntimeError("Inactive entitlement requires a fresh post-expiration response")
     return snapshot
 

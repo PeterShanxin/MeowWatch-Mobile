@@ -65,6 +65,12 @@ def focused_text_field(xml: str) -> bool:
     return True
 
 
+def entered_text_field(xml: str, value: str) -> bool:
+    if unique_text_field(xml).get("text") != value:
+        raise RuntimeFailure("visible text field differs from entered value")
+    return True
+
+
 def join_sheet_ready(xml: str) -> bool:
     if len(exact(xml, "Join their movie night")) != 1:
         raise RuntimeFailure("expected the visible guest join sheet")
@@ -272,9 +278,14 @@ class Device:
     def enter(self, value: str) -> None:
         if not re.fullmatch(r"[A-Za-z0-9:/._@-]+", value):
             raise RuntimeFailure("unsafe text-entry value")
-        self.tap_node(unique_text_field(self.observe()))
-        self.wait(f"{self.phase}-field-focused", focused_text_field, timeout=20)
+        phase = self.phase
+        field = unique_text_field(self.observe())
+        if field.get("focused") != "true":
+            self.tap_node(field)
+        self.wait(f"{phase}-field-focused", focused_text_field, timeout=20)
         self.adb.run("shell", "input", "text", value)
+        self.wait(f"{phase}-field-entered",
+                  lambda xml: entered_text_field(xml, value), timeout=10)
 
     def player(self, phase: str, playing: bool):
         def check(xml: str):

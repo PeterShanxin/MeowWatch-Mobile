@@ -5,7 +5,8 @@ from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
-    FIXTURE_URL, focused_text_field, history_context, join_sheet_ready, media_link_ready,
+    FIXTURE_URL, entered_text_field, focused_text_field, history_context,
+    join_sheet_ready, media_link_ready,
     rehearsed_playback, timeline_tap, unique_seekbar, unique_text_field, visible_code,
 )
 
@@ -95,6 +96,15 @@ class VisibleUiContract(unittest.TestCase):
                                                  clickable=True, focused=True))))
         with self.assertRaises(RuntimeFailure):
             focused_text_field(tree(node('', kind='android.widget.EditText', clickable=True)))
+
+    def test_text_entry_requires_exact_visible_value(self):
+        expected = 'quiet-lark-pokes-kindly-daisy'
+        self.assertTrue(entered_text_field(
+            tree(node(expected, kind='android.widget.EditText', focused=True)), expected))
+        with self.assertRaises(RuntimeFailure):
+            entered_text_field(
+                tree(node('g' + expected, kind='android.widget.EditText', focused=True)),
+                expected)
 
     def test_tablet_player_uses_submitted_url_and_visible_ninety_second_timeline(self):
         landscape = tree(node('Together in this room'),

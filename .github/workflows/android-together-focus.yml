@@ -8,7 +8,9 @@ on:
       - '.github/workflows/android-together-focus.yml'
       - 'integration_test/together_focus_journey_test.dart'
       - 'integration_test/support/native_focus_stage_client.dart'
+      - 'integration_test/support/test_text_entry.dart'
       - 'test/integration_support/native_focus_stage_client_test.dart'
+      - 'test/integration_support/test_text_entry_test.dart'
       - 'android/**'
       - 'lib/**'
       - 'pubspec.*'
@@ -45,7 +47,7 @@ jobs:
       - run: flutter pub get --enforce-lockfile
       - name: Check runner contracts
         run: |
-          flutter test test/integration_support/native_focus_stage_client_test.dart
+          flutter test test/integration_support/native_focus_stage_client_test.dart test/integration_support/test_text_entry_test.dart
           python3 -m unittest tools.android_together_focus_runtime.test_run tools.android_interruption_runtime.test_run tools.android_lifecycle_runtime.test_prepare_avd -v
           python3 -m tools.android_together_focus_runtime.run --help
           bash -n tools/android_together_focus_runtime/ci.sh

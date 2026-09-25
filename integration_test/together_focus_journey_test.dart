@@ -14,6 +14,7 @@ import 'package:meowwatch_mobile/main.dart';
 import 'package:video_player/video_player.dart';
 
 import 'support/native_focus_stage_client.dart';
+import 'support/test_text_entry.dart';
 
 const _video = String.fromEnvironment('TOGETHER_FOCUS_VIDEO_URL');
 const _bridge = String.fromEnvironment('TOGETHER_FOCUS_BRIDGE_URL');
@@ -44,7 +45,7 @@ void main() {
       await tester.pumpWidget(MainApp(controller: app));
       final name = find.byKey(const Key('display-name-field'));
       await _wait(tester, () => name.evaluate().isNotEmpty, 'onboarding');
-      await tester.enterText(name, 'Focus Host');
+      await enterTogetherTestText(tester, name, 'Focus Host');
       FocusManager.instance.primaryFocus?.unfocus();
       await _tap(tester, find.byKey(const Key('onboarding-continue-button')));
       await _wait(
@@ -85,7 +86,7 @@ void main() {
         () => find.text('Choose what to watch').evaluate().isNotEmpty,
         'media sheet',
       );
-      await tester.enterText(find.byType(TextField), _video);
+      await enterTogetherTestText(tester, find.byType(TextField), _video);
       FocusManager.instance.primaryFocus?.unfocus();
       await _tap(tester, find.text('Use this link'));
       await _wait(
@@ -371,7 +372,11 @@ Finder _control(String action) => find.byWidgetPredicate(
 Future<void> _tap(WidgetTester tester, Finder finder) async {
   await _wait(tester, () => finder.evaluate().isNotEmpty, 'control');
   await tester.ensureVisible(finder);
-  await tester.pump(const Duration(milliseconds: 450));
+  await _wait(
+    tester,
+    () => finder.hitTestable().evaluate().isNotEmpty,
+    'tappable $finder',
+  );
   await tester.tap(finder.hitTestable());
   await tester.pump(_poll);
 }

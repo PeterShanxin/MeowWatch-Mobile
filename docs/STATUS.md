@@ -127,9 +127,12 @@ then reaches real TLS and native playback, but its first stage receives HTTP 400
 the strict bridge requires a bounded Content-Length and the Dart sender omitted
 it. No native focus request occurs. The sender now sets the exact UTF-8 body
 length. Hosted Check `36083540519` at `a4b8107` passes 828 app tests, including
-the real HTTP sender/server regression; native focus run `36083537904` is in
-progress. This is separate from the accepted normal-release Local Mode focus
-evidence.
+the real HTTP sender/server regression. Native run `36083537904` fails earlier
+while the media-sheet keyboard is changing: its fixed-delay tap finds no
+hit-testable Use this link button. No focus request occurs. The journey now
+reuses the verified text-entry helper and waits for the actual hit-testable
+control instead of a fixed 450 ms delay. This is separate from the accepted
+normal-release Local Mode focus evidence.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

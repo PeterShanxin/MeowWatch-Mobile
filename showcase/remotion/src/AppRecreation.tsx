@@ -24,6 +24,7 @@ export const TapPulse: React.FC<{frame: number; at: number; x: number; y: number
         width: 48,
         height: 48,
         border: `3px solid ${color}`,
+        boxShadow: '0 0 0 2px #071522, inset 0 0 0 2px #071522',
         borderRadius: '50%',
         scale: interpolate(age, [0, 23], [0.35, 2.55]),
         opacity: interpolate(age, [0, 23], [0.85, 0]),
@@ -50,6 +51,11 @@ const playbackProgress = (view: RoomView, frame: number, afterSeek = false) => {
   if (view === 'playing') return 0.13 + Math.min(0.08, Math.max(0, frame - 50) * 0.0012);
   if (view === 'paused' && frame >= 118) return 0.21;
   return 0.13;
+};
+
+const playbackTime = (progress: number) => {
+  const seconds = Math.round(progress * 90);
+  return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, '0')}`;
 };
 
 const AppMark: React.FC<{size?: number}> = ({size = 22}) => (
@@ -146,7 +152,7 @@ const PhoneRoom: React.FC<{view: RoomView; frame: number; peer?: boolean; messag
           <div style={{height: 4, width: `${progress * 100}%`, background: peach, borderRadius: 3}} />
           <div style={{position: 'absolute', left: `calc(${progress * 100}% - 7px)`, top: -5, width: 14, height: 14, borderRadius: 8, background: peach}} />
         </div>
-        <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 10, color: soft, marginTop: 8}}><span>{hasMedia ? (view === 'seek' || view === 'chat' || afterSeek ? '0:53' : '0:12') : '0:00'}</span><span>{hasMedia ? '1:30' : '0:00'}</span></div>
+        <div style={{display: 'flex', justifyContent: 'space-between', fontSize: 10, color: soft, marginTop: 8}}><span>{hasMedia ? playbackTime(progress) : '0:00'}</span><span>{hasMedia ? '1:30' : '0:00'}</span></div>
         <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 25, marginTop: 14}}>
           <span style={{fontSize: 21, color: soft}}>↶</span>
           <div style={{width: 62, height: 52, borderRadius: 26, background: hasMedia ? peach : '#303847', color: hasMedia ? '#332318' : soft, display: 'grid', placeItems: 'center', fontSize: 27}}>{playing ? 'Ⅱ' : '▶'}</div>
@@ -218,8 +224,8 @@ const TabletRoom: React.FC<{view: RoomView; frame: number; chatSent?: boolean; a
           {hasMedia ? <BeeFrame width={670} height={360} progress={progress} /> : <div style={{textAlign: 'center'}}><div style={{fontSize: 40, color: peach, marginBottom: 19}}>▣</div><div style={{background: lavender, color: '#251E33', borderRadius: 12, padding: '15px 22px', fontSize: 14, fontWeight: 700}}>＋ Choose a video</div></div>}
         </div>
         <div style={{height: 4, marginTop: 18, borderRadius: 3, background: line}}><div style={{height: 4, width: `${progress * 100}%`, background: peach, borderRadius: 3}} /></div>
-        <div style={{fontSize: 10, color: soft, marginTop: 7, display: 'flex', justifyContent: 'space-between'}}><span>{hasMedia ? view === 'seek' || view === 'chat' || afterSeek ? '0:53' : '0:12' : '0:00'}</span><span>{hasMedia ? '1:30' : '0:00'}</span></div>
-        <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 19, marginTop: 11}}><span style={{fontSize: 23, color: soft}}>↶</span><div style={{width: 55, height: 48, borderRadius: 25, background: hasMedia ? peach : '#303847', color: '#332318', display: 'grid', placeItems: 'center', fontSize: 25}}>{playing ? 'Ⅱ' : '▶'}</div><span style={{fontSize: 23, color: soft}}>↷</span></div>
+        <div style={{fontSize: 10, color: soft, marginTop: 7, display: 'flex', justifyContent: 'space-between'}}><span>{hasMedia ? playbackTime(progress) : '0:00'}</span><span>{hasMedia ? '1:30' : '0:00'}</span></div>
+        <div style={{display: 'flex', justifyContent: 'center', alignItems: 'center', gap: 19, marginTop: 11}}><span style={{fontSize: 23, color: soft}}>↶</span><div style={{width: 55, height: 48, borderRadius: 25, background: hasMedia ? peach : '#303847', color: hasMedia ? '#332318' : soft, display: 'grid', placeItems: 'center', fontSize: 25}}>{playing ? 'Ⅱ' : '▶'}</div><span style={{fontSize: 23, color: soft}}>↷</span></div>
         <div style={{textAlign: 'center', fontSize: 12, color: peach, marginTop: 9}}>▣ Video　　 ▤ Chat　　 ♡</div>
       </div>
       <div style={{borderLeft: `1px solid ${line}`, flex: 1, padding: '17px 13px', position: 'relative', boxSizing: 'border-box'}}>

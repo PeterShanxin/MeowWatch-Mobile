@@ -9,6 +9,11 @@ device proof. The connected-screen lines are a story motif, not a measured
 sync signal. The recreated room and chat copy comes from the app and the
 recorded test journey; no extra product capability is implied.
 
+One persistent phone/tablet stage and a continuous camera path connect the
+chapters. The outer film stays deep navy with cream titles, blue action labels
+and peach tap accents. The media clips are still separate edited sources.
+Essential type uses solid readable colors; lower-contrast lines are decorative.
+
 Real footage documents Local Player Mode and fullscreen playback on a physical
 OnePlus, Continue Watching on an Android emulator, and the RevenueCat Test
 Store purchase, restore and Plus features on an Android emulator. The

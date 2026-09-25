@@ -1,21 +1,27 @@
 # Launch film storyboard
 
-The film uses an editorial motion language: navy and cream alternate as the
-story changes perspective, blue and peach routes connect people, and precise
-type, spring moves and shallow device perspective direct attention to the app.
-The UI animation is deliberately marked as an illustration. Real capture is
-framed and labeled separately. No route line represents a measured sync signal.
+The film is staged as one continuous camera move in a deep-navy space. One
+phone and one tablet keep their positions as the camera pans and changes scale;
+their screens advance through the story. Cream type, blue and peach path marks,
+and the original score stay consistent across the 94 seconds. A screen-content
+change is a source edit, not an uninterrupted real app session. Persistent
+labels distinguish recreated UI, physical OnePlus footage and emulator/Test
+Store footage. Route lines are a story motif, not measured sync data.
 
 | Time | Story and motion | Source boundary |
 | --- | --- | --- |
-| 0–3 s | Giant “MOVIE NIGHT.” enters behind a moving blue plane; “MILES APART.” resolves into the product promise. | Editorial typography. |
-| 3–19 s | A tap starts a room; another device opens the invite and joins. Separate devices converge along one route. | React recreation based on Flutter UI and captured test copy; labeled UI animation. |
-| 19–35 s | Play, pause, seek and chat each show the touch before the matching state changes on both illustrated screens. The camera favors the acting device, then the result. | React recreation; no claim of measured sync or runtime proof. |
-| 35–52 s | The real OnePlus shows Local Player Mode, followed by its landscape capture expanding across the screen. | Physical OnePlus PLK110, Android 16, playback at 1×. |
-| 52–66 s | The saved place in Continue Watching leads to one free hosted Together Session per local day. | Android emulator capture, then editorial quota card. Joining and reconnecting do not start a new session. |
-| 66–80 s | A genuine Test Store purchase turns on Plus, then the same customer's restore and Glass Aurora appear within a concise benefit sequence. | Android emulator captures at 1×; RevenueCat Test Store, no charge. |
-| 80–90 s | A reaction and another Plus session complete the real feature arc. | Android emulator captures at 1×. |
-| 90–94 s | Two routes meet beneath the large “TOGETHER.” lockup, followed by the Android/open-source sign-off. | Editorial branding. |
+| 0–3 s | Giant “MOVIE NIGHT.” and “MILES APART.” reveal the two devices behind them as the camera approaches. | Editorial typography over illustrated app UI. |
+| 3–19 s | The camera finds the phone for Start, then widens to include the tablet opening an invite and joining. The tap finishes before the joined state appears. | React recreation based on Flutter UI and captured test copy; labeled UI animation. |
+| 19–35 s | A gentle dolly keeps both screens visible for play, pause, seek and chat. Touches precede matching interface changes; the Bee image and playheads move while illustrated playback is active. | React recreation; no measured sync or runtime proof. |
+| 35–52 s | The camera returns to the phone for real Local Player Mode. Its frame expands for the separate landscape recording. | Physical OnePlus PLK110, Android 16, 1× capture; source switch is labeled. |
+| 52–66 s | The frame contracts to portrait for Continue Watching; the camera then retreats as “ONE.” explains the daily free hosted session. | Android emulator capture, then labeled UI animation. Joining and reconnecting do not start a new session. |
+| 66–80 s | A restrained camera drift keeps the full phone capture visible through Test Store purchase, same-customer restore and Glass Aurora. | Android emulator captures at 1×; RevenueCat Test Store, no charge. |
+| 80–90 s | The same phone stage carries the reaction and another Plus session. | Android emulator captures at 1×. |
+| 90–94 s | The camera pulls back to reveal both devices beneath “TOGETHER.” and the Android/open-source sign-off. | Editorial branding and labeled illustrated app UI. |
+
+Camera review points (30 fps): 90 Start focus; 330 tablet enters frame; 570
+paired playback; 870 chat; 1050 physical source switch; 1350–1410 landscape
+expansion; 1530–1560 portrait return; 1980 purchase; 2700 closing pullback.
 
 The original direction draws on the storyboarding, animation and audio process
 described by [Ordinary Folk](https://www.ordinaryfolk.co/process), the clarity

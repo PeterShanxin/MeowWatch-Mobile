@@ -34,8 +34,8 @@ continuous device/camera movement; its edited sources remain labeled.
 
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
-| 1 | Clean checkout builds and installs | Verified on emulators | Final-source `67d0206` normal install 36103033086 passes API 29/35 debug and API 35 release. The normal debug Test Store APK is prepared with its installation receipt. API 35 first use needed Google SDK Setup ANR recovery; this does not establish the complete repair-free rehearsal |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Final-source Check 36103033341 passes formatting, analysis, 855 app tests, native player tests, normal debug APK and secret/contracts checks. Main is still the foundation README; implementation is in draft PR #1. Repository merge/closeout remains open |
+| 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Check 36124174769 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks on current product source `0df32c6`. Main is still the foundation README; implementation is in draft PR #1, with the latest UI/film work on the showcase branch. Repository merge/closeout remains open |
 | 3 | Clear first-launch create/join | Verified on emulators | Final-source five-viewport run 36103033060 and Together 36103033024 attempt 2 pass onboarding, Start, reviewed invitation and Join |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Together 36103033024 attempt 2 passes 26 host and 25 guest stages on two independent phone/tablet emulators. Settled positions match at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Final-source Together verifies native chat, reaction, presence and peer links. Test Store journey 36103033131 also verifies a premium reaction received by a headless TLS peer |
@@ -94,7 +94,10 @@ review firewall rules were verified absent. Latest UI-only fixes retain hosted
 verification scope. Heavy builds, emulators and full rendering remain hosted.
 
 Normal install `36123942946` passes API 29/35 debug; its release build fails on
-external Maven HTTP 429. Current-source install `36125719065` is in progress.
+external Maven HTTP 429. Current-source
+[install 36125719065](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36125719065)
+then passes API 29/35 debug and API 35 release at `a65b8ef`, with product code
+unchanged from `0df32c6`.
 Complete rehearsal `36122797821` reached advancing playback on both devices and
 a guest-to-host pause, then confused the slider thumb bounds with the whole
 track. The track-location fix retains the unchanged two-way seek requirements.

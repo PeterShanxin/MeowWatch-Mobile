@@ -6,8 +6,8 @@ interactions at a readable scale; real footage shows playback, fullscreen,
 Continue Watching and RevenueCat Test Store behavior. It is an edited product
 story, not a single uninterrupted session.
 
-The owner has requested a continuous-shot visual revision with a consistent
-deep navy stage. The phone and tablet will persist through connected camera
+The continuous-shot visual revision uses a consistent
+deep navy stage. The phone and tablet persist through connected camera
 moves instead of alternating light/dark chapter cards. This is a presentation
 treatment; it does not turn the edited captures into one recorded session.
 
@@ -78,8 +78,9 @@ also corrected text overlap. Hosted render
 exports the `7730515` hybrid edition at 1920 × 1080, 30 fps, 94.059 seconds.
 Representative rendered scenes were inspected and browser playback reached
 the ending at 1×. Technical audio checks found no clipping. The requested
-continuous-shot revision still needs its own render and visual review before
-publication.
+continuous-shot revision passes TypeScript and representative Studio review,
+including join, shared controls, fullscreen and purchase. It still needs its
+own hosted export and final playback check before publication.
 
 Run **Remotion submission film** to prepare the documented sources, generate the
 score and export 1920 × 1080 H.264/AAC at 30 fps on hosted Ubuntu. The timeline

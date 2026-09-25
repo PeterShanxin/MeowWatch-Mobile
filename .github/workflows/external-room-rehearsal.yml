@@ -88,6 +88,7 @@ jobs:
             timeout --signal=TERM --kill-after=10s 21m
             python3 -m tools.external_room_rehearsal.run
             --serial emulator-5554
+            --avd "$PHONE_ACCEPTANCE_AVD_NAME"
             --apk build/app/outputs/flutter-apk/app-debug.apk
             --observer-apk build/android-native-ui/native-ui-observer.apk
             --room "$ROOM_CODE"

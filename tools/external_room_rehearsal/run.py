@@ -14,6 +14,8 @@ import signal
 import time
 
 from tools.android_install.runner import ACTIVITY, RuntimeFailure, launch_output_succeeded
+from tools.android_multi_device.device_readiness import DeviceSampler, run_gate
+from tools.android_multi_device.prepare_sdk_setup import prepare as prepare_sdk_setup
 from tools.android_lifecycle_runtime.run import Playback, button, labels, parse_time, require_playing_advance
 from tools.incoming_media_runtime.run import exact, nodes
 from tools.normal_apk_rehearsal.run import (
@@ -202,6 +204,7 @@ def main() -> int:
     parser.add_argument("--room", required=True)
     parser.add_argument("--print-token", action="store_true")
     parser.add_argument("--serial")
+    parser.add_argument("--avd")
     parser.add_argument("--apk", type=Path)
     parser.add_argument("--observer-apk", type=Path)
     parser.add_argument("--output", type=Path)
@@ -213,8 +216,11 @@ def main() -> int:
     if args.print_token:
         print(message(room, "READY").removesuffix("READY"))
         return 0
-    if not all((args.serial, args.apk, args.observer_apk, args.output)):
-        parser.error("serial, APK, native observer APK and output are required")
+    if not all((args.serial, args.avd, args.apk, args.observer_apk, args.output)):
+        parser.error("serial, owned AVD name, APK, native observer APK and output are required")
+    if (re.fullmatch(r"emulator-[0-9]+", args.serial) is None
+            or re.fullmatch(r"meowwatch_lifecycle_[0-9]+_[0-9]+", args.avd) is None):
+        parser.error("the task-created lifecycle AVD and emulator serial are required")
     if args.output.exists() or not args.apk.is_file() or not args.observer_apk.is_file():
         parser.error("fresh output and both built APK files are required")
     args.output.mkdir(parents=True)
@@ -234,6 +240,22 @@ def main() -> int:
     signal.signal(signal.SIGALRM, expired)
     signal.alarm(MAX_SECONDS)
     try:
+        # Complete system preparation before installing MeowWatch; app actions
+        # never dismiss an ANR or repair the emulator during the rehearsal.
+        preparation = prepare_sdk_setup(device.adb.prefix[0], {args.serial: args.avd},
+                                        args.output / "sdk-setup-preparation")
+        report["sdkSetupPreparation"] = preparation
+        if preparation["status"] != "prepared":
+            raise RuntimeFailure(f"SDK setup preparation failed: {preparation.get('reason')}")
+        admission_deadline = time.monotonic() + 240
+        sampler = DeviceSampler(device.adb.prefix[0], admission_deadline)
+        admission = run_gate([args.serial], args.output / "device-readiness", sampler.capture,
+                             deadline=admission_deadline,
+                             provenance={"serial": args.serial, "avd": args.avd,
+                                         "boundary": "read-only, before application installation"})
+        report["deviceAdmission"] = admission
+        if admission["status"] != "ready":
+            raise RuntimeFailure(f"emulator admission failed: {admission.get('reason')}")
         run(guest, report)
         return 0
     except Exception as error:

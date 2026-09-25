@@ -11,6 +11,12 @@ No test entry point, app-state injection, LAN connection or desktop control is
 used. The GitHub job itself takes at most 45 minutes including build; the guest
 journey has a 20-minute limit beginning before ordinary app launch.
 
+Before installing either APK, this job reuses the dual-device suite's bounded
+SDK setup preparation and read-only resource admission. Preparation verifies
+the exact owned AVD and may recover one eligible Google SDK setup/launcher ANR;
+all original receipts remain in the artifact. Any other failure stops the run.
+No system-dialog recovery is permitted during the ordinary application journey.
+
 Push the reviewed source to the dedicated `test/external-room-rehearsal` branch
 to run before the workflow exists on the default branch. Its room code is
 `mw-cloud-<GitHub Actions run ID>`; the workflow summary publishes that code

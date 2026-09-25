@@ -91,6 +91,11 @@ are registered for cleanup before writing. Checkpoints
 alone never establish network failure: the gate also validates the actual socket
 probe sequence and saves `dumpsys connectivity`, wifi/telephony state, radio
 settings, addresses/routes, UI XML, screenshots and full logcat/driver output.
+The four playback checkpoints use those external Android screencaps only;
+the Flutter test does not convert the video surface for duplicate screenshots.
+It records a capture phase only after the runner's exact acknowledgement,
+and the final validator requires all four phases in order. Original PNGs live
+under `observations/<phase>/screen.png` beside their window and UI XML proof.
 Fresh app UI XML comes from the existing standalone NativeUiObserver; it does
 not wait for the playing timeline to become idle and does not pause the video.
 The helper targets only its own package, checks the app PID and a fresh nonce,

@@ -350,6 +350,8 @@ class StablePrimaryRecoveryTests(unittest.TestCase):
 def result():
     return {"runId": RUN_ID, "passed": True, "buildMode": "debug", "variant": "normal",
             "verified": sorted(REQUIRED),
+            "nativeObservationPhases": ["initial-ready", "offline-confirmed",
+                                        "reconnected-confirmed", "recovery-confirmed"],
             "billingSetup": {"status": "success", "errorCode": None, "configured": True, "isPlus": False},
             "teardownErrors": [], "observations": [
                 {"phase": "probe-healthy", "address": "sync.example", "port": 8997,
@@ -457,6 +459,16 @@ class NativePositionDiagnosticTests(unittest.TestCase):
 
 
 class EvidenceTests(unittest.TestCase):
+    def test_all_native_captures_must_be_acknowledged_in_order(self):
+        accepted = result()
+        phases = accepted["nativeObservationPhases"]
+        validate_result(accepted, RUN_ID)
+        for invalid in (None, [], phases[:-1], phases[::-1], phases + phases[:1]):
+            with self.subTest(invalid=invalid):
+                changed = {**accepted, "nativeObservationPhases": invalid}
+                with self.assertRaisesRegex(RuntimeFailure, "four ordered native UI captures"):
+                    validate_result(changed, RUN_ID)
+
     def test_decoder_failure_variant_requires_original_error_and_rebuild_receipts(self):
         value = result()
         value["variant"] = "decoder_failure"

@@ -23,7 +23,6 @@ import 'package:meowwatch_mobile/core/sync/syncplay_client.dart';
 import 'package:meowwatch_mobile/data/app_repository.dart';
 import 'package:meowwatch_mobile/main.dart';
 
-import '../tools/native_capture/native_screenshot.dart';
 import 'support/playback_command_trace.dart';
 import 'support/test_text_entry.dart';
 
@@ -37,6 +36,12 @@ const _failureSeekMs = int.fromEnvironment(
   defaultValue: 85000,
 );
 const _videoUrl = 'http://10.0.2.2:18765/sync-fixture.mp4';
+const _nativeCapturePhases = [
+  'initial-ready',
+  'offline-confirmed',
+  'reconnected-confirmed',
+  'recovery-confirmed',
+];
 const _runtime =
     'API 35 emulator; one MainApp process; two real STARTTLS clients and '
     'two Android decoders; only the host player is rendered';
@@ -59,7 +64,7 @@ void main() {
       expect(await quotaFile.exists(), isFalse);
       final observations = <Map<String, Object?>>[];
       final verified = <String>[];
-      final screenshots = <String>[];
+      final nativeObservationPhases = <String>[];
       final subscriptions = <StreamSubscription<dynamic>>[];
       final decoderObservers = <_DecoderContinuity>[];
       final clients = <SyncplayClient>[];
@@ -124,23 +129,11 @@ void main() {
           observations.add(_connection('guest', state));
         }),
       );
-      final nativeScreenshots = NativeScreenshots(binding);
       var completed = false;
       var stage = 'bootstrap';
       Map<String, Object?>? failure;
       Map<String, Object?>? billingSetup;
       final teardownErrors = <String>[];
-
-      Future<void> screenshot(String phase) async {
-        final name = 'network-$phase';
-        expect(
-          await nativeScreenshots
-              .take(tester, name)
-              .timeout(const Duration(seconds: 30)),
-          isNotEmpty,
-        );
-        screenshots.add(name);
-      }
 
       Future<void> checkpoint(String phase, String acknowledgement) async {
         stage = '$phase / awaiting $acknowledgement';
@@ -158,6 +151,12 @@ void main() {
           await tester.pump(const Duration(milliseconds: 100));
         }
         expect(await ack.readAsString(), '$_runId:$acknowledgement');
+        if (_nativeCapturePhases.contains(phase)) {
+          // The external runner acknowledges only after native screencap,
+          // accessibility and focused-window checks. Keep the ordinary video
+          // surface active instead of converting it for a second screenshot.
+          nativeObservationPhases.add(phase);
+        }
       }
 
       try {
@@ -300,7 +299,6 @@ void main() {
           'healthy',
           reachable: true,
         );
-        await screenshot('initial');
         verified.add('initial_real_tls_native_playback_and_consumed_host');
         await checkpoint('initial-ready', 'network-disabled');
 
@@ -354,7 +352,6 @@ void main() {
         expect(phone.snapshot.media?.uri, media.uri);
         expect(identical(phone.controller, hostController), isTrue);
         expect(await quotaFile.readAsString(), quota);
-        await screenshot('offline');
         verified.add('physical_avd_network_unreachable_and_visible_auto_pause');
         if (_variant == 'decoder_failure') {
           stage = 'offline-native-decoder-failure';
@@ -469,7 +466,6 @@ void main() {
         expect(await hosting.remainingFreeHostsToday(), 0);
         expect(await quotaFile.readAsString(), quota);
         expect(app.needsPlus, isFalse);
-        await screenshot('reconnected-paused');
         verified.add(
           'same_room_media_validated_decoders_quota_and_no_autoplay',
         );
@@ -551,7 +547,6 @@ void main() {
           ),
           'hostClientCount': clients.length,
         });
-        await screenshot('recovery-controls');
         verified.add('explicit_production_play_pause_seek_and_real_peer_sync');
         await checkpoint('recovery-confirmed', 'evidence-complete');
         completed = true;
@@ -599,8 +594,6 @@ void main() {
         for (final subscription in subscriptions) {
           await cleanup('connection subscription', subscription.cancel);
         }
-        // Keep the framework's screenshot byte records for the extended driver.
-        // Its top-level `screenshots` key cannot contain our filename list.
         binding.reportData ??= <String, dynamic>{};
         binding.reportData!.addAll({
           'runId': _runId,
@@ -618,7 +611,7 @@ void main() {
           'protocolTrace': protocolTrace,
           'peerErrors': peerErrors,
           'failure': failure,
-          'screenshotNames': screenshots,
+          'nativeObservationPhases': nativeObservationPhases,
           'teardownErrors': teardownErrors,
         });
         // Logcat truncates long lines. Keep this coordination marker bounded;

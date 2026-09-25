@@ -32,6 +32,8 @@ RUNTIME = "One dedicated API 35 AVD; one MainApp process; two real TLS clients/n
 PHASES = ("app-ready", "players-ready", "initial-ready", "offline-confirmed",
           "reconnected-confirmed", "recovery-confirmed", "teardown-complete")
 FAILURE_PHASES = PHASES[:3] + ("offline-unreachable",) + PHASES[3:]
+NATIVE_CAPTURE_PHASES = ("initial-ready", "offline-confirmed",
+                         "reconnected-confirmed", "recovery-confirmed")
 ACK_PHASES = {"bootstrap-observed", "recording-ready", "network-disabled",
               "offline-proof-accepted",
               "network-restored", "controls-ready", "evidence-complete"}
@@ -355,6 +357,8 @@ def validate_result(result: dict, run_id: str, build_mode: str = "debug", varian
         raise RuntimeFailure("actual Dart build mode does not match the requested comparison")
     if result.get("variant") != variant:
         raise RuntimeFailure("actual Dart network variant does not match the requested gate")
+    if result.get("nativeObservationPhases") != list(NATIVE_CAPTURE_PHASES):
+        raise RuntimeFailure("all four ordered native UI captures must be acknowledged")
     billing = result.get("billingSetup")
     expected_billing = ({"status": "success", "errorCode": None, "configured": True, "isPlus": False}
                         if build_mode == "debug" else

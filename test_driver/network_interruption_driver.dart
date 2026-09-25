@@ -12,21 +12,8 @@ Future<void> main() async {
   await output.create(recursive: true);
   await integrationDriver(
     writeResponseOnFailure: true,
-    onScreenshot: (name, bytes, [args]) async {
-      if (!RegExp(r'^network-[A-Za-z0-9_-]+$').hasMatch(name)) {
-        throw ArgumentError('Invalid network screenshot name');
-      }
-      await File('${output.path}/$name.png').writeAsBytes(bytes, flush: true);
-      const signature = [137, 80, 78, 71, 13, 10, 26, 10];
-      return bytes.length > 4096 &&
-          List.generate(
-            signature.length,
-            (index) => index,
-          ).every((index) => bytes[index] == signature[index]);
-    },
     responseDataCallback: (data) async {
-      final result = Map<String, dynamic>.from(data ?? {})
-        ..remove('screenshots');
+      final result = Map<String, dynamic>.from(data ?? {});
       await File('${output.path}/result.json').writeAsString(
         const JsonEncoder.withIndent('  ').convert(result),
         flush: true,

@@ -32,6 +32,14 @@ flutter run -d <android-device>
 flutter build apk --debug
 ```
 
+The Android player is pinned in `third_party/video_player_android`. Its small
+native extension keeps Together playback paused after a brief audio-focus
+interruption, while Local Mode retains the upstream policy. See its
+[provenance and patch notes](third_party/video_player_android/VENDOR.md).
+The **Check** workflow also builds the normal APK and runs the player's native
+unit suite. That suite needs **Java 21** for its Android SDK 36 Robolectric
+sandbox; the app itself still builds with Java 17.
+
 The standalone Nearby packages have their own development dependencies and a
 required CI job. To run those checks locally as well:
 

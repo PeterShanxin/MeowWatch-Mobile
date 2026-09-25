@@ -205,10 +205,13 @@ Android APK build. Its native unit suite stops before policy methods run:
 the default SDK 36 Robolectric sandbox requires Java 21, but the runner used
 Java 17. The native-test step now selects the runner's installed Java 21 and
 retains SDK 36 coverage. The app suite reaches 819 passing tests before the
-first fullscreen widget fixture times out: it enters the real async zone
-before the new policy queue's constructor microtask can run in the fake zone.
-The fixture now flushes that zone before entering the native boundary. Both
-test repairs require a fresh hosted Check; neither failed job is accepted.
+first fullscreen widget fixture times out: the native policy queue is created
+in the fake zone, but its operations are awaited through the real async zone.
+Flushing the constructor microtask alone is insufficient because Dart also
+schedules later listeners in the originating Future's zone. The fixture now
+creates its native target in the same real zone as those operations, retaining
+fake-clock ownership for app/UI timers. Both test repairs require a fresh
+hosted Check; neither failed job is accepted.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

@@ -38,12 +38,14 @@ void main() {
   var deviceOpens = 0;
   var loadOpens = 0;
 
-  void setUpFixture() {
+  Future<void> setUpFixture(WidgetTester tester) async {
     originalPlatform = VideoPlayerPlatform.instance;
     platform = _VideoPlatform();
     VideoPlayerPlatform.instance = platform;
     debugDefaultTargetPlatformOverride = TargetPlatform.android;
-    target = LocalMobileTarget();
+    // Native operations below run in the real async zone. Create their serial
+    // queues there too; even a completed Future schedules .then in its zone.
+    target = (await tester.runAsync(() async => LocalMobileTarget()))!;
     app = AppController(
       repository: UiTestRepository(),
       billing: UiTestBilling(),
@@ -106,14 +108,10 @@ void main() {
       // Register channels and create timer-owning collaborators in the same
       // fake-async zone as pump(), then finish the shared platform queue before
       // that zone is destroyed. A package:test tearDown runs too late.
-      setUpFixture();
+      await setUpFixture(tester);
       Object? bodyError;
       StackTrace? bodyStack;
       try {
-        // Finish constructor microtasks before runAsync waits on the native
-        // boundary. A policy queue created in the fake zone cannot otherwise
-        // complete while runAsync holds that zone's clock.
-        await tester.pump(Duration.zero);
         await body(tester);
       } catch (error, stack) {
         bodyError = error;
@@ -441,7 +439,11 @@ void main() {
       expect(find.byTooltip('Exit full screen'), findsOneWidget);
 
       await tester.tap(find.byTooltip('Play together'));
-      await tester.pump();
+      await waitUntil(
+        tester,
+        () => target.snapshot.playing,
+        'The native Play command completes before checking control hiding.',
+      );
       expect(target.snapshot.playing, isTrue);
       await tester.pump(const Duration(seconds: 4));
       expect(find.byTooltip('Pause together'), findsOneWidget);
@@ -478,7 +480,11 @@ void main() {
       await tester.tap(find.byTooltip('Pause together'));
       await tester.pump();
       await tester.tap(find.byTooltip('Play together'));
-      await tester.pump();
+      await waitUntil(
+        tester,
+        () => target.snapshot.playing,
+        'The native Play command completes after returning to touch.',
+      );
       expect(FocusManager.instance.highlightMode, FocusHighlightMode.touch);
       await tester.pump(const Duration(seconds: 4));
       expect(find.byTooltip('Exit full screen'), findsNothing);

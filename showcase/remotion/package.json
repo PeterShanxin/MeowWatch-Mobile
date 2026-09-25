@@ -1,0 +1,26 @@
+{
+  "name": "meowwatch-submission-film",
+  "private": true,
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "dev": "remotion studio src/index.ts --no-open --port=3010",
+    "check": "tsc --noEmit",
+    "render": "remotion render src/index.ts MeowWatchLaunch out/MeowWatch-Mobile-Remotion.mp4 --concurrency=2 --codec=h264 --crf=18"
+  },
+  "dependencies": {
+    "@remotion/cli": "4.0.529",
+    "@remotion/fonts": "4.0.529",
+    "@remotion/media": "4.0.529",
+    "@remotion/transitions": "4.0.529",
+    "react": "19.2.3",
+    "react-dom": "19.2.3",
+    "remotion": "4.0.529"
+  },
+  "devDependencies": {
+    "@remotion/eslint-config-flat": "4.0.529",
+    "@types/react": "19.2.7",
+    "@types/web": "0.0.166",
+    "eslint": "9.19.0",
+    "typescript": "5.9.3"
+  }
+}

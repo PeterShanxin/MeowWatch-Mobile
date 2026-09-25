@@ -96,13 +96,24 @@ accepted `36101860905` run on identical product code. These failures remain
 failed; no observer budget or acceptance threshold is weakened, and further
 nonblocking observer/recording changes are frozen.
 
+The entrant subsequently requested a Remotion redesign of the final film with
+stronger motion and music. That specific creative work is authorized; the
+recorder/observer freeze remains. Remotion 4.0.529 is installed in the local user
+global executable path, and the existing Codex Remotion skills are in use.
+The new composition lives in `showcase/remotion`; heavy rendering stays on hosted
+Ubuntu. A separate normal-APK clean-install rehearsal is running at `956d4f8`
+([36111219476](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36111219476));
+it has not yet supplied an acceptance result.
+
 [Film export 36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
 produces the final 94.000-second, 1920 × 1080 silent H.264 candidate. All 2,820
 frames decode in hosted CI; representative output frames and the final free-host
 card are inspected. Sources, separate runtime boundaries and the complete story
 are in [DEMO_SCRIPT.md](DEMO_SCRIPT.md). The entrant authorized a private YouTube
-upload, which is saved and verified as private. Full-motion review and public
-video availability remain open. No local video playback or emulator was started.
+upload, which is saved and verified as private. A bounded 360p browser replay
+reached the end with sampled visual checks. Full editorial review and public
+video availability remain open; the requested Remotion edition is now in work.
+No local emulator or encoding process was started.
 
 The local delivery folder contains the normal Test Store APK, the film,
 unsigned Windows companion ZIP, source/build receipts, artwork and rehearsal
@@ -115,9 +126,11 @@ Shipaton registration and explicit rules/terms acceptance are complete.
 The [Devpost project](https://devpost.com/software/meowwatch-mobile) is saved as
 **Draft**, with project copy, technology tags, repository links, cover, original
 icon/screenshot, Android platform, RevenueCat project ID, authorized academic
-email and judge notes. The form shows 3/5 sections complete. Academic-domain
-recognition, the final public video URL and project-specific declarations remain
-open. No final submission is made.
+email and judge notes. The form shows 3/5 sections complete. The supplied academic
+domain is covered by JetBrains/swot, including its documented subdomain rule;
+the entrant confirms GitHub sign-in uses that school email. This is domain and
+entrant evidence, not a separate Devpost eligibility decision. The final public
+video URL and project-specific declarations remain open. No final submission is made.
 
 ### Frozen product candidate
 

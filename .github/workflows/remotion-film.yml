@@ -1,0 +1,71 @@
+name: Remotion submission film
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feat/submission-showcase]
+    paths:
+      - '.github/workflows/remotion-film.yml'
+      - 'showcase/remotion/**'
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: remotion-film-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  render:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444
+        with:
+          node-version: '24'
+          cache: npm
+          cache-dependency-path: showcase/remotion/package-lock.json
+      - name: Install rendering dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes --no-install-recommends ffmpeg
+          python3 -m pip install 'numpy==2.4.3'
+          npm ci --prefix showcase/remotion --no-audit --no-fund
+      - name: Fetch the existing original recordings
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: python3 tools/submission_demo/fetch_sources.py docs/demo/submission-final.edl.json build/remotion-sources
+      - name: Prepare unchanged native clips and original soundtrack
+        run: |
+          python3 showcase/remotion/prepare_media.py build/remotion-sources/edit.json
+          python3 showcase/remotion/compose_music.py
+      - name: Make editable preview assets available
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: meowwatch-remotion-preview-${{ github.run_attempt }}
+          path: showcase/remotion/public/
+          retention-days: 14
+      - name: Check composition and render
+        working-directory: showcase/remotion
+        run: |
+          npm run check
+          npx remotion browser ensure
+          npm run render
+          npx remotion still src/index.ts MeowWatchLaunch out/preview-intro.png --frame=60 --scale=0.5
+          npx remotion still src/index.ts MeowWatchLaunch out/preview-together.png --frame=780 --scale=0.5
+          npx remotion still src/index.ts MeowWatchLaunch out/preview-plus.png --frame=2010 --scale=0.5
+          ffprobe -v error -show_entries format=duration:stream=codec_name,width,height -of json out/MeowWatch-Mobile-Remotion.mp4 > out/export.json
+      - name: Upload film and review stills
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: meowwatch-remotion-film-${{ github.run_attempt }}
+          path: |
+            showcase/remotion/out/
+            build/remotion-sources/source-runs.json
+          if-no-files-found: warn
+          retention-days: 14

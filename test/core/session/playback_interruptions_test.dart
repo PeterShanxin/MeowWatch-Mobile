@@ -265,8 +265,8 @@ void main() {
 
   test('Together publishes one focus Pause while native is buffering', () async {
     final server = await SyncplayRoomServer.start();
-    final interruptedClient = SyncplayClient();
-    final peerClient = SyncplayClient();
+    final interruptedClient = _ConnectedRoomClient();
+    final peerClient = _ConnectedRoomClient();
     final interruptedTarget = _FocusRetainingTarget();
     final peerTarget = SyncTestTarget();
     final interruptedBridge = PlaybackSyncBridge(
@@ -291,6 +291,8 @@ void main() {
 
     await server.dial(interruptedClient, name: 'alice');
     await server.dial(peerClient, name: 'bob');
+    interruptedClient.markConnected();
+    peerClient.markConnected();
     final movie = MediaItem(
       uri: Uri.parse('https://example.com/focus-buffering.mp4'),
       title: 'Focus buffering',
@@ -496,6 +498,14 @@ void main() {
       },
     );
   }
+}
+
+class _ConnectedRoomClient extends SyncplayClient {
+  // The loopback fixture attaches an authenticated socket but deliberately
+  // skips Hello. This scenario also needs the connection event that Hello emits.
+  void markConnected() => emitConnectionState(
+    const SyncConnectionState(status: SyncConnectionStatus.connected),
+  );
 }
 
 class _FocusRetainingTarget extends SyncTestTarget

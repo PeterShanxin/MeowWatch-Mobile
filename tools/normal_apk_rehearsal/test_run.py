@@ -1,6 +1,7 @@
 """Small parser contracts for the visible invitation and native controls."""
 
 import unittest
+from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
@@ -13,6 +14,7 @@ def tree(*nodes: str) -> str:
 
 
 def node(label: str, *, kind: str = 'android.widget.TextView') -> str:
+    label = escape(label, {'"': '&quot;'}).replace('\n', '&#10;')
     return (f'<node package="{PACKAGE}" enabled="true" '
             f'visible-to-user="true" class="{kind}" text="{label}" '
             'bounds="[0,0][200,80]"/>')
@@ -21,6 +23,11 @@ def node(label: str, *, kind: str = 'android.widget.TextView') -> str:
 class VisibleUiContract(unittest.TestCase):
     def test_visible_bare_invite(self):
         xml = tree(node('QR invite to sleepy-otter-stars'), node('sleepy-otter-stars'))
+        self.assertEqual(visible_code(xml), 'sleepy-otter-stars')
+
+    def test_visible_qr_description_from_native_observer(self):
+        xml = tree(node('QR invite to sleepy-otter-stars\nqr code'),
+                   node('sleepy-otter-stars'))
         self.assertEqual(visible_code(xml), 'sleepy-otter-stars')
 
     def test_visible_endpoint_invite(self):

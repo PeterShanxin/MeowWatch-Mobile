@@ -28,7 +28,7 @@ from tools.incoming_media_runtime.run import center, exact, nodes
 from tools.billing_runtime.native_dialog import select_target, UnsafeDialog
 
 
-ROOM_LABEL = re.compile(r"^QR invite to ([A-Za-z0-9][A-Za-z0-9._-]{2,127})$")
+ROOM_LABEL = re.compile(r"^QR invite to ([A-Za-z0-9][A-Za-z0-9._-]{2,127})(?:\nqr code)?$")
 CODE_SUFFIX = re.compile(r"(?:@[A-Za-z0-9.\[\]:-]+)?")
 PHASE_TIMEOUT = 65
 

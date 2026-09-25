@@ -2,7 +2,9 @@
 
 > **Working copy, not ready to publish.** The [acceptance ledger](STATUS.md)
 > records current evidence and open product gates. The [demo script](DEMO_SCRIPT.md)
-> tracks the film candidate and its source footage.
+> tracks the exported 94-second film and its source footage. The Devpost
+> [project draft](https://devpost.com/software/meowwatch-mobile) has been created
+> with the copy below, cover, icon and screenshot; it is not submitted.
 
 ## Project name and tagline
 
@@ -102,8 +104,12 @@ Nearby control still needs explicit, revocable pairing.
 - [ ] Recheck the public repository, AGPL license visibility, desktop and asset
   provenance, setup instructions and final secret scan. Confirm the icon,
   original unframed 1179 × 2556 screenshot and gallery thumbnail are attached.
-- [ ] Confirm entrant eligibility and academic-email recognition; resolve the
-  new-work and no-store checkbox questions with the organizer before making
-  any attestation. See [submission requirements](SUBMISSION_REQUIREMENTS.md).
+- [x] Register after the entrant's explicit rules/terms and eligibility confirmation.
+- [x] Save the authorized academic email, artwork, Android platform, RevenueCat
+  project ID and judge notes in the draft (3/5 sections complete).
+- [ ] Verify academic-email recognition and the remaining project-specific
+  ownership/new-work declarations. The current form's first-version/store
+  confirmation is optional and is left unanswered for the Next Gen path.
+  See [submission requirements](SUBMISSION_REQUIREMENTS.md).
 - [ ] Check every Devpost section and public link, then verify the final state
   says **Submitted**. A saved draft is not a submission.

@@ -24,23 +24,100 @@ also retained. This changes execution priority, not the meaning of acceptance.
 
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
-| 1 | Clean checkout builds and installs | Verified on emulators | 29eafe2 passes normal API 29/35 debug and API 35 release clean install in hosted run 36074182955. The original normal-release APK hash, clean-install receipt, first-use and shared-video screens are reviewed. These are normal lib/main.dart APKs; release is debug-signed with billing disabled. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36100639201 at 5f5dd7f passes the secret scan, formatting, analysis, 855 app tests, 114 native player tests, normal debug APK build, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
-| 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding passes profile run 36101860905 at f834327. Position agreement does not establish identical decoded frames or physical hardware |
-| 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36098502293 passes at fffc152 without setup ANR repair or observation timeout. Together focus 36100060718 at 86c8e10 passes early buffered, held permanent and held transient interruption, room pause, no-autoplay and explicit replay. Normal network 36080635480 passes at 4c01143; failed-source rebuilding passes profile run 36101860905 at f834327, while physical interruption acceptance remains open |
-| 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
-| 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
-| 10 | Correct daily quota and session continuity | Verified in native flows and tests | Native purchase verifies one free plus two distinct Plus sessions. 6daa1ea Together 36078687173 verifies joining, shared links, media recovery and history do not recharge, then charges the guest's new hosted room once. Real local dates bracket policy reads; this native run does not cross midnight. Four unit cases cover midnight. Profile network 36055097185 retains the original ledger across an outage and reconnect |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | 48e5a65 five-viewport journey 36068920060 passes 20 steps per profile; nine selected original screens are reviewed. 6daa1ea normal-release fullscreen 36078690609 passes phone and tablet: hidden controls/system bars, orientation restoration and two-stage Back. Five selected original fullscreen/return screens and six Together screens are reviewed. Final film motion and physical checks remain open; the SDK candidate is unadopted |
-| 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. Actual receiver acceptance awaits hardware; phone playback fallback is available |
-| 13 | No placeholders, dead ends or silent failures | Partial | 6e46041 first-use/layout and purchase flows pass. 9a3fc05 Together verifies readable media errors, Choose another video recovery and shared-link confirmation. 5347142 makes same-source restoration visible and disables stale controls; native journey 36041063625 passes. Final-film inspection remains open |
-| 14 | Clean-install full demo rehearsal | Partial | 6daa1ea Together 36078687173 passes all 26 host and 25 guest stages on standard phone/tablet layouts without SDK Setup ANR repair. Normal-release lifecycle and both fullscreen layouts also pass. Normal network 36080635480 also passes at 4c01143. Together focus 36100060718 also passes at 86c8e10. Failed-source rebuilding passes profile run 36101860905 at f834327, and fresh Together run 36101169078 passes at 5f5dd7f. Final-source install and full demo rehearsal remain open. The 98-second film has passed static sample review; full-motion acceptance remains open |
-| 15 | Shipaton submission confidence | Partial | Brand kit and original-size submission screenshot are prepared. Final under-two-minute film, full rehearsal, physical gates and remaining eligibility/legal checks remain open |
+| 1 | Clean checkout builds and installs | Verified on emulators | Final-source `67d0206` normal install 36103033086 passes API 29/35 debug and API 35 release. The normal debug Test Store APK is prepared with its installation receipt. API 35 first use needed Google SDK Setup ANR recovery; this does not establish the complete repair-free rehearsal |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Final-source Check 36103033341 passes formatting, analysis, 855 app tests, native player tests, normal debug APK and secret/contracts checks. Main is still the foundation README; implementation is in draft PR #1. Repository merge/closeout remains open |
+| 3 | Clear first-launch create/join | Verified on emulators | Final-source five-viewport run 36103033060 and Together 36103033024 attempt 2 pass onboarding, Start, reviewed invitation and Join |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Together 36103033024 attempt 2 passes 26 host and 25 guest stages on two independent phone/tablet emulators. Settled positions match at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
+| 5 | Real-session chat/reactions/presence | Verified on two emulators | Final-source Together verifies native chat, reaction, presence and peer links. Test Store journey 36103033131 also verifies a premium reaction received by a headless TLS peer |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | Failed-decoder profile 36101860905 passes on identical product code. Latest normal/profile network runs remain failed before recovery assertions; causes and limits below. Final-source lifecycle 36103033022 attempt 2 restores 69 seconds in a new process, paused until explicit Play; Local/Together audio-focus reruns pass. Physical checks remain open |
+| 7 | Local Mode and Continue Watching | Partial | Final-source lifecycle preserves 69 seconds across process restart without autoplay or setup repair; SAF relaunch 36103033079 and two-device history also pass. Physical playback acceptance remains open |
+| 8 | Secure phone-to-desktop discovery/pair/control | Partial | Final-source Nearby 36103033210 passes pinned TLS, approval, control, revocation and protected persistence on an Android emulator. Normal Windows companion 3ebba3a is packaged by 36103713800. Physical Android-to-Windows discovery/pair/control/revoke/restart remains open |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Final-source production Test Store 36103033131 passes 12 stages: native cancellation/failure/success, one free and two Plus hosts, appearance/reaction and same-customer Restore after cache invalidation. Relaunch/expiry 36103033020 passes. Physical and Play-production evidence are separate |
+| 10 | Correct daily quota and session continuity | Verified in native flows and tests | Latest Together and purchase journeys verify one free host, free joining, unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Final-source five-viewport run passes. Normal-release fullscreen 36103033180 passes phone attempt 3 and tablet attempt 2 with original PNG review. Fullscreen idle/transition motion and complete film motion review remain open; physical screens remain unverified |
+| 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. No physical receiver is available to this task; receiver availability is awaiting the entrant. Phone playback is the fallback |
+| 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Selected final-film frames are inspected; full-motion review and physical acceptance remain open |
+| 14 | Clean-install full demo rehearsal | Partial | Final-source Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. Install receipt includes SDK Setup recovery |
+| 15 | Shipaton submission confidence | Partial | 94-second film, APK, Windows ZIP, icon and screenshot are prepared. Registration succeeded; Devpost draft, artwork, authorized academic email and technical fields are saved (3/5 sections). Public video, academic-email recognition, final rehearsal, physical gates and repository closeout remain open |
 
 ## Current verification
+
+### Final-source closeout, September 25
+
+The installable candidate is `67d0206`; its `lib`, `android` and `assets` are
+unchanged from frozen product `5f5dd7f`. Later `d8b55b2`/`7bcd6f4` commits prepare
+the film and documentation on `feat/submission-showcase`. They do not rebuild
+or alter the app. Draft mobile PR #1 remains at `67d0206`.
+
+- [Check 36103033341](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033341)
+  passes the required format/analyze/test/debug-build and contract/secret checks;
+  855 app tests and the native player test suite pass.
+- [Together 36103033024, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033024/attempts/2)
+  passes 26 host and 25 guest stages on independent API 35 phone/tablet emulators.
+  Pause/seek checkpoints agree at 8,704, 53,361 and 55,544 ms. Recovery/history
+  preserve the original room and hosting ledger. Both native ANR guards pass;
+  SDK Setup preparation needs no repair. Two original PNGs are reviewed.
+  Attempt 1 completed app assertions but failed when the tablet ADB/driver
+  disappeared during evidence collection; it remains a failed attempt.
+- [Lifecycle 36103033022, attempt 2](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033022/attempts/2)
+  uses the normal release APK, preserves 69 seconds in a new process and resumes
+  only after explicit Play. No setup repair or observation timeout occurs.
+  Attempt 1 exceeded the unchanged four-second HOME advance bound by one second.
+- [Purchase 36103033131](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033131)
+  passes all 12 native Test Store stages, including two distinct Plus hosts and
+  same-customer Restore. This is one Android client plus a headless TLS peer.
+- [Normal install 36103033086](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033086)
+  passes API 29/35 debug and API 35 release. API 29 passes an unchanged rerun
+  after an incoming-share launch failure. The included normal API 35 debug APK
+  enables real Test Store billing; release comparison disables purchases.
+  Its first-use receipt includes Google SDK Setup ANR recovery, so it alone
+  cannot close the repair-free complete-demo requirement.
+- [Fullscreen 36103033180](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033180)
+  passes phone attempt 3 and tablet attempt 2. Phone rotates into landscape,
+  hides both system bars and returns to its original orientation. Tablet starts
+  landscape and preserves that orientation. First Back returns to the player;
+  second Back returns Home, with the same app process and advancing native
+  playback. One original PNG per device is reviewed. Earlier phone attempts
+  fail on an observer deadline and recording decode respectively; the final
+  unchanged attempt passes. Idle-control/transition motion review is still open.
+
+Final-source playback (36103033062), Nearby (36103033210), SAF relaunch
+(36103033079), Together focus (36103033155), Local focus (36103033335),
+five viewports (36103033060), RevenueCat relaunch/expiry (36103033020) and runtime
+matrix (36103033076) also pass hosted CI. These retain their emulator scope.
+
+Network repeatability remains a disclosed limitation. Normal debug run
+`36103033104` stops at `root_missing` before radio loss. Profile run
+`36104667364` attempt 1 stops at SDK Home admission; attempt 2 reaches native
+playback readiness and sends both radio-disable commands but exhausts the
+ten-second settings-readback window before the offline checkpoint. Cleanup
+restores radios. Neither attempt evaluates recovery or disproves the prior
+accepted `36101860905` run on identical product code. These failures remain
+failed; no observer budget or acceptance threshold is weakened, and further
+nonblocking observer/recording changes are frozen.
+
+[Film export 36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
+produces the final 94.000-second, 1920 × 1080 silent H.264 candidate. All 2,820
+frames decode in hosted CI; representative output frames and the final free-host
+card are inspected. Sources, separate runtime boundaries and the complete story
+are in [DEMO_SCRIPT.md](DEMO_SCRIPT.md). The entrant authorized a private YouTube
+upload, which is saved and verified as private. Full-motion review and public
+video availability remain open. No local video playback or emulator was started.
+
+The local delivery folder contains the normal Test Store APK, the film,
+unsigned Windows companion ZIP, source/build receipts, artwork and rehearsal
+instructions. Desktop packaging
+[36103713800](https://github.com/PeterShanxin/MeowWatch/actions/runs/36103713800)
+and Windows CI `36103713926` pass at `3ebba3a`. This is a build receipt, not
+physical Nearby or current Windows UI acceptance.
+
+Shipaton registration and explicit rules/terms acceptance are complete.
+The [Devpost project](https://devpost.com/software/meowwatch-mobile) is saved as
+**Draft**, with project copy, technology tags, repository links, cover, original
+icon/screenshot, Android platform, RevenueCat project ID, authorized academic
+email and judge notes. The form shows 3/5 sections complete. Academic-domain
+recognition, the final public video URL and project-specific declarations remain
+open. No final submission is made.
 
 ### Frozen product candidate
 
@@ -67,8 +144,8 @@ original phone/tablet screens are reviewed; full-film motion remains open.
 Normal debug network run `36101166380` stops at the independent observer's
 `root_missing` before radio loss; it does not contradict or establish outage
 recovery. That observation-tool investigation is deferred under the closeout
-freeze. The original failed run remains failed. Final installable builds and
-film sources are the next delivery work.
+freeze. The original failed run remains failed. The final builds and film are
+now prepared as described above.
 
 All Android runtimes below are API 35 x86_64 emulators unless explicitly noted.
 Original receipts, selected PNGs and recording hashes have been reviewed;
@@ -77,7 +154,7 @@ runtime distinctions below are part of acceptance, not interchangeable checks.
 The [investigation history](ACCEPTANCE_HISTORY.md#archived-september-25-native-focus-and-recording-investigations-through-37adcf6)
 retains the complete prior results, original failures and repair rationale.
 
-### Integrated source and audio-focus acceptance
+### Earlier integrated source and audio-focus acceptance
 
 Check `36100639201` at `5f5dd7f` passes every required job: 855 app tests,
 114 native player tests without skips, normal debug APK, formatting, analysis,
@@ -115,7 +192,7 @@ pause the room. The [repair history](ACCEPTANCE_HISTORY.md#september-25-audio-fo
 preserves the original failures, the Local/Together focus-policy distinction
 and the strict Android ownership proof used by the runner.
 
-### Network recovery
+### Network repair history
 
 Accepted normal network `36080635480` at `4c01143` exercises real radio loss,
 cached-address socket failure, two paused decoders, unchanged room/media/quota
@@ -228,7 +305,7 @@ shows playback. Its first diagnostic lists only a nonactive system window and
 an unfinished root probe. No app ANR/fatal exception is found, but the precise
 platform cause remains unknown. A screenshot cannot replace complete XML.
 
-### Accepted core, lifecycle and purchase journeys
+### Earlier accepted core, lifecycle and purchase journeys
 
 - Together `36078687173` at `6daa1ea` passes 26 host and 25 guest stages on two
   independent phone/tablet emulators. Two-way controls settle at matching
@@ -256,7 +333,7 @@ platform cause remains unknown. A screenshot cannot replace complete XML.
   observes real expiry and inactive Restore. Neither proves reinstall identity
   recovery, physical billing or Google Play production billing.
 
-The 98-second film candidate from `36059267954` passes strict cloud decoding of
+The historical 98-second film candidate from `36059267954` passes strict cloud decoding of
 2,940 frames and source-pin/EDL checks. SHA-256:
 `5ced046aacf9f55a9b8be9344e27fd3a3266056c298e712ef2ce2b971d5c92c4`.
 All 42 shot-boundary PNGs are inspected; all 25 periodic samples are inspected
@@ -308,13 +385,13 @@ from c53fc6a Together originals without starting Android. Its 960-frame
 SHA-256 is `bad6295ccf57cb1c5c9b99c281d37a2115ededf18dfbdc9e24eb9f9961ee77b7`.
 One exported full-size paired frame was inspected for framing and legibility.
 This is a cloud-render rehearsal, not the final film or full motion acceptance.
-The final under-two-minute submission edit and full clean-install rehearsal
-remain open. Historical runs and asset provenance are preserved in
+The new 94-second edit is exported; full motion and the complete clean-install
+rehearsal remain open. Historical runs and asset provenance are preserved in
 [Acceptance history](ACCEPTANCE_HISTORY.md).
 
 ## Human/external dependencies
 
-- The entrant confirmed active student status, local age of majority and access to an academic email. Remaining residency/ownership/conflict conditions and final legal acceptance are separate checks.
+- The entrant confirmed active student status, local age of majority, access to an academic email, registration eligibility and explicit rules/terms acceptance. Registration is complete. Academic-email recognition and project-specific ownership/new-work declarations remain separate checks.
 - RevenueCat login/Test Store catalog setup and user acceptance of the Android SDK license are complete. RevenueCat email confirmation remains visible.
 - Physical Android, trusted physical LAN and Cast receiver availability remain unconfirmed. Emulators and virtual network adapters are not substituted for this evidence.
 - Desktop required native/manual review gates remain applicable before merge or release.

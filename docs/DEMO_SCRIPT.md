@@ -3,8 +3,12 @@
 The current edit is **94 seconds**, using actual Android phone/tablet recordings
 from the frozen product source. It covers Start/Join, shared playback controls,
 conversation, Local Mode resume and the real RevenueCat Test Store purchase,
-Restore and Plus features. Rendering is pending; it is not a published video or
-submission-ready declaration.
+Restore and Plus features. [Hosted export 36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
+at `7bcd6f4` passed: 94.000 seconds, 1920 × 1080, H.264 at 30 fps,
+2,820 frames, silent, 3,925,136 bytes. Strict full decoding passed in hosted CI.
+The export is prepared locally and uploaded to YouTube as a private review
+video with the entrant's authorization. Full-motion review and a publicly
+playable YouTube/Vimeo link remain open. This is not a submission-ready declaration.
 
 [Edit decision list](demo/submission-final.edl.json) ·
 [Exact source artifacts](demo/submission-final.edl.sources.json) ·
@@ -53,14 +57,16 @@ and the separate in-app Sintel sample are in [third-party notices](../THIRD_PART
 There are no `lib`, `android` or `assets` changes between `5f5dd7f` and
 `67d0206`. The later commits update the network verifier and documentation.
 Full hashes, source intervals and artifact names are in the EDL. Selected
-original screens have been inspected; the complete export still needs motion
-review after rendering.
+original screens and representative output frames have been inspected, including
+the final free-host explanatory card. The complete export still needs motion
+review. Its SHA-256 is
+`20926535cb81b2f07d685674d7603360914b45c3eb798678d08bf463d1c08750`.
 
 Physical Android-to-Windows Nearby and receiver Cast acceptance remain open.
 They are not depicted as demonstrated features. The app still includes native
-fullscreen playback; its latest capture gate failed on recording integrity, so
-that clip is excluded from this film. Prior successful fullscreen acceptance
-and current failed runs remain in STATUS. Film editing does not resolve them.
+fullscreen playback. The final-source phone and tablet fullscreen gate
+`36103033180` passed after unchanged reruns; the earlier observer/recording
+failures remain recorded in STATUS. The frozen film does not add another clip.
 
 ## Render and publish
 

@@ -5,10 +5,9 @@ Verified against the current primary sources on 2026-09-16. The English
 control if another Shipaton page or translation differs.
 
 The deadline, explicit Next Gen no-store path and organizer's Test Store answer
-were rechecked on 2026-09-24 at the linked primary sources below. They remain
-unchanged. The organizer discussion still has no answer to the required
-store-release checkbox follow-up; do not attest to a store release that did not
-happen.
+were rechecked on September 24. The complete authenticated form and English
+rules were re-read on September 25. The first-version/store checkbox is now
+optional; it is left unanswered for this no-store Next Gen entry.
 
 ## Confirmed submission path
 
@@ -138,9 +137,10 @@ The safest evidence of substantial new mobile work is:
 These facts strengthen the new-work case but do not themselves decide legal or
 competition eligibility.
 
-### Unresolved rules conflict
+### Current form and remaining rules interpretation
 
-The current controlling English Devpost rules are internally inconsistent:
+The controlling English rules were re-read through Devpost on September 25.
+They retain the following tension:
 
 1. Project Requirements say every project's first public version must be
    released to an eligible store during the submission period, without a Next
@@ -153,21 +153,33 @@ The current controlling English Devpost rules are internally inconsistent:
    Next Gen project must be new or created/substantially developed during the
    submission period. Both translations state that English controls.
 
-Operationally, follow the stricter translated new/substantial-work standard and
-the explicit English no-store Next Gen path. Before final submission, a human
-should obtain written organizer clarification on these two precise questions:
+Operationally, use the explicit English no-store Next Gen path, disclose the
+desktop heritage, and retain the separate Android development history and
+license provenance. Organizer clarification of the mobile counterpart's
+new-work status is still outstanding; registration is not a ruling on that
+question. No message to the organizer has been sent on the entrant's behalf.
 
-1. Does a new Android-first mobile counterpart to an existing public Windows
-   MeowWatch qualify when the Android project is built substantially during the
-   submission window and any desktop code is reused under its open-source
-   license?
-2. If the Devpost form still requires the store-release checkbox, how should a
-   no-store Next Gen entrant answer it truthfully? The existing official forum
-   thread confirms Test Store sufficiency but leaves this checkbox follow-up
-   unanswered.
+The complete authenticated Devpost submission form was re-read on September 25
+at 07:19 UTC. **First Version Date Confirmation (27380) is now optional**, as
+are the three store URL fields. Leave these unanswered for this no-store entry;
+the earlier required-store-checkbox concern is no longer a form blocker.
+The form requires icon confirmation (27378), unframed screenshot confirmation
+(27379), supported platform (27382; Android), and RevenueCat project ID (28118).
+Next Gen additionally needs repository URL (27793) and qualifying academic email
+(27792), even though those category-specific fields are optional globally.
+Do not infer email, staff/sponsor status, promotional codes or growth-fund opt-in.
 
 On 2026-09-17, the entrant confirmed active student status, reaching the local
 age of majority, and availability of a student/academic email for Devpost. No
 email address was collected. Domain recognition in the actual Devpost path is
-still unverified. Residency, ownership of prior work, absence of conflicts and
-final legal acceptance remain separate entrant confirmations.
+still unverified. The entrant subsequently provided an academic email and
+authorized its use; it is saved only in the Devpost form, not this repository.
+On September 25 the entrant explicitly accepted the official
+rules and Devpost terms and confirmed registration eligibility. Registration
+succeeded, and [MeowWatch Mobile](https://devpost.com/software/meowwatch-mobile)
+now exists as an authenticated **Draft**, not Submitted. Its description,
+technology tags, source links, gallery cover, original icon/screenshot, Android
+platform, RevenueCat project ID and judge notes are saved. The UI reports
+**3/5 steps done**. The film is prepared for private review; the final public
+video URL and remaining project-specific declarations still need completion.
+Personal registration answers are not stored in this repository.

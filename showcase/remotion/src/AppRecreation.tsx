@@ -12,21 +12,23 @@ const room = 'lively-mole-rolls-smiley-acorn';
 
 export type RoomView = 'home' | 'finding' | 'room-empty' | 'room-peer' | 'playing' | 'paused' | 'seek' | 'chat';
 
-export const TapPulse: React.FC<{frame: number; at: number; x: number; y: number; color?: string}> = ({frame, at, x, y, color = peach}) => {
+export const TapPulse: React.FC<{frame: number; at: number; x: number; y: number}> = ({frame, at, x, y}) => {
   const age = frame - at;
-  if (age < 0 || age > 23) return null;
+  if (age < 0 || age > 17) return null;
   return (
     <div
       style={{
         position: 'absolute',
-        left: x - 24,
-        top: y - 24,
-        width: 48,
-        height: 48,
-        border: `3px solid ${color}`,
-        boxShadow: '0 0 0 2px #071522, inset 0 0 0 2px #071522',
+        left: x - 14,
+        top: y - 14,
+        width: 28,
+        height: 28,
+        boxSizing: 'border-box',
+        border: '1.5px solid #FFFFFFCC',
+        background: 'radial-gradient(circle at 32% 25%, #FFFFFF70 0%, #FFFFFF30 49%, #FFFFFF16 100%)',
+        boxShadow: '0 0 0 1px #071522C7, 0 3px 8px #00000066, inset 0 1px 0 #FFFFFFCC',
         borderRadius: '50%',
-        scale: interpolate(age, [0, 14, 23], [0.35, 2.35, 0], {extrapolateRight: 'clamp'}),
+        scale: interpolate(age, [0, 2, 5, 8, 12, 17], [0.92, 0.78, 1.05, 1, 1, 0], {extrapolateRight: 'clamp'}),
         pointerEvents: 'none',
         zIndex: 30,
       }}

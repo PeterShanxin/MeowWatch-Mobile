@@ -8,7 +8,8 @@ story, not a single uninterrupted session.
 
 The continuous-shot visual revision uses a consistent
 deep navy stage. The phone and tablet persist through connected camera
-moves instead of alternating light/dark chapter cards. This is a presentation
+moves lasting 0.3–0.5 seconds, followed by still holds. Titles move offscreen
+and small translucent touch indicators mark taps. This is a presentation
 treatment; it does not turn the edited captures into one recorded session.
 
 The editable [Remotion project](../showcase/remotion/README.md) and

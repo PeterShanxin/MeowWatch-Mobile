@@ -1,0 +1,141 @@
+"""Mocked receipt checks; device acceptance only occurs in hosted Android CI."""
+
+from __future__ import annotations
+
+import copy
+from http.client import HTTPConnection
+import json
+import threading
+import unittest
+from pathlib import Path
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
+from unittest.mock import Mock
+
+from tools.android_install.runner import PACKAGE, RuntimeFailure
+from tools.android_interruption_runtime.run import HELPER, FOCUS_HEADER, require_focus
+from tools.android_together_focus_runtime.run import (
+    STAGES, FocusSession, StageServer, validate_journey,
+)
+
+
+def snapshot(*, playing: bool, paused: bool, position: int) -> dict:
+    return {"nativeReady": True, "nativePlaying": playing, "nativeBuffering": False,
+            "nativePositionMs": position, "nativeDurationMs": 180000, "nativeError": None,
+            "peerPaused": paused, "peerPositionMs": position, "peerSetter": "Focus Host"}
+
+
+def receipt() -> tuple[dict, list[dict]]:
+    stages = [{"stage": name, "completed": True, "event": {"protocol": 2}} for name in STAGES]
+    cases = []
+    for index, mode in enumerate(("permanent", "transient")):
+        start = 5000 + index * 10000
+        cases.append({"mode": mode, "settledPlaying": {"continuousPlayingMs": 4100,
+                      "nativeAdvanceMs": 3600, "peerUnpausedThroughout": True},
+                      "noAutoplayMonitor": {"monitoredMs": 9000, "nativeEvents": 2,
+                      "roomEvents": 8, "forbiddenPlayEvents": []},
+                      "before": snapshot(playing=True, paused=False, position=start),
+                      "paused": snapshot(playing=False, paused=True, position=start + 900),
+                      "held": snapshot(playing=False, paused=True, position=start + 900),
+                      "afterRelease": snapshot(playing=False, paused=True, position=start + 900),
+                      "explicitReplay": snapshot(playing=True, paused=False, position=start + 2000),
+                      "acquire": stages[index * 2], "release": stages[index * 2 + 1],
+                      "testSidePauseDuringInterruption": False})
+    return {"togetherFocus": {"result": "passed", "peerCompletedTlsHello": True, "cases": cases}}, stages
+
+
+class ReceiptTests(unittest.TestCase):
+    def test_permanent_focus_accepts_original_api35_helper_only_stack(self):
+        def row(package, uid, loss):
+            return (f"source:android.os.BinderProxy@abc -- pack: {package} -- gain: GAIN"
+                    f" -- loss: {loss} -- uid: {uid}")
+
+        before = FOCUS_HEADER + "\n" + row(PACKAGE, 10178, "none") + "\n\n"
+        after = FOCUS_HEADER + "\n" + row(HELPER, 10179, "none") + "\n\n"
+        self.assertEqual(require_focus(before, PACKAGE, 10178)[-1]["package"], PACKAGE)
+        self.assertEqual(require_focus(after, HELPER, 10179)[-1]["package"], HELPER)
+        for changed in (after.replace("uid: 10179", "uid: 10180"),
+                        after.replace("loss: none", "loss: LOSS"),
+                        after + FOCUS_HEADER):
+            with self.assertRaises(RuntimeFailure):
+                require_focus(changed, HELPER, 10179)
+
+    def test_requires_two_actual_play_pause_no_autoplay_and_replay_cycles(self):
+        value, stages = receipt()
+        self.assertEqual(len(validate_journey(value, stages)["cases"]), 2)
+        mutations = [
+            lambda x: x["togetherFocus"].update(peerCompletedTlsHello=False),
+            lambda x: x["togetherFocus"]["cases"][0].update(testSidePauseDuringInterruption=True),
+            lambda x: x["togetherFocus"]["cases"][1]["settledPlaying"].update(continuousPlayingMs=500),
+            lambda x: x["togetherFocus"]["cases"][0]["noAutoplayMonitor"].update(
+                forbiddenPlayEvents=[{"source": "nativePlayer", "elapsedMs": 500}]),
+            lambda x: x["togetherFocus"]["cases"][0]["paused"].update(peerPaused=False),
+            lambda x: x["togetherFocus"]["cases"][0]["held"].update(nativePlaying=True),
+            lambda x: x["togetherFocus"]["cases"][1]["afterRelease"].update(nativePlaying=True),
+            lambda x: x["togetherFocus"]["cases"][1]["explicitReplay"].update(peerPaused=True),
+            lambda x: x["togetherFocus"]["cases"][0]["explicitReplay"].update(nativePositionMs=5600),
+            lambda x: x["togetherFocus"]["cases"][0]["before"].update(nativeError="decoder failed"),
+            lambda x: x["togetherFocus"]["cases"][1].update(acquire=stages[0]),
+        ]
+        for mutate in mutations:
+            changed = copy.deepcopy(value)
+            mutate(changed)
+            with self.subTest(mutate=mutate), self.assertRaises(RuntimeFailure):
+                validate_journey(changed, stages)
+        for invalid_stages in ([], list(reversed(stages)), stages[:-1]):
+            with self.assertRaises(RuntimeFailure):
+                validate_journey(value, invalid_stages)
+
+    def test_bridge_rejects_out_of_order_and_repeated_native_commands(self):
+        class Session:
+            completed = []
+
+            def stage(self, name):
+                if name != STAGES[len(self.completed)]:
+                    raise RuntimeFailure("out of order")
+                row = {"stage": name, "completed": True}
+                self.completed.append(row)
+                return row
+
+        server = StageServer(Session(), 0)
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            def post(name, body=None):
+                connection = HTTPConnection("127.0.0.1", server.server_address[1], timeout=3)
+                connection.request("POST", "/" + name, json.dumps(body if body is not None else {"stage": name}),
+                                   {"Content-Type": "application/json"})
+                response = connection.getresponse()
+                result = response.status, json.loads(response.read())
+                connection.close()
+                return result
+
+            self.assertEqual(post("transient-acquire")[0], 500)
+            self.assertEqual(post("permanent-acquire")[0], 409)
+        finally:
+            server.shutdown()
+            server.server_close()
+
+    def test_helper_uninstall_failure_still_attempts_owned_observer_cleanup(self):
+        class Adb:
+            serial = "emulator-5554"
+
+            def run(self, *args, **kwargs):
+                if args == ("emu", "avd", "name"):
+                    return SimpleNamespace(stdout=b"meowwatch_together_focus_123_1\nOK\n")
+                if args[:1] == ("uninstall",):
+                    return SimpleNamespace(stdout=b"Failure\n")
+                return SimpleNamespace(stdout=b"")
+
+        with TemporaryDirectory() as directory:
+            session = FocusSession(Adb(), "meowwatch_together_focus_123_1", Path(directory),
+                                   Path("unused-helper.apk"), Path("unused-observer.apk"))
+            session.helper_owned = True
+            session.observer.cleanup = Mock()
+            with self.assertRaisesRegex(RuntimeFailure, "helper uninstall"):
+                session.cleanup()
+            session.observer.cleanup.assert_called_once_with()
+
+
+if __name__ == "__main__":
+    unittest.main()

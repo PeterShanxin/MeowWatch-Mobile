@@ -67,6 +67,15 @@ def join_sheet_ready(xml: str) -> bool:
     return True
 
 
+def media_link_ready(xml: str) -> bool:
+    if len(exact(xml, "Choose what to watch")) != 1:
+        raise RuntimeFailure("media choice sheet is not visible")
+    if unique_text_field(xml).get("text") != FIXTURE_URL:
+        raise RuntimeFailure("the controlled direct video URL is not in the field")
+    button(xml, "Use this link")
+    return True
+
+
 def unique_seekbar(xml: str) -> ET.Element:
     bars = [node for node in nodes(xml) if node.get("class", "").endswith("SeekBar")]
     if len(bars) != 1:
@@ -281,6 +290,8 @@ def load_link(device: Device, role: str) -> None:
     device.tap("Video")
     device.capture(f"07-{role}-media-choice", present("Direct video link"))
     device.enter(FIXTURE_URL)
+    device.back()  # Dismiss the keyboard so the visible submit action is reachable.
+    device.capture(f"07-{role}-link-ready", media_link_ready)
     device.tap("Use this link")
     device.player(f"08-{role}-loaded", False)
 

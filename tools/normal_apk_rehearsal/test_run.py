@@ -5,7 +5,8 @@ from xml.sax.saxutils import escape
 
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.normal_apk_rehearsal.run import (
-    history_context, join_sheet_ready, unique_seekbar, unique_text_field, visible_code,
+    FIXTURE_URL, history_context, join_sheet_ready, media_link_ready,
+    unique_seekbar, unique_text_field, visible_code,
 )
 
 
@@ -63,6 +64,15 @@ class VisibleUiContract(unittest.TestCase):
         with self.assertRaises(RuntimeFailure):
             join_sheet_ready(tree(node('', kind='android.widget.EditText', clickable=True),
                                   node('Join room', kind='android.widget.Button', clickable=True)))
+
+    def test_media_link_requires_visible_submit_and_entered_fixture(self):
+        ready = tree(node('Choose what to watch'),
+                     node(FIXTURE_URL, kind='android.widget.EditText', clickable=True),
+                     node('Use this link', kind='android.widget.Button', clickable=True))
+        self.assertTrue(media_link_ready(ready))
+        with self.assertRaises(RuntimeFailure):
+            media_link_ready(tree(node('Choose what to watch'),
+                                  node(FIXTURE_URL, kind='android.widget.EditText', clickable=True)))
 
 
 if __name__ == '__main__':

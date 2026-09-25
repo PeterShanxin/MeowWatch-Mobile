@@ -401,6 +401,12 @@ class LifecycleRuntimeTests(unittest.TestCase):
                 runner.finish_recording = Mock()
                 runner.launch_main = Mock()
                 runner.go_home = Mock(side_effect=[(8, Playback(10, 90, True)), (8, None)])
+                runner.samples = [
+                    {"nativeUiCapture": {"startedAtDeviceElapsedRealtimeMs": 90000}},
+                    {"nativeUiCapture": {"startedAtDeviceElapsedRealtimeMs": 120000}},
+                ]
+                runner.home_timings = [{"preHomeSampleIndex": 1,
+                                       "beforeHomeClock": {"deviceElapsedSeconds": 121.2}}]
                 runner.pid = Mock(side_effect=['123', '123', '123', '', '456',
                                               '789' if failure == 'changed-pid' else '456'])
                 history_xml = history(position='0:16')
@@ -441,6 +447,8 @@ class LifecycleRuntimeTests(unittest.TestCase):
                         self.assertTrue(report['noAutoplayAfterRestart'])
                         self.assertEqual(report['explicitReplayAfterRestartAdvanceSeconds'], 4)
                         self.assertEqual((report['oldPid'], report['newPid']), (123, 456))
+                        self.assertAlmostEqual(report['preHomeSampleAgeSeconds'], 1.2)
+                        self.assertEqual(report['homePauseVisibleToleranceSeconds'], 4)
                 manual_tap = ('tap', '12-restored-no-autoplay', 'Play')
                 if failure in ('autoplay', 'paused-progress'):
                     self.assertNotIn(manual_tap, events)
@@ -1605,6 +1613,25 @@ class LifecycleRuntimeTests(unittest.TestCase):
         with self.assertRaises(RuntimeFailure):
             require_background_pause(stale_screenshot_sample, foreground, 8)
         require_background_pause(immediate_pre_home_sample, foreground, 8)
+
+    def test_home_pause_accounts_for_measured_native_sample_age(self):
+        # 36151161242 attempt 2: tree at 120.416s, HOME clock at 121.59s.
+        before = Playback(40, 90, True)
+        foreground = Playback(45, 90, False)
+        age = 121.59 - 120.416
+        with self.assertRaises(RuntimeFailure):
+            require_background_pause(before, foreground, 8)
+        require_background_pause(before, foreground, 8, pre_home_sample_seconds=age)
+        # Six displayed seconds still exceed the unchanged tolerance plus the
+        # measured foreground interval; a full background hold fails as well.
+        for after in (Playback(46, 90, False), Playback(49, 90, False), Playback(45, 90, True)):
+            with self.subTest(after=after), self.assertRaises(RuntimeFailure):
+                require_background_pause(before, after, 8, pre_home_sample_seconds=age)
+        for invalid in (-0.1, 4.01, float('nan'), float('inf')):
+            with self.subTest(age=invalid), self.assertRaises(RuntimeFailure):
+                require_background_pause(before, foreground, 8, pre_home_sample_seconds=invalid)
+        with self.assertRaises(RuntimeFailure):
+            require_background_pause(before, foreground, 7.9, pre_home_sample_seconds=age)
 
     def test_home_refreshes_playback_after_screenshot_before_keyevent(self):
         events = []

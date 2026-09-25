@@ -845,9 +845,17 @@ def require_paused_stability(before: Playback, after: Playback) -> None:
         raise RuntimeFailure("paused playback advanced or resumed without an explicit Play action")
 
 
-def require_background_pause(before: Playback, after: Playback, home_seconds: float) -> None:
+def require_background_pause(
+    before: Playback, after: Playback, home_seconds: float, *, pre_home_sample_seconds: float = 0,
+) -> None:
     advance = after.position_seconds - before.position_seconds
-    if not before.playing or after.playing or home_seconds < 8 or not -1 <= advance <= 4:
+    # The controlled fixture plays at 1x. The native tree can precede HOME by
+    # seconds even without a screenshot; that foreground interval is not a
+    # background pause delay. Keep the four-second displayed-time tolerance.
+    if not math.isfinite(pre_home_sample_seconds) or not 0 <= pre_home_sample_seconds <= 4:
+        raise RuntimeFailure("pre-HOME native playback sample is stale or has an invalid device clock")
+    if (not before.playing or after.playing or home_seconds < 8
+            or not -1 <= advance <= 4 + pre_home_sample_seconds):
         raise RuntimeFailure("HOME did not pause native playback within the visible-time tolerance")
 
 
@@ -1295,7 +1303,12 @@ class Runner:
             raise RuntimeFailure("HOME destroyed the process before foreground-resume testing")
         self.launch_main()
         _, foreground = self.sample("05-foreground-paused", playing=False)
-        require_background_pause(pre_home, foreground, background_seconds)
+        home_timing = self.home_timings[-1]
+        capture = self.samples[home_timing["preHomeSampleIndex"]]["nativeUiCapture"]
+        pre_home_sample_seconds = (home_timing["beforeHomeClock"]["deviceElapsedSeconds"]
+                                   - capture["startedAtDeviceElapsedRealtimeMs"] / 1000)
+        require_background_pause(pre_home, foreground, background_seconds,
+                                 pre_home_sample_seconds=pre_home_sample_seconds)
         time.sleep(4)
         xml, stable = self.sample("06-no-autoplay", playing=False)
         require_paused_stability(foreground, stable)
@@ -1345,6 +1358,8 @@ class Runner:
             "homeHoldSeconds": background_seconds,
             "preHomePositionSeconds": pre_home.position_seconds,
             "homePositionAdvanceSeconds": foreground.position_seconds - pre_home.position_seconds,
+            "preHomeSampleAgeSeconds": pre_home_sample_seconds,
+            "homePauseVisibleToleranceSeconds": 4,
             "explicitReplayAdvanceSeconds": replay_advance,
             "pausedAfterForeground": True,
             "noAutoplayAfterForeground": True,

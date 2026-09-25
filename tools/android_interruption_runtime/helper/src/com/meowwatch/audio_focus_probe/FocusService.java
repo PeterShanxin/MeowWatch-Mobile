@@ -51,6 +51,12 @@ public final class FocusService extends Service {
         }
         gain = "transient".equals(mode)
             ? AudioManager.AUDIOFOCUS_GAIN_TRANSIENT : AudioManager.AUDIOFOCUS_GAIN;
+        int autoReleaseMs = intent.getIntExtra("autoReleaseMs", 0);
+        if (autoReleaseMs != 0 && (gain != AudioManager.AUDIOFOCUS_GAIN_TRANSIENT
+                || autoReleaseMs < 200 || autoReleaseMs > 500)) {
+            stopSelf();
+            return START_NOT_STICKY;
+        }
         nonce = incoming;
         NotificationManager notifications = getSystemService(NotificationManager.class);
         notifications.createNotificationChannel(new NotificationChannel(
@@ -77,6 +83,11 @@ public final class FocusService extends Service {
         else handler.postDelayed(new Runnable() {
             @Override public void run() { release("watchdog-expired"); }
         }, 120000);
+        if (result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED && autoReleaseMs != 0) {
+            handler.postDelayed(new Runnable() {
+                @Override public void run() { release("released"); }
+            }, autoReleaseMs);
+        }
         return START_NOT_STICKY;
     }
 

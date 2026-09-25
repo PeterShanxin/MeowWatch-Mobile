@@ -116,6 +116,84 @@ void main() {
       );
       evidence['roomId'] = room.id;
       evidence['peerCompletedTlsHello'] = peer.hasCompletedHello;
+      final peerPausePosition = app.target.snapshot.position;
+      peer.updateLocalState(position: peerPausePosition, paused: true);
+      peer.notifyLocalChange(doSeek: false);
+      await _wait(
+        tester,
+        () =>
+            !app.target.snapshot.playing &&
+            peer.lastObservedRoomState?.paused == true,
+        'native pause from TLS peer before early Play',
+      );
+      final earlyReady = await _stage(tester, 'early-short-ready');
+      peer.updateLocalState(
+        position: app.target.snapshot.position,
+        paused: false,
+      );
+      peer.notifyLocalChange(doSeek: false);
+      await _wait(
+        tester,
+        () =>
+            app.target.snapshot.playing &&
+            peer.lastObservedRoomState?.paused == false &&
+            peer.lastObservedRoomState?.setBy == peer.username,
+        'actual TLS peer Play before brief focus loss',
+        seconds: 3,
+      );
+      final earlyBefore = _snapshot(app, peer);
+      final earlyMonitor = _EarlyNativePauseMonitor(app);
+      final earlyCase = <String, Object?>{
+        'peerName': peer.username,
+        'tlsPeerPlay': true,
+        'ready': earlyReady,
+        'before': earlyBefore,
+        'testSidePauseDuringInterruption': false,
+      };
+      evidence['earlyShort'] = earlyCase;
+      try {
+        earlyCase['acquire'] = await _stage(tester, 'early-short-acquire');
+        await _wait(
+          tester,
+          () =>
+              !app.target.snapshot.playing &&
+              app.target.snapshot.error == null &&
+              peer.lastObservedRoomState?.paused == true,
+          'early native and TLS room pause',
+          seconds: 25,
+        );
+        earlyCase['paused'] = _snapshot(app, peer);
+        final releaseWatch = Stopwatch()..start();
+        while (releaseWatch.elapsed < const Duration(seconds: 4)) {
+          await tester.pump(_poll);
+        }
+        earlyMonitor.requireNoPlay();
+        final afterRelease = _snapshot(app, peer);
+        _requireStable(
+          earlyCase['paused'] as Map<String, Object?>,
+          afterRelease,
+        );
+        earlyCase['afterRelease'] = afterRelease;
+        expect(app.room?.id, room.id);
+        expect(app.isConnected, isTrue);
+        expect(peer.hasCompletedHello, isTrue);
+      } finally {
+        earlyCase['noAutoplayMonitor'] = earlyMonitor.receipt();
+        await earlyMonitor.close();
+      }
+      final earlyReleased = earlyCase['afterRelease'] as Map<String, Object?>;
+      await _tap(tester, _control('Play'));
+      await _wait(
+        tester,
+        () =>
+            app.target.snapshot.playing &&
+            app.target.snapshot.position.inMilliseconds >
+                (earlyReleased['nativePositionMs'] as int) + 500 &&
+            peer.lastObservedRoomState?.paused == false,
+        'early explicit replay observed by peer',
+        seconds: 30,
+      );
+      earlyCase['explicitReplay'] = _snapshot(app, peer);
       for (final mode in ['permanent', 'transient']) {
         final settledPlaying = await _settlePlaying(tester, app, peer, mode);
         final before = _snapshot(app, peer);
@@ -195,6 +273,52 @@ void main() {
     },
     timeout: const Timeout(Duration(minutes: 9)),
   );
+}
+
+final class _EarlyNativePauseMonitor {
+  _EarlyNativePauseMonitor(AppController app) {
+    if (!app.target.snapshot.playing) {
+      throw TestFailure('early native monitor must arm while playing');
+    }
+    _native = app.target.states.listen((state) {
+      nativeEvents++;
+      if (!state.playing) {
+        firstNativePauseElapsedMs ??= _clock.elapsedMilliseconds;
+      } else if (firstNativePauseElapsedMs != null) {
+        forbidden.add({
+          'elapsedMs': _clock.elapsedMilliseconds,
+          'positionMs': state.position.inMilliseconds,
+        });
+      }
+    });
+  }
+
+  final Stopwatch _clock = Stopwatch()..start();
+  late final StreamSubscription<PlaybackSnapshot> _native;
+  final List<Map<String, Object>> forbidden = [];
+  int nativeEvents = 0;
+  int? firstNativePauseElapsedMs;
+
+  void requireNoPlay() {
+    if (firstNativePauseElapsedMs == null || forbidden.isNotEmpty) {
+      throw TestFailure(
+        'native playback resumed after the first early focus pause',
+      );
+    }
+  }
+
+  Map<String, Object?> receipt() => {
+    'monitoredMs': _clock.elapsedMilliseconds,
+    'nativeEvents': nativeEvents,
+    'sawNativePause': firstNativePauseElapsedMs != null,
+    'firstNativePauseElapsedMs': firstNativePauseElapsedMs,
+    'forbiddenNativePlayEvents': List<Map<String, Object>>.of(forbidden),
+  };
+
+  Future<void> close() async {
+    _clock.stop();
+    await _native.cancel();
+  }
 }
 
 final class _NoAutoplayMonitor {

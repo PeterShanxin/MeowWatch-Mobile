@@ -58,3 +58,10 @@ abstract class PlaybackTarget extends ChangeNotifier {
 abstract interface class PlaybackRateTarget {
   Future<void> setPlaybackRate(double rate);
 }
+
+/// A room holds this policy until its bridge is disposed. Distinct owners keep
+/// an old room's teardown from disabling a replacement room's policy.
+abstract interface class PlaybackInterruptionTarget {
+  Future<void> requireExplicitResume(Object owner);
+  Future<void> releaseExplicitResume(Object owner);
+}

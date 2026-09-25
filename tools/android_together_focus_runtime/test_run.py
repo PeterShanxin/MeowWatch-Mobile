@@ -28,6 +28,14 @@ def snapshot(*, playing: bool, paused: bool, position: int) -> dict:
 
 def receipt() -> tuple[dict, list[dict]]:
     stages = [{"stage": name, "completed": True, "event": {"protocol": 2}} for name in STAGES]
+    stages[0].update(deviceElapsedRealtimeMs=100000, appPid="1234", appForegroundBeforePeerPlay=True)
+    stages[1].update(appPid="1234", autoReleaseMs=350, limitMs=3000,
+                     fromPrePeerPlayMarkerToReleaseMs=1230, nativeUi={"playing": False},
+                     appOwnedFocusAfterPeerPlay=True,
+                     request={"event": "requested", "result": 1, "gain": 2,
+                              "requestStartedElapsedRealtimeMs": 100800, "elapsedRealtimeMs": 100830},
+                     release={"event": "released", "result": 1, "gain": 2,
+                              "elapsedRealtimeMs": 101230})
     cases = []
     for index, mode in enumerate(("permanent", "transient")):
         start = 5000 + index * 10000
@@ -40,9 +48,19 @@ def receipt() -> tuple[dict, list[dict]]:
                       "held": snapshot(playing=False, paused=True, position=start + 900),
                       "afterRelease": snapshot(playing=False, paused=True, position=start + 900),
                       "explicitReplay": snapshot(playing=True, paused=False, position=start + 2000),
-                      "acquire": stages[index * 2], "release": stages[index * 2 + 1],
+                      "acquire": stages[index * 2 + 2], "release": stages[index * 2 + 3],
                       "testSidePauseDuringInterruption": False})
-    return {"togetherFocus": {"result": "passed", "peerCompletedTlsHello": True, "cases": cases}}, stages
+    early = {"peerName": "Focus Protocol Peer", "tlsPeerPlay": True,
+             "ready": stages[0], "acquire": stages[1], "testSidePauseDuringInterruption": False,
+             "before": {**snapshot(playing=True, paused=False, position=3000), "peerSetter": "Focus Protocol Peer"},
+             "paused": snapshot(playing=False, paused=True, position=3100),
+             "afterRelease": snapshot(playing=False, paused=True, position=3100),
+             "explicitReplay": snapshot(playing=True, paused=False, position=3900),
+             "noAutoplayMonitor": {"monitoredMs": 4300, "nativeEvents": 3,
+                                   "sawNativePause": True, "firstNativePauseElapsedMs": 300,
+                                   "forbiddenNativePlayEvents": []}}
+    return {"togetherFocus": {"result": "passed", "peerCompletedTlsHello": True,
+                               "earlyShort": early, "cases": cases}}, stages
 
 
 class ReceiptTests(unittest.TestCase):
@@ -126,6 +144,10 @@ class ReceiptTests(unittest.TestCase):
             lambda x: x["togetherFocus"]["cases"][0]["explicitReplay"].update(nativePositionMs=5600),
             lambda x: x["togetherFocus"]["cases"][0]["before"].update(nativeError="decoder failed"),
             lambda x: x["togetherFocus"]["cases"][1].update(acquire=stages[0]),
+            lambda x: x["togetherFocus"]["earlyShort"].update(tlsPeerPlay=False),
+            lambda x: x["togetherFocus"]["earlyShort"]["noAutoplayMonitor"].update(
+                forbiddenNativePlayEvents=[{"elapsedMs": 500}]),
+            lambda x: x["togetherFocus"]["earlyShort"]["before"].update(peerSetter="Focus Host"),
         ]
         for mutate in mutations:
             changed = copy.deepcopy(value)
@@ -135,6 +157,41 @@ class ReceiptTests(unittest.TestCase):
         for invalid_stages in ([], list(reversed(stages)), stages[:-1]):
             with self.assertRaises(RuntimeFailure):
                 validate_journey(value, invalid_stages)
+        for changed_value in (100801, 101231):
+            changed = copy.deepcopy(stages)
+            changed[0]["deviceElapsedRealtimeMs"] = changed_value
+            changed_value_report = copy.deepcopy(value)
+            changed_value_report["togetherFocus"]["earlyShort"]["ready"] = changed[0]
+            with self.assertRaises(RuntimeFailure):
+                validate_journey(changed_value_report, changed)
+        for offset in (3000, 5000):
+            changed = copy.deepcopy(stages)
+            changed[1]["release"]["elapsedRealtimeMs"] = 100000 + offset
+            changed[1]["fromPrePeerPlayMarkerToReleaseMs"] = offset
+            changed_value_report = copy.deepcopy(value)
+            changed_value_report["togetherFocus"]["earlyShort"]["acquire"] = changed[1]
+            with self.assertRaises(RuntimeFailure):
+                validate_journey(changed_value_report, changed)
+
+    def test_short_helper_command_requests_native_auto_release_without_host_release(self):
+        class NoAdb:
+            serial = "emulator-5554"
+
+            def run(self, *args, **kwargs):
+                raise AssertionError("short command should not poll process after auto-release")
+
+        session = FocusSession(NoAdb(), "meowwatch_interruption_123_1", Path("unused"),
+                               Path("unused-helper.apk"), Path("unused-observer.apk"))
+        session.nonce = "a" * 32
+        session.gain = 2
+        requested = {"event": "requested", "pid": 901}
+        released = {"event": "released", "pid": 901}
+        captured = []
+        session.raw = lambda stage, name, *command: (captured.append(command) or "Starting service: Intent {}")
+        session._events = lambda stage: [requested, released]
+        self.assertEqual(session._command("early-short-acquire", "acquire", early_short=True), released)
+        self.assertEqual(session.events, [requested, released])
+        self.assertEqual(captured[0][-6:], ("--es", "mode", "transient", "--ei", "autoReleaseMs", "350"))
 
     def test_bridge_rejects_out_of_order_and_repeated_native_commands(self):
         class Session:

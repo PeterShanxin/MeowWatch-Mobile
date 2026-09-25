@@ -17,6 +17,7 @@ on:
       - 'android/**'
       - 'assets/**'
       - 'pubspec.*'
+      - 'third_party/video_player_android/**'
       - 'integration_test/app_journey_test.dart'
       - 'test_driver/app_journey_driver.dart'
       - 'tools/app_journey/**'

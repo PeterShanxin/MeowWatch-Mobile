@@ -47,6 +47,13 @@ test media; it is not a bundled movie catalog or a streaming-service integration
 
 ## Flutter and Dart packages
 
+The Android implementation of `video_player` is vendored from Flutter's
+`video_player_android` 2.12.2 under its BSD 3-Clause license. The upstream
+copyright and complete license are retained in
+[`third_party/video_player_android/LICENSE`](third_party/video_player_android/LICENSE).
+[`VENDOR.md`](third_party/video_player_android/VENDOR.md) records the source and
+local focus-policy change.
+
 The app uses Flutter and the packages locked by `pubspec.lock`. Flutter’s
 built-in license page displays the complete license texts bundled by the
 Flutter SDK and those packages. The direct runtime packages include:

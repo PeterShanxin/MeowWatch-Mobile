@@ -26,7 +26,10 @@ from tools.android_lifecycle_runtime.run import playback
 from tools.android_native_ui.observer import DEFAULT_APK, NativeUiObserver
 
 
-STAGES = ("permanent-acquire", "permanent-release", "transient-acquire", "transient-release")
+HELD_STAGES = ("permanent-acquire", "permanent-release", "transient-acquire", "transient-release")
+STAGES = ("early-short-ready", "early-short-acquire", *HELD_STAGES)
+EARLY_AUTO_RELEASE_MS = 350
+EARLY_WINDOW_MS = 3000
 AVD_NAME = re.compile(r"meowwatch_interruption_[0-9]+_[0-9]+")
 
 
@@ -35,8 +38,56 @@ def validate_journey(value: object, stages: list[dict]) -> dict:
         raise RuntimeFailure("integration driver has no Together focus report")
     journey = value["togetherFocus"]
     if (journey.get("result") != "passed" or journey.get("peerCompletedTlsHello") is not True
-            or len(stages) != 4 or [item["stage"] for item in stages] != list(STAGES)):
+            or len(stages) != len(STAGES) or [item["stage"] for item in stages] != list(STAGES)):
         raise RuntimeFailure("native stages or real TLS peer were not completed")
+    early = journey.get("earlyShort")
+    if (not isinstance(early, dict) or early.get("testSidePauseDuringInterruption") is not False
+            or early.get("ready") != stages[0] or early.get("acquire") != stages[1]):
+        raise RuntimeFailure("early short focus case is missing matching native receipts")
+    ready, acquire = stages[:2]
+    request, release = acquire.get("request"), acquire.get("release")
+    marker = ready.get("deviceElapsedRealtimeMs")
+    if (type(marker) is not int or not isinstance(request, dict) or not isinstance(release, dict)
+            or ready.get("appForegroundBeforePeerPlay") is not True
+            or acquire.get("appOwnedFocusAfterPeerPlay") is not True
+            or ready.get("appPid") != acquire.get("appPid")
+            or type(request.get("requestStartedElapsedRealtimeMs")) is not int
+            or type(request.get("elapsedRealtimeMs")) is not int
+            or type(release.get("elapsedRealtimeMs")) is not int
+            or not marker <= request["requestStartedElapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
+                    < release["elapsedRealtimeMs"] < marker + EARLY_WINDOW_MS
+            or release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] > 500
+            or request.get("gain") != 2 or release.get("gain") != 2
+            or request.get("event") != "requested" or release.get("event") != "released"
+            or request.get("result") != 1 or release.get("result") != 1
+            or acquire.get("autoReleaseMs") != EARLY_AUTO_RELEASE_MS
+            or acquire.get("fromPrePeerPlayMarkerToReleaseMs") != release["elapsedRealtimeMs"] - marker
+            or acquire.get("limitMs") != EARLY_WINDOW_MS
+            or acquire.get("nativeUi", {}).get("playing") is not False):
+        raise RuntimeFailure("early short focus has no exact bounded device-clock proof")
+    early_before, early_paused, early_released, early_replay = (
+        early.get(key) for key in ("before", "paused", "afterRelease", "explicitReplay"))
+    if any(not isinstance(row, dict) for row in (early_before, early_paused, early_released, early_replay)):
+        raise RuntimeFailure("early short focus snapshots are incomplete")
+    for row in (early_before, early_paused, early_released, early_replay):
+        if (row.get("nativeReady") is not True or row.get("nativeError") is not None
+                or type(row.get("nativePositionMs")) is not int or row["nativePositionMs"] < 0
+                or type(row.get("nativeDurationMs")) is not int or row["nativeDurationMs"] < 170000
+                or type(row.get("peerPositionMs")) is not int):
+            raise RuntimeFailure("early native decoder or peer position evidence is invalid")
+    if (early.get("tlsPeerPlay") is not True or early.get("peerName") != early_before.get("peerSetter")
+            or early_before.get("nativePlaying") is not True or early_before.get("peerPaused") is not False
+            or any(row.get("nativePlaying") is not False or row.get("peerPaused") is not True
+                   for row in (early_paused, early_released))
+            or early_replay.get("nativePlaying") is not True or early_replay.get("peerPaused") is not False
+            or early_replay["nativePositionMs"] <= early_released["nativePositionMs"] + 500
+            or abs(early_released["nativePositionMs"] - early_paused["nativePositionMs"]) > 1500):
+        raise RuntimeFailure("early TLS peer Play, focus pause or explicit replay failed")
+    early_monitor = early.get("noAutoplayMonitor")
+    if (not isinstance(early_monitor, dict) or early_monitor.get("sawNativePause") is not True
+            or early_monitor.get("forbiddenNativePlayEvents") != []
+            or type(early_monitor.get("monitoredMs")) is not int or early_monitor["monitoredMs"] < 4000):
+        raise RuntimeFailure("early native playback was not continuously monitored after its first pause")
     cases = journey.get("cases")
     if not isinstance(cases, list) or len(cases) != 2:
         raise RuntimeFailure("both focus modes need complete Together snapshots")
@@ -147,20 +198,21 @@ class FocusSession:
         raw = self.raw(stage, "helper-events", "logcat", "-d", "-v", "epoch", "MWFocusProbe:I", "*:S")
         return probe_events(raw, self.nonce, self.helper_uid, self.helper_pid, gain=self.gain)
 
-    def _command(self, stage: str, action: str) -> dict:
+    def _command(self, stage: str, action: str, *, early_short: bool = False) -> dict:
         command = "start-foreground-service" if action == "acquire" else "startservice"
         mode = ("--es", "mode", "transient") if self.gain == 2 and action == "acquire" else ()
+        auto_release = ("--ei", "autoReleaseMs", str(EARLY_AUTO_RELEASE_MS)) if early_short else ()
         result = self.raw(stage, "command", "shell", "am", command, "--user", "0", "-n", SERVICE,
-                          "-a", action, "--es", "nonce", self.nonce, *mode)
+                          "-a", action, "--es", "nonce", self.nonce, *mode, *auto_release)
         if "Starting service:" not in result or "Error" in result or "Exception" in result:
             raise RuntimeFailure("Android rejected the native focus helper command")
         deadline = time.monotonic() + 15
-        expected = ["requested"] if action == "acquire" else ["requested", "released"]
+        expected = ["requested", "released"] if early_short or action == "release" else ["requested"]
         while time.monotonic() < deadline:
             events = self._events(stage)
             if [row["event"] for row in events] == expected:
                 self.events = events
-                if action == "acquire":
+                if action == "acquire" and not early_short:
                     actual = self.adb.run("shell", "pidof", HELPER).stdout.decode().strip()
                     if actual != str(events[0]["pid"]):
                         raise RuntimeFailure("focus grant is not from the current helper process")
@@ -172,6 +224,56 @@ class FocusSession:
     def stage(self, stage: str) -> dict:
         if stage != STAGES[len(self.completed)]:
             raise RuntimeFailure("focus stages must be issued once and in order")
+        if stage == "early-short-ready":
+            self.foreground(stage)
+            self.app_uid = package_uid(self.adb.run("shell", "pm", "list", "packages", "-U", "--user", "0", PACKAGE).stdout.decode(), PACKAGE)
+            uptime = self.adb.run("shell", "cat", "/proc/uptime").stdout.decode().strip()
+            match = re.fullmatch(r"([0-9]+)\.([0-9]{2}) [0-9]+\.[0-9]{2}", uptime)
+            if match is None:
+                raise RuntimeFailure("device monotonic uptime marker is invalid")
+            marker = int(match[1]) * 1000 + int(match[2]) * 10
+            row = {"stage": stage, "completed": True, "deviceElapsedRealtimeMs": marker,
+                   "appPid": self.app_pid, "appUid": self.app_uid,
+                   "appForegroundBeforePeerPlay": True}
+            self.completed.append(row)
+            return row
+        if stage == "early-short-acquire":
+            ready = self.completed[0]
+            self.gain = 2
+            self.nonce = secrets.token_hex(16)
+            self.helper_pid = None
+            self.events = []
+            require_focus(self.raw(stage, "app-focus", "shell", "dumpsys", "audio"), PACKAGE, self.app_uid)
+            release = self._command(stage, "acquire", early_short=True)
+            request = self.events[0]
+            start = ready["deviceElapsedRealtimeMs"]
+            if (request["requestStartedElapsedRealtimeMs"] < start
+                    or release["elapsedRealtimeMs"] <= request["elapsedRealtimeMs"]
+                    or release["elapsedRealtimeMs"] - start >= EARLY_WINDOW_MS
+                    or release["elapsedRealtimeMs"] - request["elapsedRealtimeMs"] > 500):
+                raise RuntimeFailure("short focus grant and auto-release did not fit the measured early window")
+            xml, window = self.observer.observe()
+            (self.output / f"{stage}.xml").write_text(xml, encoding="utf-8")
+            (self.output / f"{stage}-observer-window.txt").write_text(window, encoding="utf-8")
+            (self.output / f"{stage}.png").write_bytes(self.adb.screenshot())
+            native = playback(xml, expected_duration_seconds=180)
+            if native.playing:
+                raise RuntimeFailure("Together native UI resumed after brief transient focus release")
+            audio = self.raw(stage, "focus-stack", "shell", "dumpsys", "audio")
+            if any(row["package"] == HELPER for row in focus_stack(audio)):
+                raise RuntimeFailure("auto-released helper still owns audio focus")
+            self.foreground(stage + "-after")
+            row = {"stage": stage, "completed": True, "request": request, "release": release,
+                   "autoReleaseMs": EARLY_AUTO_RELEASE_MS,
+                   "fromPrePeerPlayMarkerToReleaseMs": release["elapsedRealtimeMs"] - start,
+                   "limitMs": EARLY_WINDOW_MS, "appPid": self.app_pid,
+                   "appOwnedFocusAfterPeerPlay": True,
+                   "nativeUi": {"playing": native.playing, "positionSeconds": native.position_seconds,
+                                "durationSeconds": native.duration_seconds,
+                                "xmlSha256": hashlib.sha256(xml.encode()).hexdigest(),
+                                "capture": self.observer.observations[-1]}}
+            self.completed.append(row)
+            return row
         mode, action = stage.split("-")
         self.gain = 1 if mode == "permanent" else 2
         self.foreground(stage + "-before")

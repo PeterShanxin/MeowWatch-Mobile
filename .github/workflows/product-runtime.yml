@@ -16,6 +16,7 @@ on:
       - 'lib/core/**'
       - 'lib/app/app_controller.dart'
       - 'pubspec.*'
+      - 'third_party/video_player_android/**'
 
 permissions:
   contents: read

@@ -39,8 +39,15 @@ void main() {
     VideoPlayerPlatform.instance = originalPlatform;
   });
 
-  LocalMobileTarget createTarget({bool mixWithOthers = false}) {
-    final target = LocalMobileTarget(mixWithOthers: mixWithOthers);
+  LocalMobileTarget createTarget({
+    bool mixWithOthers = false,
+    Future<void> Function(int playerId, bool required)?
+    configureInterruptionPolicy,
+  }) {
+    final target = LocalMobileTarget(
+      mixWithOthers: mixWithOthers,
+      configureInterruptionPolicy: configureInterruptionPolicy,
+    );
     targets.add(target);
     return target;
   }
@@ -196,6 +203,138 @@ void main() {
     gate.complete();
     await _flushEvents();
     expect(platform.rates.last, 1);
+  });
+
+  test(
+    'room policy reaches each decoder and teardown restores Local Mode',
+    () async {
+      final configured = <(int, bool)>[];
+      final target = createTarget(
+        configureInterruptionPolicy: (id, required) async {
+          configured.add((id, required));
+        },
+      );
+      final sync = SyncTestCore();
+      final bridge = PlaybackSyncBridge(
+        target: target,
+        sync: sync,
+        authorizePlayback: () async => true,
+      )..start();
+      try {
+        await bridge.load(_media('first-room-source'));
+        final firstId = target.controller!.playerId;
+        expect(configured, [(firstId, true)]);
+        await bridge.load(_media('replacement-room-source'));
+        final secondId = target.controller!.playerId;
+        expect(secondId, isNot(firstId));
+        expect(configured.last, (secondId, true));
+        await bridge.dispose();
+        expect(configured.last, (secondId, false));
+        final count = configured.length;
+        await target.play();
+        expect(configured.length, count);
+        expect(target.snapshot.playing, isTrue);
+      } finally {
+        await bridge.dispose();
+        await sync.dispose();
+      }
+    },
+  );
+
+  test('old room teardown cannot clear a replacement room policy', () async {
+    final configured = <bool>[];
+    final target = createTarget(
+      configureInterruptionPolicy: (_, required) async {
+        configured.add(required);
+      },
+    );
+    final oldRoom = Object();
+    final newRoom = Object();
+    await target.requireExplicitResume(oldRoom);
+    await target.load(_media('overlapping-rooms'));
+    await target.requireExplicitResume(newRoom);
+    await target.releaseExplicitResume(oldRoom);
+    expect(configured, [true]);
+    await target.releaseExplicitResume(newRoom);
+    expect(configured, [true, false]);
+    await target.releaseExplicitResume(oldRoom);
+    expect(configured, [true, false]);
+  });
+
+  test(
+    'Play waits for a new room policy during pending Local Mode reset',
+    () async {
+      final configured = <bool>[];
+      final reset = Completer<void>();
+      final newPolicy = Completer<void>();
+      var holdReset = false;
+      var holdPolicy = false;
+      final target = createTarget(
+        configureInterruptionPolicy: (_, required) async {
+          configured.add(required);
+          if (!required && holdReset) await reset.future;
+          if (required && holdPolicy) await newPolicy.future;
+        },
+      );
+      final oldRoom = Object();
+      final newRoom = Object();
+      await target.requireExplicitResume(oldRoom);
+      await target.load(_media('policy-transition'));
+      holdReset = true;
+      final releasing = target.releaseExplicitResume(oldRoom);
+      await _flushEvents();
+      final playing = target.play();
+      holdPolicy = true;
+      final acquiring = target.requireExplicitResume(newRoom);
+      reset.complete();
+      await _flushEvents();
+      expect(configured, [true, false, true]);
+      expect(platform.playCalls, 0);
+      newPolicy.complete();
+      await Future.wait([releasing, acquiring, playing]);
+      expect(platform.playCalls, 1);
+      expect(target.snapshot.playing, isTrue);
+    },
+  );
+
+  test('unconfirmed native policy blocks Play and can be retried', () async {
+    var reject = false;
+    final target = createTarget(
+      configureInterruptionPolicy: (_, required) async {
+        if (required && reject) throw PlatformException(code: 'policy_failed');
+      },
+    );
+    await target.load(_media('policy-failure'));
+    reject = true;
+    await expectLater(
+      target.requireExplicitResume(Object()),
+      throwsA(isA<PlatformException>()),
+    );
+    await expectLater(target.play(), throwsA(isA<PlatformException>()));
+    expect(platform.playCalls, 0);
+    reject = false;
+    await target.play();
+    expect(platform.playCalls, 1);
+  });
+
+  test('pause cancels Play waiting for native policy confirmation', () async {
+    final policy = Completer<void>();
+    var holdPolicy = false;
+    final target = createTarget(
+      configureInterruptionPolicy: (_, required) async {
+        if (required && holdPolicy) await policy.future;
+      },
+    );
+    await target.load(_media('policy-pause'));
+    holdPolicy = true;
+    final acquiring = target.requireExplicitResume(Object());
+    final playing = target.play();
+    await _flushEvents();
+    await target.pause();
+    policy.complete();
+    await Future.wait([acquiring, playing]);
+    expect(platform.playCalls, 0);
+    expect(target.snapshot.playing, isFalse);
   });
 
   test(

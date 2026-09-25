@@ -40,6 +40,7 @@ on:
       - 'lib/**'
       - 'android/**'
       - 'pubspec.*'
+      - 'third_party/video_player_android/**'
 
 permissions:
   contents: read

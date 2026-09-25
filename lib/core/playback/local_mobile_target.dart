@@ -1,19 +1,25 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../media/media_item.dart';
 import 'playback_target.dart';
 
-class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
+class LocalMobileTarget extends PlaybackTarget
+    implements PlaybackRateTarget, PlaybackInterruptionTarget {
   LocalMobileTarget({
     bool mixWithOthers = false,
     this.rateCommandTimeout = const Duration(seconds: 5),
+    Future<void> Function(int playerId, bool required)?
+    configureInterruptionPolicy,
   }) : _options = VideoPlayerOptions(
          mixWithOthers: mixWithOthers,
          allowBackgroundPlayback: true,
-       );
+       ),
+       _configureInterruptionPolicy =
+           configureInterruptionPolicy ?? _configureAndroidInterruptionPolicy;
 
   VideoPlayerController? _controller;
   PlaybackSnapshot _snapshot = const PlaybackSnapshot();
@@ -25,6 +31,66 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
   bool _playRequested = false;
   Future<void> _rateTail = Future<void>.value();
   final Duration rateCommandTimeout;
+  final Future<void> Function(int playerId, bool required)
+  _configureInterruptionPolicy;
+  final Set<Object> _explicitResumeOwners = Set<Object>.identity();
+  Future<void> _policyTail = Future<void>.value();
+  VideoPlayerController? _policyController;
+  bool? _appliedExplicitResume;
+
+  static Future<void> _configureAndroidInterruptionPolicy(
+    int playerId,
+    bool required,
+  ) async {
+    if (!Platform.isAndroid) return;
+    await const MethodChannel(
+      'com.meowwatch.mobile/player_focus',
+    ).invokeMethod<void>('setRequireExplicitResume', {
+      'playerId': playerId,
+      'required': required,
+    });
+  }
+
+  @override
+  Future<void> requireExplicitResume(Object owner) {
+    if (_closed) return Future<void>.value();
+    _explicitResumeOwners.add(owner);
+    return _applyInterruptionPolicy(_controller);
+  }
+
+  @override
+  Future<void> releaseExplicitResume(Object owner) {
+    if (!_explicitResumeOwners.remove(owner) || _closed) {
+      return Future<void>.value();
+    }
+    return _applyInterruptionPolicy(_controller);
+  }
+
+  Future<void> _applyInterruptionPolicy(VideoPlayerController? controller) {
+    if (controller == null || _closed) return Future<void>.value();
+    final operation = _policyTail.then((_) async {
+      while (!_closed && identical(controller, _controller)) {
+        final required = _explicitResumeOwners.isNotEmpty;
+        if (identical(_policyController, controller) &&
+            _appliedExplicitResume == required) {
+          return;
+        }
+        await _configureInterruptionPolicy(
+          controller.playerId,
+          required,
+        ).timeout(const Duration(seconds: 5));
+        if (_closed || !identical(controller, _controller)) return;
+        _policyController = controller;
+        _appliedExplicitResume = required;
+        // A new room may acquire the policy while a Local Mode update is in
+        // flight. Confirm the latest requirement before releasing waiting Play.
+      }
+    });
+    // A failed policy remains unapplied; the next Play retries it and cannot
+    // start native playback unless the required policy is confirmed.
+    _policyTail = operation.catchError((Object _) {});
+    return operation;
+  }
 
   // MainApp owns lifecycle pause. The plugin's lifecycle observer otherwise
   // restores its remembered play state on resume and can undo that pause.
@@ -100,6 +166,8 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
         return;
       }
       _controller = next;
+      await _applyInterruptionPolicy(next);
+      if (generation != _loadGeneration || _closed) return;
       next.addListener(_onPlayerChanged);
       if (position > Duration.zero) {
         await next.seekTo(
@@ -164,8 +232,14 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
   @override
   Future<void> play() async {
     if (!_snapshot.ready) throw StateError('Open a video before playing.');
-    _positionGeneration++;
+    final commandGeneration = ++_positionGeneration;
     final controller = _controller!;
+    await _applyInterruptionPolicy(controller);
+    if (_closed ||
+        commandGeneration != _positionGeneration ||
+        !identical(controller, _controller)) {
+      return;
+    }
     final pausedPosition = _pausedPosition;
     if (pausedPosition != null) {
       // Resume from the confirmed pause cache, even if an old poll arrived.
@@ -240,6 +314,8 @@ class LocalMobileTarget extends PlaybackTarget implements PlaybackRateTarget {
   Future<void> close() async {
     if (_closed) return;
     _closed = true;
+    _explicitResumeOwners.clear();
+    _policyController = null;
     _loadGeneration++;
     _positionGeneration++;
     _pausedPosition = null;

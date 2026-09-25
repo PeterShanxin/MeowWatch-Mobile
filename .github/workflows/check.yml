@@ -138,6 +138,49 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  native-player:
+    if: ${{ !inputs.repository_audit_only && !inputs.submission_edit && !inputs.native_observer_only }}
+    name: Android player interruption policy
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2
+        with:
+          flutter-version: '3.44.0'
+          channel: stable
+          cache: true
+      - run: flutter pub get --enforce-lockfile
+      - name: Build normal Android app with the pinned player
+        run: flutter build apk --debug --target-platform android-x64
+      - name: Test native focus policy and upstream player contracts
+        working-directory: android
+        run: |
+          cat > "$RUNNER_TEMP/meowwatch-player-tests.gradle" <<'GRADLE'
+          allprojects {
+            tasks.withType(Test).configureEach {
+              maxParallelForks = 1
+              jvmArgs = jvmArgs.findAll { !it.startsWith('-Xmx') }
+              maxHeapSize = '2g'
+            }
+          }
+          GRADLE
+          ./gradlew :video_player_android:testDebugUnitTest --no-daemon --max-workers=1 \
+            -Dorg.gradle.jvmargs="-Xmx2G -XX:MaxMetaspaceSize=1G" \
+            --init-script "$RUNNER_TEMP/meowwatch-player-tests.gradle"
+      - name: Retain native player test results
+        if: always()
+        uses: actions/upload-artifact@330a01c490aca151604b8cf639adc76d48f6c5d4
+        with:
+          name: native-player-tests
+          path: |
+            build/video_player_android/test-results/
+            build/video_player_android/reports/tests/
+          if-no-files-found: warn
+          retention-days: 14
+
   film:
     if: ${{ inputs.submission_edit != '' && !inputs.repository_audit_only }}
     permissions:

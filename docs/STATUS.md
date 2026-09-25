@@ -9,7 +9,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | 29eafe2 passes normal API 29/35 debug and API 35 release clean install in hosted run 36074182955. The original normal-release APK hash, clean-install receipt, first-use and shared-video screens are reviewed. These are normal lib/main.dart APKs; release is debug-signed with billing disabled. Physical-device acceptance remains separate |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36083540519 at a4b8107 passes the secret scan, formatting, analysis, 828 app tests, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Hosted Check 36086014156 at 4be67e8 passes the secret scan, formatting, analysis, 831 app tests, Nearby/platform contracts and independent native observer SDK compilation. Final artifacts and repository closeout remain open |
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
@@ -165,8 +165,20 @@ native Play events on focus release. Independent review identifies a remaining
 early-interruption gap: if focus returns before a peer command's settle window
 ends, the pause can still be dismissed as an echo. That requires a reliable
 native interruption policy rather than guessing from playback snapshots. The
-held-interruption fix and this short-interruption boundary both remain subject
-to cloud validation; Together focus is not yet accepted.
+held-interruption fix passes hosted Check `36086014156` at `4be67e8` with
+831 app tests. Together focus is not yet accepted.
+
+The short-interruption repair uses a pinned BSD-licensed copy of
+`video_player_android` 2.12.2. A per-player policy pauses ExoPlayer synchronously
+on transient audio-focus suppression, before focus can return. ExoPlayer keeps
+ownership of audio focus; Local Mode retains its default behavior. The phone
+target confirms the room's policy before exposing a new decoder or issuing
+Play. Identity-scoped room ownership prevents old teardown from disabling a
+replacement room's policy. New target tests cover reload, return to Local Mode,
+overlapping ownership, pending policy updates, failure and Play cancellation.
+The second independent review finds no remaining source defect. Hosted checks
+now include the pinned player's native unit suite and a normal debug APK build;
+this repair still requires fresh cloud and Android runtime evidence.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

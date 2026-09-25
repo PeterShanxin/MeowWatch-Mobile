@@ -81,6 +81,13 @@ class PlaybackSyncBridge {
 
   void start() {
     if (_disposed || _playerSub != null) return;
+    final playback = target;
+    if (playback is PlaybackInterruptionTarget) {
+      // Acquire synchronously so even a source loaded immediately after start
+      // receives the native policy before it can play.
+      final ready = playback.requireExplicitResume(this);
+      _background(_enqueue(() => ready));
+    }
     _connected =
         sync.lastConnectionState?.status == SyncConnectionStatus.connected;
     _playerSub = target.states.listen(_onPlayer);
@@ -1174,6 +1181,18 @@ class PlaybackSyncBridge {
     await _peerSub?.cancel();
     await _roomSub?.cancel();
     await _connectionSub?.cancel();
+    final playback = target;
+    if (playback is PlaybackInterruptionTarget) {
+      try {
+        await playback.releaseExplicitResume(this).timeout(commandTimeout);
+      } catch (error) {
+        try {
+          onError?.call(error);
+        } catch (_) {
+          // Diagnostic only; the room has already released its listeners.
+        }
+      }
+    }
     // Target and SyncCore are owned by the session controller.
   }
 }

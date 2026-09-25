@@ -5,3 +5,6 @@ include: package:flutter_lints/flutter.yaml
 analyzer:
   exclude:
     - packages/**
+    # Pinned upstream Dart source; Android policy changes have hosted native
+    # unit tests, and the application checks exercise the integration.
+    - third_party/**

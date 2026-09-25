@@ -17,6 +17,7 @@ class PlaybackSyncBridge {
     this.commandTimeout = const Duration(seconds: 5),
     this.settleWindow = const Duration(seconds: 3),
     this.rateCorrectionWindow = const Duration(seconds: 25),
+    this.roomClockNow,
   });
 
   final PlaybackTarget target;
@@ -26,6 +27,12 @@ class PlaybackSyncBridge {
   final Duration commandTimeout;
   final Duration settleWindow;
   final Duration rateCorrectionWindow;
+
+  /// Injected only by deterministic room-clock tests.
+  final Duration Function()? roomClockNow;
+  static const _roomClockStabilityWindow = Duration(seconds: 3);
+  final Stopwatch _roomClock = Stopwatch()..start();
+  Duration get _now => roomClockNow?.call() ?? _roomClock.elapsed;
   StreamSubscription<PlaybackSnapshot>? _playerSub;
   StreamSubscription<PeerPlayState>? _peerSub;
   StreamSubscription<PeerPlayState>? _roomSub;
@@ -60,8 +67,13 @@ class PlaybackSyncBridge {
   bool _rateDirty = false;
   bool _rateResetPending = false;
   int _rateResetAttempts = 0;
+  Object? _lastRateResetError;
   Timer? _rateResetRetry;
   int _rateGeneration = 0;
+  _StableRoomClock? _stableRoomClock;
+  bool _localCalibrationPending = false;
+  int? _localCalibrationIntent;
+  int? _localCalibrationSource;
 
   /// Keep the accepted room intent through transient native buffering events.
   bool get playRequested => _hasSource && _publishedPaused == false;
@@ -396,6 +408,7 @@ class PlaybackSyncBridge {
   }
 
   void _considerRateCorrection(PlaybackSnapshot state) {
+    if (_localCalibrationPending) return;
     if (target is! PlaybackRateTarget ||
         !_connected ||
         !_hasSource ||
@@ -404,6 +417,7 @@ class PlaybackSyncBridge {
         state.buffering ||
         _publishedPaused != false ||
         _playStartCatchUp != null) {
+      _stableRoomClock = null;
       _stopRateCorrection();
       return;
     }
@@ -424,6 +438,7 @@ class PlaybackSyncBridge {
     final room = sync.lastAdvancingRoomState;
     final age = sync.lastAdvancingRoomStateAge;
     if (room == null || age == null || age >= const Duration(seconds: 2)) {
+      _stableRoomClock = null;
       _stopRateCorrection(
         preserveWindow: true,
         waitForFreshHeartbeat: _rateWindow != null,
@@ -431,18 +446,22 @@ class PlaybackSyncBridge {
       return;
     }
     if (room.paused || room.doSeek || room.setBy == null) {
+      _stableRoomClock = null;
       _stopRateCorrection();
       return;
     }
     final ahead = state.position - (room.position + age);
     if (ahead < const Duration(milliseconds: 450) ||
         ahead >= const Duration(seconds: 4)) {
+      _stableRoomClock = null;
       _stopRateCorrection(cooldown: ahead < const Duration(milliseconds: 450));
       return;
     }
     if (ahead < const Duration(milliseconds: 900)) {
       _strongRateCorrection = false;
     }
+    _observeStableRoomClock(room, age, ahead);
+    if (_maybeCalibrateLocalClock(state, room, age, ahead)) return;
     // A failed native 1x command leaves the actual speed uncertain. Do not
     // issue another slowdown until restoration has succeeded.
     if (_rateDirty && _requestedRate == 1) return;
@@ -465,6 +484,153 @@ class PlaybackSyncBridge {
       _strongRateCorrection = true;
     }
     _requestRate(_strongRateCorrection ? 0.90 : 0.95);
+  }
+
+  void _observeStableRoomClock(
+    PeerPlayState room,
+    Duration age,
+    Duration ahead,
+  ) {
+    if (ahead < const Duration(seconds: 2)) {
+      _stableRoomClock = null;
+      return;
+    }
+    final candidate = _stableRoomClock;
+    if (candidate == null || candidate.setter != room.setBy) {
+      _stableRoomClock = _StableRoomClock(room, age, _now);
+      return;
+    }
+    if (identical(candidate.lastRoom, room)) return;
+    // Server room time is projected; require successive received heartbeats
+    // to progress with wall time before using it for a local decoder seek.
+    final progress = room.position - candidate.firstPosition;
+    final wallProgress = candidate.elapsed(_now) + candidate.firstAge - age;
+    final mismatch = progress - wallProgress;
+    if (room.position <= candidate.lastRoom.position ||
+        mismatch < const Duration(milliseconds: -600) ||
+        mismatch > const Duration(milliseconds: 600)) {
+      _stableRoomClock = _StableRoomClock(room, age, _now);
+      return;
+    }
+    candidate.lastRoom = room;
+    candidate.samples++;
+  }
+
+  bool _maybeCalibrateLocalClock(
+    PlaybackSnapshot state,
+    PeerPlayState room,
+    Duration age,
+    Duration ahead,
+  ) {
+    final candidate = _stableRoomClock;
+    final window = _rateWindow;
+    if (candidate == null ||
+        window == null ||
+        candidate.elapsed(_now) < _roomClockStabilityWindow ||
+        candidate.samples < 3 ||
+        room.position - candidate.firstPosition <
+            _roomClockStabilityWindow - const Duration(milliseconds: 600) ||
+        (_localCalibrationIntent == _intent &&
+            _localCalibrationSource == _sourceGeneration)) {
+      return false;
+    }
+    final remaining = rateCorrectionWindow - window.elapsed;
+    // At 0.90x the leading decoder can shed at most 10% of the remaining
+    // correction window. Keep ordinary drift on the gentler rate path.
+    if (remaining <= Duration.zero ||
+        ahead -
+                Duration(
+                  microseconds: (remaining.inMicroseconds / 10).round(),
+                ) <=
+            const Duration(milliseconds: 450)) {
+      return false;
+    }
+    final position = room.position + age;
+    if (position < Duration.zero ||
+        (state.duration > Duration.zero &&
+            position >= state.duration - const Duration(milliseconds: 250))) {
+      return false;
+    }
+    final intent = _intent;
+    final source = _sourceGeneration;
+    _localCalibrationPending = true;
+    _requestRate(1);
+    _background(
+      _enqueue(() async {
+        var consumed = false;
+        try {
+          final currentRoom = sync.lastAdvancingRoomState;
+          final currentAge = sync.lastAdvancingRoomStateAge;
+          final current = target.snapshot;
+          final currentProgress = currentRoom == null
+              ? Duration.zero
+              : currentRoom.position - candidate.firstPosition;
+          final currentWallProgress = currentAge == null
+              ? Duration.zero
+              : candidate.elapsed(_now) + candidate.firstAge - currentAge;
+          final currentMismatch = currentProgress - currentWallProgress;
+          if (!_current(intent, source) ||
+              !_connected ||
+              _publishedPaused != false ||
+              !current.ready ||
+              !current.playing ||
+              current.buffering ||
+              !identical(_stableRoomClock, candidate) ||
+              currentRoom == null ||
+              currentAge == null ||
+              currentAge >= const Duration(seconds: 2) ||
+              currentRoom.setBy != candidate.setter ||
+              currentRoom.paused ||
+              currentRoom.doSeek ||
+              currentRoom.position < candidate.lastRoom.position ||
+              currentMismatch < const Duration(milliseconds: -600) ||
+              currentMismatch > const Duration(milliseconds: 600)) {
+            return;
+          }
+          final targetPosition = currentRoom.position + currentAge;
+          if (current.position - targetPosition < const Duration(seconds: 2) ||
+              (current.duration > Duration.zero &&
+                  targetPosition >=
+                      current.duration - const Duration(milliseconds: 250))) {
+            return;
+          }
+          _localCalibrationIntent = intent;
+          _localCalibrationSource = source;
+          consumed = true;
+          if (_rateDirty) {
+            throw _lastRateResetError ??
+                StateError(
+                  'Playback rate did not return to 1x before local calibration',
+                );
+          }
+          _applying++;
+          try {
+            // A decoder-only seek must never become a new room command.
+            await target.seek(targetPosition).timeout(commandTimeout);
+            if (_current(intent, source) && _publishedPaused == false) {
+              _acknowledge(
+                PeerPlayState(
+                  position: targetPosition,
+                  paused: false,
+                  setBy: currentRoom.setBy,
+                ),
+              );
+            }
+          } finally {
+            _applying--;
+          }
+        } finally {
+          _localCalibrationPending = false;
+          _stableRoomClock = null;
+          if (consumed && _current(intent, source)) {
+            _rateWindow = null;
+            _strongRateCorrection = false;
+            _rateCooldown = Stopwatch()..start();
+          }
+        }
+      }),
+    );
+    return true;
   }
 
   void _requestRate(double rate) {
@@ -522,13 +688,15 @@ class PlaybackSyncBridge {
           if (_disposed || generation != _rateGeneration) return;
           _rateResetPending = false;
           _rateDirty = false;
+          _lastRateResetError = null;
           _rateResetAttempts = 0;
           _rateResetRetry?.cancel();
           _rateResetRetry = null;
         },
-        onError: (Object _) {
+        onError: (Object error) {
           if (generation != _rateGeneration) return;
           _rateResetPending = false;
+          _lastRateResetError = error;
           if (_disposed || _rateResetAttempts >= 3) return;
           _rateResetRetry = Timer(
             Duration(milliseconds: 200 * _rateResetAttempts),
@@ -547,6 +715,7 @@ class PlaybackSyncBridge {
     bool preserveWindow = false,
     bool waitForFreshHeartbeat = false,
   }) {
+    _stableRoomClock = null;
     _rateExpiry?.cancel();
     _rateExpiry = null;
     if (cooldown && _rateWindow != null) {
@@ -980,6 +1149,22 @@ class PlaybackSyncBridge {
     await _connectionSub?.cancel();
     // Target and SyncCore are owned by the session controller.
   }
+}
+
+class _StableRoomClock {
+  _StableRoomClock(PeerPlayState room, this.firstAge, this.startedAt)
+    : setter = room.setBy!,
+      firstPosition = room.position,
+      lastRoom = room;
+
+  final String setter;
+  final Duration firstPosition;
+  final Duration firstAge;
+  final Duration startedAt;
+  PeerPlayState lastRoom;
+  int samples = 1;
+
+  Duration elapsed(Duration now) => now - startedAt;
 }
 
 class _ConnectionRecovery {

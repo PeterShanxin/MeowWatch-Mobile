@@ -1059,6 +1059,7 @@ void main() {
     Future<void> useRateTarget({
       Duration commandTimeout = const Duration(seconds: 5),
       Duration rateCorrectionWindow = const Duration(seconds: 25),
+      Duration Function()? roomClockNow,
     }) async {
       await bridge.dispose();
       await target.close();
@@ -1071,6 +1072,7 @@ void main() {
         onError: errors.add,
         commandTimeout: commandTimeout,
         rateCorrectionWindow: rateCorrectionWindow,
+        roomClockNow: roomClockNow,
       )..start();
       await bridge.load(movie);
       sync.connection(SyncConnectionStatus.connected);
@@ -1151,6 +1153,193 @@ void main() {
         await until(() => rateTarget.rates.last == 1);
       },
     );
+
+    test(
+      'large drift uses one local correction after a stable room clock',
+      () async {
+        var now = Duration.zero;
+        await useRateTarget(roomClockNow: () => now);
+        for (var tick = 0; tick < 4; tick++) {
+          now = Duration(seconds: tick);
+          heartbeat(const Duration(milliseconds: 6800) + now);
+          emitNativePosition(
+            target,
+            const Duration(seconds: 10) + now,
+            playing: true,
+          );
+          await Future<void>.delayed(Duration.zero);
+        }
+        await until(
+          () =>
+              target.commands.any((c) => c.startsWith('seek:')) &&
+              (target.snapshot.position -
+                          (sync.lastAdvancingRoomState!.position +
+                              sync.lastAdvancingRoomStateAge!))
+                      .abs() <
+                  const Duration(milliseconds: 500),
+        );
+        final roomNow =
+            sync.lastAdvancingRoomState!.position +
+            sync.lastAdvancingRoomStateAge!;
+        expect(
+          (target.snapshot.position - roomNow).abs(),
+          lessThan(const Duration(milliseconds: 500)),
+        );
+        expect(sync.changes, isEmpty);
+        expect(rateTarget.rates, containsAllInOrder([0.90, 1]));
+
+        final calibrated = target.snapshot.position;
+        final room = sync.lastAdvancingRoomState!.position;
+        for (var tick = 1; tick <= 4; tick++) {
+          now += const Duration(seconds: 1);
+          heartbeat(room + Duration(seconds: tick));
+          emitNativePosition(
+            target,
+            calibrated + Duration(seconds: tick),
+            playing: true,
+          );
+        }
+        expect(target.commands.where((c) => c.startsWith('seek:')).length, 1);
+      },
+    );
+
+    test('a backward room clock invalidates large-drift stability', () async {
+      var now = Duration.zero;
+      await useRateTarget(roomClockNow: () => now);
+      heartbeat(const Duration(milliseconds: 6800));
+      emitNativePosition(target, const Duration(seconds: 10), playing: true);
+      now = const Duration(seconds: 1);
+      heartbeat(const Duration(milliseconds: 7800));
+      emitNativePosition(target, const Duration(seconds: 11), playing: true);
+      now = const Duration(seconds: 2);
+      heartbeat(const Duration(milliseconds: 7700));
+      emitNativePosition(target, const Duration(seconds: 11), playing: true);
+      await Future<void>.delayed(Duration.zero);
+      expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+      expect(rateTarget.rates, contains(0.90));
+    });
+
+    test('failed 1x restoration cannot trigger or repeat local seek', () async {
+      var now = Duration.zero;
+      await useRateTarget(roomClockNow: () => now);
+      rateTarget.resetFailures = 1;
+      for (var tick = 0; tick < 4; tick++) {
+        now = Duration(seconds: tick);
+        heartbeat(const Duration(milliseconds: 6800) + now);
+        emitNativePosition(
+          target,
+          const Duration(seconds: 10) + now,
+          playing: true,
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+      await until(
+        () => errors.any(
+          (e) => e.toString().contains('native rate reset failed'),
+        ),
+      );
+      expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+      for (var tick = 4; tick < 8; tick++) {
+        now = Duration(seconds: tick);
+        heartbeat(const Duration(milliseconds: 6800) + now);
+        emitNativePosition(
+          target,
+          const Duration(seconds: 10) + now,
+          playing: true,
+        );
+      }
+      expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+      expect(sync.changes, isEmpty);
+    });
+
+    test('a queued local correction yields to a new pause intent', () async {
+      var now = Duration.zero;
+      await useRateTarget(roomClockNow: () => now);
+      final reset = Completer<void>();
+      rateTarget.resetGate = reset;
+      for (var tick = 0; tick < 4; tick++) {
+        now = Duration(seconds: tick);
+        heartbeat(const Duration(milliseconds: 6800) + now);
+        emitNativePosition(
+          target,
+          const Duration(seconds: 10) + now,
+          playing: true,
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+      await until(() => rateTarget.rates.contains(1));
+      final paused = bridge.pause();
+      reset.complete();
+      await paused;
+      expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+      expect(target.snapshot.playing, isFalse);
+      expect(sync.changes, [false]);
+    });
+
+    test(
+      'a queued local correction cannot seek a replacement source',
+      () async {
+        var now = Duration.zero;
+        await useRateTarget(roomClockNow: () => now);
+        final reset = Completer<void>();
+        rateTarget.resetGate = reset;
+        for (var tick = 0; tick < 4; tick++) {
+          now = Duration(seconds: tick);
+          heartbeat(const Duration(milliseconds: 6800) + now);
+          emitNativePosition(
+            target,
+            const Duration(seconds: 10) + now,
+            playing: true,
+          );
+          await Future<void>.delayed(Duration.zero);
+        }
+        await until(() => rateTarget.rates.contains(1));
+        await bridge.load(second);
+        reset.complete();
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        expect(target.snapshot.media, second);
+        expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+      },
+    );
+
+    test('buffering cancels a queued local correction', () async {
+      var now = Duration.zero;
+      await useRateTarget(roomClockNow: () => now);
+      final reset = Completer<void>();
+      rateTarget.resetGate = reset;
+      for (var tick = 0; tick < 4; tick++) {
+        now = Duration(seconds: tick);
+        heartbeat(const Duration(milliseconds: 6800) + now);
+        emitNativePosition(
+          target,
+          const Duration(seconds: 10) + now,
+          playing: true,
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+      await until(() => rateTarget.rates.contains(1));
+      emitNative(target, playing: false, buffering: true);
+      reset.complete();
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+      expect(sync.changes, isEmpty);
+
+      emitNative(target, playing: true, buffering: false);
+      await Future<void>.delayed(const Duration(milliseconds: 1100));
+      for (var tick = 4; tick < 8; tick++) {
+        now = Duration(seconds: tick);
+        heartbeat(const Duration(milliseconds: 6800) + now);
+        emitNativePosition(
+          target,
+          const Duration(seconds: 10) + now,
+          playing: true,
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+      await until(() => target.commands.any((c) => c.startsWith('seek:')));
+      expect(target.commands.where((c) => c.startsWith('seek:')).length, 1);
+      expect(sync.changes, isEmpty);
+    });
 
     test(
       'buffer chatter restores 1x and waits for stable ready playback',

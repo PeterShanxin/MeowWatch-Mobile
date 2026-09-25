@@ -241,7 +241,7 @@ class Device:
                 return
             except RuntimeFailure:
                 x1, y1, x2, y2 = history_swipe(xml)
-                self.adb.run("shell", "input", "swipe", str(x2), str(y2), str(x1), str(y1), "400")
+                self.adb.run("shell", "input", "swipe", str(x1), str(y1), str(x2), str(y2), "400")
         raise RuntimeFailure(f"home action {label!r} is not visible")
 
     def resume_local_history(self) -> int:

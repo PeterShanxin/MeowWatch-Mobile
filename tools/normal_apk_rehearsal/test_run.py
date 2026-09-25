@@ -9,7 +9,7 @@ from xml.sax.saxutils import escape
 from tools.android_install.runner import PACKAGE, RuntimeFailure
 from tools.android_lifecycle_runtime.run import button
 from tools.normal_apk_rehearsal.run import (
-    FIXTURE_URL, acknowledge_fullscreen_tip, entered_text_field,
+    Device, FIXTURE_URL, acknowledge_fullscreen_tip, entered_text_field,
     focused_text_field, history_context,
     join_sheet_ready, media_link_ready,
     rehearsed_playback, timeline_tap, unique_seekbar, unique_text_field,
@@ -159,6 +159,43 @@ class VisibleUiContract(unittest.TestCase):
         self.assertEqual(button(xml, label).get('clickable'), 'true')
         with self.assertRaises(RuntimeFailure):
             button(xml, 'Local Player Mode')
+
+    def test_home_action_scrolls_down_to_start_below_landscape_hero(self):
+        # The phone home after fullscreen in run 36134921762 was landscape:
+        # Continue Watching was visible, but Start a room was below the hero.
+        def home(content: str) -> str:
+            return tree(f'<node package="{PACKAGE}" class="android.widget.ScrollView" '
+                        'enabled="true" scrollable="true" bounds="[128,42][1600,678]">'
+                        + content + '</node>')
+
+        top = home(node('Continue Watching'))
+        lower = home(node('Start a room', kind='android.widget.Button', clickable=True))
+
+        class Adb:
+            def __init__(self):
+                self.at_lower_content = False
+                self.swipes = []
+
+            def run(self, *args):
+                self.swipes.append(args)
+                if args == ('shell', 'input', 'swipe', '864', '487', '864', '233', '400'):
+                    self.at_lower_content = True
+
+        adb = Adb()
+        observations = []
+        taps = []
+
+        def observe():
+            xml = lower if adb.at_lower_content else top
+            observations.append(xml)
+            return xml
+
+        device = SimpleNamespace(adb=adb, observe=observe, tap_node=taps.append)
+        Device.tap_home_action(device, 'Start a room')
+        self.assertEqual(adb.swipes, [
+            ('shell', 'input', 'swipe', '864', '487', '864', '233', '400')])
+        self.assertEqual(observations, [top, lower])
+        self.assertEqual(taps[0].get('text'), 'Start a room')
 
     def test_first_fullscreen_tip_uses_fresh_native_system_button(self):
         xml = tree(

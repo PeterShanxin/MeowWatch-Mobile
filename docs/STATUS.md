@@ -44,19 +44,19 @@ sources remain labeled.
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Check 36124174769 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks on current product source `0df32c6`. Draft PR #1 now includes the final UI fixes and film through `9e3f033`; its current checks are running. Main still contains the foundation README. Repository merge/closeout remains open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Current PR-head Check 36131237368 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks. Draft PR #1 at `9e3f033` has 25 successful and two skipped checks, with no pending or failed checks. Main still contains the foundation README. Repository merge/closeout remains open |
 | 3 | Clear first-launch create/join | Verified on emulators | Final-source five-viewport run 36103033060 and Together 36103033024 attempt 2 pass onboarding, Start, reviewed invitation and Join |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Together 36103033024 attempt 2 passes 26 host and 25 guest stages on two independent phone/tablet emulators. Settled positions match at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Final-source Together verifies native chat, reaction, presence and peer links. Test Store journey 36103033131 also verifies a premium reaction received by a headless TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Verified within stated runtime limits | Failed-decoder profile 36101860905 and current-head normal network 36131237104 pass. The latter uses one API 35 AVD, two real STARTTLS clients/decoders and one rendered MainApp. It verifies actual emulator radio loss, paused same-room recovery, unchanged quota and explicit replay/seek. Hosted lifecycle and physical Local/Nearby restart also pass; physical Together radio-loss recovery is not claimed |
 | 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
 | 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. The stale device-selector label fix passes hosted Check 36124174769. Desktop process restart is not claimed |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Hosted 36103033131 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Physical OnePlus passes native cancellation/failure/success, confirms active-customer Restore feedback, and retains Plus after relaunch. Feedback placement fix passes hosted Check 36124174769. No Google Play production billing claim |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Current-head hosted 36131237099 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Its original Settings screenshot was visually inspected: active Plus and successful Restore feedback appear directly below Restore. Physical OnePlus passes native cancellation/failure/success, confirms active-customer Restore feedback, and retains Plus after relaunch. No Google Play production billing claim |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | Latest Together and purchase journeys verify one free host, free joining, unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Physical phone and emulator layouts verified; final changes pending | Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded. Final UI fixes and hybrid film require review |
 | 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
 | 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Physical acceptance is recorded below; its two UI defects are fixed and pass hosted checks. Complete normal-APK rehearsal remains open |
-| 14 | Clean-install full demo rehearsal | Partial | Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. The latest ordinary API 35 install has no SDK Setup ANR recovery; the launch wait times out before the independent native observer verifies onboarding |
+| 14 | Clean-install full demo rehearsal | Partial | Ordinary-APK run 36134921762 passes two-way controls/chat, a peer reaction, phone fullscreen and Back, and both devices' saved history. It then stops before the second host because the runner swipes toward the top of the landscape home instead of exposing Start below the hero. The direction is corrected; a fresh complete run is required. Separate journeys do not replace this complete repair-free rehearsal |
 | 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and a 94-second hybrid film are prepared. Registration and Devpost draft fields are saved (3/5 sections). Final video publication, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
 
 ## Current verification
@@ -89,8 +89,14 @@ profile and from the ordinary-APK two-device rehearsal.
 Local audio-focus run `36131237463` attempt 1 stops before sending any focus
 interruption: advancing playback is visible, but the first native recording
 contains corrupt H.264 frames. It establishes no new focus-recovery result.
-A single same-head retry is running; the earlier accepted focus receipts remain
-scoped to their recorded source. No recording verifier is relaxed.
+The single same-head retry, attempt 2, passes on an ordinary `lib/main.dart`
+APK in an API 35 emulator. The foreground focus probe pauses Local playback
+within the observed 956 ms upper bound; the permanent-loss path stays at
+41 seconds after release until explicit Play, then advances to 56 seconds.
+Transient loss pauses at 78 seconds and Local playback resumes on focus return,
+advancing from 84 to 95 seconds. The app process stays the same, and the probe
+and observer are removed. These are emulator results, not phone-call hardware
+evidence. No recording verifier was relaxed.
 
 Earlier rehearsal `36120725219` loaded the exact fixture URL on both devices,
 then failed because its observer required a filename absent from the landscape
@@ -143,9 +149,20 @@ but Android's first-use "Viewing full screen / Got it" overlay blocks the app
 hierarchy observation. The runner now reuses the existing strict system-tip
 validator, confirms fresh button bounds and acknowledges the visible tip; the
 original app fullscreen/Back checks remain. Sixteen Python checks pass.
-Fresh rehearsal `36132938666` is running at `238cc6e`; an identical queued push
-run was cancelled to avoid duplicate work. These failed runs do not replace a
-full normal-APK journey; the remaining stages still need the complete rehearsal.
+Rehearsal `36132938666` at `238cc6e` passes the fullscreen tip and Back, then
+fails to parse tablet history. Its original screenshot and hierarchy show the
+correct room and saved `0:42 of 1:30`; Android merges that context into the
+progress bar label. `33ea6e7` matches the complete context line inside that
+label, retaining exact room/source and progress requirements. Seventeen focused
+runner checks pass. Run `36134921762` at `bae4cdf` then passes both devices'
+history and stops at the next Start action. Its landscape phone home shows the
+hero and Continue Watching, with Start below the viewport; the runner swipes
+toward the top. The direction is corrected, retaining a fresh exact clickable
+target check after every swipe. Eighteen focused runner checks pass. Purchase,
+Restore and Local Mode still require completion in one ordinary-APK run.
+An identical queued push run was cancelled to avoid duplicate work. These
+failed runs do not replace a full normal-APK journey; remaining stages still
+need the complete rehearsal.
 
 ### Earlier accepted product baseline, September 25
 

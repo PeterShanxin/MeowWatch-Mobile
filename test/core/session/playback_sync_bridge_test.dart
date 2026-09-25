@@ -1177,6 +1177,10 @@ void main() {
                               sync.lastAdvancingRoomStateAge!))
                       .abs() <
                   const Duration(milliseconds: 500),
+          diagnostics: () =>
+              'rates=${rateTarget.rates} commands=${target.commands} '
+              'errors=$errors native=${target.snapshot.position} '
+              'room=${sync.lastAdvancingRoomState?.position}',
         );
         final roomNow =
             sync.lastAdvancingRoomState!.position +
@@ -1237,6 +1241,10 @@ void main() {
         () => errors.any(
           (e) => e.toString().contains('native rate reset failed'),
         ),
+      );
+      expect(
+        errors.where((e) => e.toString().contains('native rate reset failed')),
+        hasLength(1),
       );
       expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
       for (var tick = 4; tick < 8; tick++) {
@@ -1336,7 +1344,13 @@ void main() {
         );
         await Future<void>.delayed(Duration.zero);
       }
-      await until(() => target.commands.any((c) => c.startsWith('seek:')));
+      await until(
+        () => target.commands.any((c) => c.startsWith('seek:')),
+        diagnostics: () =>
+            'rates=${rateTarget.rates} commands=${target.commands} '
+            'errors=$errors native=${target.snapshot.position} '
+            'room=${sync.lastAdvancingRoomState?.position}',
+      );
       expect(target.commands.where((c) => c.startsWith('seek:')).length, 1);
       expect(sync.changes, isEmpty);
     });
@@ -1749,11 +1763,16 @@ class RateTestTarget extends SyncTestTarget implements PlaybackRateTarget {
   }
 }
 
-Future<void> until(bool Function() condition) async {
+Future<void> until(
+  bool Function() condition, {
+  String Function()? diagnostics,
+}) async {
   final end = DateTime.now().add(const Duration(seconds: 3));
   while (!condition()) {
     if (DateTime.now().isAfter(end)) {
-      throw TimeoutException('condition not reached');
+      throw TimeoutException(
+        'condition not reached: ${diagnostics?.call() ?? ''}',
+      );
     }
     await Future<void>.delayed(const Duration(milliseconds: 10));
   }

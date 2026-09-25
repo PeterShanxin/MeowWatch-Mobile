@@ -598,10 +598,10 @@ class PlaybackSyncBridge {
           _localCalibrationSource = source;
           consumed = true;
           if (_rateDirty) {
-            throw _lastRateResetError ??
-                StateError(
-                  'Playback rate did not return to 1x before local calibration',
-                );
+            if (_lastRateResetError != null) return;
+            throw StateError(
+              'Playback rate did not return to 1x before local calibration',
+            );
           }
           _applying++;
           try {
@@ -678,35 +678,37 @@ class PlaybackSyncBridge {
     final generation = _rateGeneration;
     final rateTarget = target as PlaybackRateTarget;
     _background(
-      _enqueue(() {
+      _enqueue(() async {
         if (_disposed || generation != _rateGeneration) {
-          return Future<void>.value();
+          return;
         }
-        return rateTarget.setPlaybackRate(1).timeout(commandTimeout);
-      }).then<void>(
-        (_) {
-          if (_disposed || generation != _rateGeneration) return;
+        try {
+          await rateTarget.setPlaybackRate(1).timeout(commandTimeout);
+        } catch (error) {
+          if (generation == _rateGeneration) {
+            _rateResetPending = false;
+            _lastRateResetError = error;
+            if (!_disposed && _rateResetAttempts < 3) {
+              _rateResetRetry = Timer(
+                Duration(milliseconds: 200 * _rateResetAttempts),
+                () {
+                  _rateResetRetry = null;
+                  if (!_disposed && _requestedRate == 1) _queueRateReset();
+                },
+              );
+            }
+          }
+          rethrow;
+        }
+        if (!_disposed && generation == _rateGeneration) {
           _rateResetPending = false;
           _rateDirty = false;
           _lastRateResetError = null;
           _rateResetAttempts = 0;
           _rateResetRetry?.cancel();
           _rateResetRetry = null;
-        },
-        onError: (Object error) {
-          if (generation != _rateGeneration) return;
-          _rateResetPending = false;
-          _lastRateResetError = error;
-          if (_disposed || _rateResetAttempts >= 3) return;
-          _rateResetRetry = Timer(
-            Duration(milliseconds: 200 * _rateResetAttempts),
-            () {
-              _rateResetRetry = null;
-              if (!_disposed && _requestedRate == 1) _queueRateReset();
-            },
-          );
-        },
-      ),
+        }
+      }),
     );
   }
 

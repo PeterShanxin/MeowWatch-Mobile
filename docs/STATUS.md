@@ -33,6 +33,26 @@ secure pairing identities, control authorization and revocation. Nearby remains
 a same-emulator transport check, not physical Android-to-Windows acceptance.
 Local-file run `36074182994` retains the actual DocumentsUI grant and restores
 8,000 ms after process restart; its original restored-player PNG is reviewed.
+Production purchase `36074182983` passes all 12 stages, native cancellation,
+failure/success, same-customer Restore and two Plus rooms; three original screens
+are reviewed. Its native recording coverage is 96.796% with a 3.599-second largest
+gap, not uninterrupted footage or full-motion acceptance. Test Store relaunch
+`36074183058` preserves the same customer across different processes and observes
+real expiry followed by inactive Restore. Foreground audio focus `36074183098`
+passes on normal-release Local Mode: permanent pause upper bound 1,600 ms,
+transient pause 2,513 ms, and transient resume 5,268 ms. Three original screens
+and recording hashes are reviewed; this does not establish Together-room focus
+delivery or physical-device behavior.
+
+The follow-up Check `36077388034` at `0ab6f1f` passes formatting, analysis, the
+four new midnight quota checks, Nearby/platform and observer/media/secret checks.
+Two new local-calibration tests time out; the other 822 app tests pass. The
+calibration patch remains unaccepted until those failures and native convergence
+are resolved. No emulator run is started for that unaccepted patch.
+The follow-up commits speed-reset success/failure state inside the queued native
+command, before a following calibration can inspect it. An already reported
+reset error is not reported again by the calibration. The original timeouts and
+new failure diagnostics remain retained for the next cloud check.
 
 The cohort also retains four failed scenarios, without treating retries as proof:
 
@@ -61,6 +81,11 @@ The cohort also retains four failed scenarios, without treating retries as proof
   three recording hashes match cloud-decoded originals. Motion/transition review
   remains open. The tablet job times out delivering an observer result before
   entering fullscreen; its failure PNG shows an unobscured playing app.
+  Reconstructing all 12 progress messages exactly matches the retained stdout
+  hash: no final result was delivered. Android's original system log records
+  2.694 seconds of lock contention while unregistering UiAutomation, exceeding
+  the two-second result budget. This supports an observer infrastructure failure;
+  the capture remains failed, and neither its deadline nor acceptance is relaxed.
 
 Together `36074183064` separately exposes an invalid fixed-day assertion: the
 host plays before UTC midnight and the later free-allowance assertion expects

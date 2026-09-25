@@ -158,6 +158,10 @@ jobs:
       - name: Test native focus policy and upstream player contracts
         working-directory: android
         run: |
+          : "${JAVA_HOME_21_X64:?Java 21 is required for Robolectric Android SDK 36}"
+          export JAVA_HOME="$JAVA_HOME_21_X64"
+          export PATH="$JAVA_HOME/bin:$PATH"
+          java -version
           cat > "$RUNNER_TEMP/meowwatch-player-tests.gradle" <<'GRADLE'
           allprojects {
             tasks.withType(Test).configureEach {

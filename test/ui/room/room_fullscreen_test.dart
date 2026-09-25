@@ -110,6 +110,10 @@ void main() {
       Object? bodyError;
       StackTrace? bodyStack;
       try {
+        // Finish constructor microtasks before runAsync waits on the native
+        // boundary. A policy queue created in the fake zone cannot otherwise
+        // complete while runAsync holds that zone's clock.
+        await tester.pump(Duration.zero);
         await body(tester);
       } catch (error, stack) {
         bodyError = error;

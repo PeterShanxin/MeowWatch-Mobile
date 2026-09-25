@@ -200,6 +200,16 @@ the ID use is isolated and documented at the Android adapter boundary. The
 native extension and frontend versions are pinned and must pass the native
 integration gates. These compiler findings are not runtime acceptance.
 
+Check `36087429374` at `e639ef2` passes formatting, analysis and the normal
+Android APK build. Its native unit suite stops before policy methods run:
+the default SDK 36 Robolectric sandbox requires Java 21, but the runner used
+Java 17. The native-test step now selects the runner's installed Java 21 and
+retains SDK 36 coverage. The app suite reaches 819 passing tests before the
+first fullscreen widget fixture times out: it enters the real async zone
+before the new policy queue's constructor microtask can run in the fake zone.
+The fixture now flushes that zone before entering the native boundary. Both
+test repairs require a fresh hosted Check; neither failed job is accepted.
+
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,
 emulators and video processing run only in GitHub Actions.

@@ -14,3 +14,7 @@ When enabled, transient audio-focus playback suppression pauses its ExoPlayer
 immediately, including when the policy is enabled during suppression. The
 default is disabled; disabling does not start playback. Other suppression
 reasons and upstream ExoPlayer audio-focus/mix behavior remain unchanged.
+
+The native Robolectric CI step uses the hosted Java 21 runtime so the tests
+can run against the default Android SDK 36 sandbox. Upstream tests that
+explicitly select an older SDK keep their original coverage.

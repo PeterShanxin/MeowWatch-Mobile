@@ -1,6 +1,6 @@
 # Delivery status
 
-Last updated: 2026-09-25 (Asia/Shanghai). **Core and full-demo acceptance passed within the runtime limits below; repository closeout underway. Devpost entry not yet submitted.**
+Last updated: 2026-09-26 (Asia/Shanghai). **Public Android preview and submission materials are ready for Next Gen review within the limits below. Devpost entry awaits final submission confirmation.**
 
 The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUCT_SPEC.md). P0/P1/P2 define order, not scope cuts.
 
@@ -52,7 +52,7 @@ sources remain labeled.
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Check 36146573344 at `8720496` passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks. Three initial runtime failures and their bounded follow-up are recorded below; the earlier `9e3f033` gate had 25 successful and two skipped checks. Main still contains the foundation README. Repository merge/closeout remains open |
+| 2 | Public, licensed, documented, secret-free repository | Verified | PR #1 is merged as `7f05b9f`; main contains the complete app, AGPL license, setup, provenance and submission assets. Check 36156902449 passes at final PR head `a20921f`. Its secret audit covers 645 tracked files and 274 fetched commits with zero snapshot/history findings. Public prerelease `v0.1.0` includes the ordinary APK and source/install receipts |
 | 3 | Clear first-launch create/join | Verified on emulators | Ordinary-APK 36137630270 passes the first-run guide, visible Start and invitation code, and Join on independent API 35 phone/tablet emulators. Five-viewport run 36103033060 and Together 36103033024 attempt 2 also pass |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators and Windows/cloud Android | Ordinary-APK 36137630270 passes advancing native playback and play/pause/seek in both directions on independent phone/tablet emulators. [Cross-client 36143500404](CROSS_CLIENT_ACCEPTANCE_2026-09-25.md) also passes ordinary Windows/cloud Android controls in both directions, including matching paused 3:54 and 4:58 positions; Windows uses an unchanged downloaded copy after remote-source failure. Failed-decoder recovery passes 36101860905 on identical product code. Physical two-Android behavior and frame identity are not claimed |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Ordinary-APK 36137630270 visibly passes presence, chat in both directions and a peer reaction on the independent phone/tablet emulators. Earlier Together and Test Store journeys also pass; 36103033131 verifies a premium reaction received by a headless TLS peer |
@@ -65,11 +65,32 @@ sources remain labeled.
 | 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
 | 13 | No placeholders, dead ends or silent failures | Verified for the rehearsed demo path | Ordinary-APK 36137630270 completes the visible first-install path through two-client Together playback, history, quota paywall, native purchase, Restore and Local resume without a dead end. Earlier onboarding, recovery and failure-path checks retain their separate scope; physical acceptance and its corrected UI defects are recorded below |
 | 14 | Clean-install full demo rehearsal | Verified on two API 35 emulators | Ordinary `lib/main.dart` debug/Test Store APK run [36137630270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270) at `b5b9f77` completes on fresh independent phone/tablet emulators. It passes onboarding, visible invitation-code join, the same controlled URL and advancing native playback, two-way controls/chat, reaction, fullscreen/Back, both histories, free-host quota paywall, native Test Store success, a distinct Plus host, Settings Restore and Local leave/resume. This is emulator evidence, not physical two-device or production Google Play billing proof |
-| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and the 94-second hybrid film are prepared; complete ordinary-APK and Windows/cloud rehearsals pass. The final YouTube film is Unlisted with HD processing complete and is saved in the actual competition form. The Devpost project page is public, its academic account email is verified, and the competition entry remains unsubmitted. The desktop maintainer confirmed acceptance and PR #279 is merged. Desktop signed release and R2 verification pass. The form shows 4/5 steps complete; mobile repository closeout and final submission remain open |
+| 15 | Shipaton submission confidence | Prepared; final submission pending | Mobile PR #1 and desktop PR #279 are merged. Android `v0.1.0` and signed Windows `v0.51.0-alpha` are public. Complete ordinary-APK and Windows/cloud rehearsals pass. The 94-second film is Unlisted with HD processing complete and saved in the actual competition form. Devpost's public page includes the video, APK link, artwork, new mobile work/provenance and validation limits. The academic account email is verified. The form is at 4/5 steps; it has not been submitted |
 
 ## Current verification
 
 ### Final repository checks
+
+The Android [v0.1.0 Test Store prerelease](https://github.com/PeterShanxin/MeowWatch-Mobile/releases/tag/v0.1.0)
+is public at `a20921f`. An unauthenticated request to its APK download returns
+HTTP 200 and the expected 187,653,399-byte size; GitHub's uploaded digest matches
+the retained build receipt. The APK, source/install receipts and AGPL license
+are attached. Application code, packaged assets and dependencies remain
+identical to `a65b8ef`. Devpost's public project page now embeds the final film,
+links this download and both source repositories/releases, and discloses the
+Nearby social-relay and Cast limits. The actual competition judge notes save
+the same release and video URLs. The entry remains a 4/5-step draft.
+
+Final PR head `a20921f` includes only the lifecycle test correction and delivery
+documentation after `31c28a4`. [Check 36156902449](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36156902449)
+passes analysis/app tests, Nearby package contracts, media contracts, observer
+compilation and native player checks. The fresh secret
+audit scans 645 tracked files and 274 fetched commits with zero snapshot or
+history findings and no suspicious paths. Final-head lifecycle `36156901899`
+also passes. PR #1 is merged as `7f05b9f` with the same application tree. Some
+duplicate automatic runtime checks remain running; these are not counted as
+passed. The tag-triggered diagnostic motion probe `36157335828` was deliberately
+cancelled under the recording-tool freeze; it is not a product acceptance gate.
 
 At PR head `31c28a4`, 24 checks pass and two conditional jobs skip. The Check
 workflow's tested merge tree is identical to that head. Its secret audit scans
@@ -124,7 +145,8 @@ media and secret gates. The runtime checks retain three initial failures:
   Restore remaining inactive.
 
 Application code is unchanged from `0df32c6`; none of these test changes alters
-purchase, playback or quota behavior. Final mobile PR closeout remains pending.
+purchase, playback or quota behavior. Mobile PR #1 is now merged; the original
+failed runs remain part of the evidence record.
 
 ### Physical acceptance and final presentation revision
 

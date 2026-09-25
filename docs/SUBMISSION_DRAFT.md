@@ -109,11 +109,12 @@ Nearby control still needs explicit, revocable pairing.
 - [x] Obtain the desktop maintainer's final two-instance confirmation and merge
   desktop PR #279 at unchanged application source.
 - [x] Verify desktop signed release `v0.51.0-alpha` and R2 metadata.
-- [ ] Finish mobile repository closeout.
+- [x] Merge mobile PR #1 and publish the ordinary Android `v0.1.0` Test Store
+  APK with source/install receipts and a verified public download.
 - [x] Watch the complete final film at normal speed, verify a duration strictly
   under two minutes, accurate runtime and Test Store labels, rights to every
   asset, and a public YouTube or Vimeo link. Follow the [demo script](DEMO_SCRIPT.md).
-- [ ] Recheck the public repository, AGPL license visibility, desktop and asset
+- [x] Recheck the public repository, AGPL license visibility, desktop and asset
   provenance, setup instructions and final secret scan. Confirm the icon,
   original unframed 1179 × 2556 screenshot and gallery thumbnail are attached.
 - [x] Register after the entrant's explicit rules/terms and eligibility confirmation.

@@ -155,9 +155,11 @@ They retain the following tension:
 
 Operationally, use the explicit English no-store Next Gen path, disclose the
 desktop heritage, and retain the separate Android development history and
-license provenance. Organizer clarification of the mobile counterpart's
-new-work status is still outstanding; registration is not a ruling on that
-question. No message to the organizer has been sent on the entrant's behalf.
+license provenance. The entrant has confirmed eligibility and accepted the
+rules. The organizer retains the final decision on the mobile counterpart's
+new-work status; registration is not a ruling on that question. No separate
+organizer approval is required by the current submission form, and no message
+to the organizer has been sent on the entrant's behalf.
 
 The complete authenticated Devpost submission form was re-read on September 25
 at 07:19 UTC. **First Version Date Confirmation (27380) is now optional**, as

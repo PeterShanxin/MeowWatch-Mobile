@@ -1,6 +1,6 @@
 # MeowWatch Mobile — Devpost submission draft
 
-> **Working copy, not ready to publish.** The [acceptance ledger](STATUS.md)
+> **Prepared submission copy; competition entry not yet submitted.** The [acceptance ledger](STATUS.md)
 > records current evidence and open product gates. The [demo script](DEMO_SCRIPT.md)
 > tracks the exported 94-second film and its source footage. The Devpost
 > [project page](https://devpost.com/software/meowwatch-mobile) is public with the
@@ -45,8 +45,9 @@ session. MeowWatch Plus adds unlimited hosting, player appearances and a
 premium reaction. A secondary Nearby companion lets the phone control desktop
 MeowWatch after explicit pairing; discovery, playback controls, saved reconnect
 and revocation have been exercised on a physical Android phone and Windows PC.
-The Cast sender still lacks physical receiver acceptance; phone playback is
-the supported fallback.
+Native Nearby social relay remains unverified on paired devices. Direct
+Together chat is the verified alternative. The Cast sender still lacks
+physical receiver acceptance; phone playback is the supported fallback.
 
 ## How we built it
 
@@ -57,6 +58,10 @@ actual position and state to the room, and lifecycle and audio-focus handling
 pause shared playback when interruption makes continued synchronization
 unsafe. Local storage retains history, onboarding state and the daily hosting
 ledger across process restarts.
+
+OpenAI Codex assisted implementation, debugging and test automation. The demo
+uses Remotion to combine React-rendered explanations with clearly labeled
+original Android footage.
 
 Nearby pairing requires explicit approval, pinned TLS identity, protected
 credentials and revocation. Automated checks and native Android emulator

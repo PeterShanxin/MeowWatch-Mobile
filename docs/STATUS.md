@@ -1,6 +1,6 @@
 # Delivery status
 
-Last updated: 2026-09-25 (Asia/Shanghai). **In development; not submission-ready.**
+Last updated: 2026-09-25 (Asia/Shanghai). **Core and full-demo acceptance passed within the runtime limits below; repository closeout underway. Devpost entry not yet submitted.**
 
 The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUCT_SPEC.md). P0/P1/P2 define order, not scope cuts.
 
@@ -25,6 +25,12 @@ secondary monitor plus one cloud Android emulator. That ordinary cross-client
 check passes in run 36143500404, with the identical downloaded-media fallback
 and limits documented in [cross-client acceptance](CROSS_CLIENT_ACCEPTANCE_2026-09-25.md).
 It is not a second physical Android check.
+Native Nearby chat/reaction/typing relay and desktop-process-restart persistence
+have not been accepted on the paired Android/Windows devices. Social relay has
+unit and transport coverage; ordinary Together social behavior has independent
+client evidence. The public Windows/cloud room test is not a private LAN
+companion test. The phone is released at the owner's request, and a cloud
+emulator cannot join this trusted LAN without a new network arrangement.
 No Cast receiver is available. Receiver behavior remains unverified, with phone
 playback as the fallback.
 Additional emulator runs cannot establish hardware behavior.
@@ -52,7 +58,7 @@ sources remain labeled.
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Ordinary-APK 36137630270 visibly passes presence, chat in both directions and a peer reaction on the independent phone/tablet emulators. Earlier Together and Test Store journeys also pass; 36103033131 verifies a premium reaction received by a headless TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Verified within stated runtime limits | Failed-decoder profile 36101860905 and current-head normal network 36131237104 pass. The latter uses one API 35 AVD, two real STARTTLS clients/decoders and one rendered MainApp. It verifies actual emulator radio loss, paused same-room recovery, unchanged quota and explicit replay/seek. Hosted lifecycle and physical Local/Nearby restart also pass; physical Together radio-loss recovery is not claimed |
 | 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
-| 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. The stale device-selector label fix passes hosted Check 36124174769. Desktop process restart is not claimed |
+| 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified; companion social acceptance remains limited | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. The stale device-selector label fix passes hosted Check 36124174769. Native companion social relay and desktop process restart are not claimed; phone playback and direct Together chat remain the verified fallback |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Current-head hosted 36131237099 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Its original Settings screenshot was visually inspected: active Plus and successful Restore feedback appear directly below Restore. Physical OnePlus passes native cancellation/failure/success, confirms active-customer Restore feedback, and retains Plus after relaunch. No Google Play production billing claim |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | Ordinary-APK 36137630270 completes one free host, free guest join, quota paywall on the next Start, native Test Store purchase and a distinct Plus host. Earlier Together and purchase journeys verify unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Verified within physical and emulator scope | Ordinary-APK 36137630270 passes independent phone/tablet layouts and the phone's first fullscreen entry, Android tip and Back. Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded; hybrid film review is separate |
@@ -64,6 +70,32 @@ sources remain labeled.
 ## Current verification
 
 ### Final repository checks
+
+At PR head `31c28a4`, 24 checks pass and two conditional jobs skip. The Check
+workflow's tested merge tree is identical to that head. Its secret audit scans
+645 tracked files and 272 fetched commits, with zero snapshot/history findings
+and no suspicious tracked paths. The SAF job's first attempt failed on a Gradle
+download HTTP 500; the network job failed while unpacking the emulator image.
+Both pass unchanged second attempts. Tablet fullscreen also passes its second
+attempt after a corrupt native recording stopped the first attempt.
+
+Lifecycle `36151161242` fails twice at the visible HOME pause tolerance, with
+actual paused playback after foreground return. Attempt 2 observes 40 seconds
+in a native tree starting at device time 120.416, then sends HOME after a
+121.59 clock reading and returns paused at 45 seconds. Test-only `20785d1`
+accounts for that measured foreground sample age while retaining the four
+displayed-second tolerance, eight-second HOME hold, same process, paused
+stability and explicit replay checks. Invalid or over-four-second sample ages
+fail. All 140 focused host checks pass and an independent source review finds
+no blocking defect. Fresh native validation [36155029033](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36155029033)
+passes on API 35 using the normal release entrypoint: HOME holds 8.58 seconds,
+the displayed position changes from 36 to 39 seconds and remains paused after
+return, and explicit replay advances 11 seconds. A new process restores the
+saved 56 seconds paused, then explicit Play advances another 10 seconds.
+The measured pre-HOME sample age is 0.668 seconds. This is a visible
+timeline tolerance with whole-second labels and a capture interval, not proof
+of an exact four-second real-time pause latency. App and packaged asset source
+remain unchanged from the published-build candidate `a65b8ef`.
 
 At `8720496`, [Check 36146573344](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36146573344)
 passes formatting, analysis, tests, native player, normal debug APK, package,
@@ -87,7 +119,9 @@ media and secret gates. The runtime checks retain three initial failures:
   check was not reached. Test-only fix `6e7b03e` compares expiration with the
   SDK's request time and retains inactive entitlement, customer continuity
   and Restore assertions. Its regression fails before the fix; all 58 billing
-  host tests pass afterward. Fresh native acceptance runs in `36149213163`.
+  host tests pass afterward. Fresh native acceptance `36149213163` passes
+  purchase, the same customer after process restart, actual expiration and
+  Restore remaining inactive.
 
 Application code is unchanged from `0df32c6`; none of these test changes alters
 purchase, playback or quota behavior. Final mobile PR closeout remains pending.
@@ -610,6 +644,17 @@ rehearsal now passes as documented above. Historical runs and asset provenance a
 - The desktop maintainer confirmed final two-instance acceptance; PR #279 is merged, and signed release `v0.51.0-alpha` and R2 verification pass.
 
 ## Live development recording
+
+At delivery closeout, the task-owned showcase, Remotion Studio and movie preview
+services were stopped. No listener remained on their ports 18769, 3010 or 8766
+(or the earlier ports 8765 and 18775). The last development manifest retains
+337,675,462 bytes in 2,699 chunks and a gap state, last updated at September 25
+12:38 UTC. Its old browser tab was no longer controllable; a final browser flush
+could not be verified. The original manifest is preserved without relabeling it
+complete. This development canvas is separate from the accepted 94-second film
+and does not establish continuous recording through the end of development.
+
+The following are historical recording checkpoints.
 
 At September 25 05:59 UTC the current bounded two-fps recorder has 270,133,350
 bytes persisted in 1,918 chunks, with a newly saved chunk at 05:59:38 UTC. The

@@ -7,7 +7,14 @@
 Watch together on Android: shared playback controls, conversation and a room
 that keeps couples, friends and small groups connected across the distance.
 
-This is the mobile counterpart to [MeowWatch for desktop](https://github.com/PeterShanxin/MeowWatch), with a new touch interface, Android playback, lifecycle handling, and subscription flow. **Active development: not yet submission-ready.** See the [acceptance ledger](docs/STATUS.md) for verified capabilities and remaining work.
+This is the mobile counterpart to [MeowWatch for desktop](https://github.com/PeterShanxin/MeowWatch), with a new touch interface, Android playback, lifecycle handling, and subscription flow.
+
+**[Download the Android preview](https://github.com/PeterShanxin/MeowWatch-Mobile/releases/tag/v0.1.0)** · **[Watch the 94-second demo](https://youtu.be/gRUYlHb3LiI)** · **[Shipaton project](https://devpost.com/software/meowwatch-mobile)**
+
+The preview uses the real RevenueCat **Test Store**, with no real charges. It is
+an ordinary Android app, version 0.1.0, signed with the debug key for judging;
+it is not a Google Play release. The APK supports ARM64, ARMv7 and x86_64.
+See the [acceptance ledger](docs/STATUS.md) for the tested devices and limits.
 
 <p><img src="assets/submission/meowwatch-android-1179x2556.png" alt="MeowWatch Android home with Start a room, Join a room and Local Player Mode" width="260"></p>
 
@@ -132,8 +139,8 @@ GitHub Actions artifacts; an artifact from a failed job is development evidence.
 
 The [94-second hybrid film and demo script](docs/DEMO_SCRIPT.md),
 [English submission draft](docs/SUBMISSION_DRAFT.md), and
-[verified submission requirements](docs/SUBMISSION_REQUIREMENTS.md) track the
-remaining submission work. The local [showcase](tools/showcase/README.md) can
+[verified submission requirements](docs/SUBMISSION_REQUIREMENTS.md) document the
+entry and its evidence. The local [showcase](tools/showcase/README.md) can
 display actual ADB frames or explicitly labeled captured evidence while recording
 the development canvas.
 

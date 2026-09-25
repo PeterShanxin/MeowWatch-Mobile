@@ -39,6 +39,14 @@ captures are retained locally. The paired pause/seek captures show 26, 16 and
 documented source media. Raw personal-device recordings, invitations, device
 addresses, diagnostics and pairing material are excluded from Git.
 
+Nearby chat/reaction/typing relay was not exercised in this paired session.
+Its implementation and unit/transport tests do not establish native companion
+social acceptance. The separate Windows/cloud Android check uses ordinary
+Together clients over the public room server, not a private LAN pairing.
+Direct Together chat is the verified alternative. Further phone testing was
+stopped at the owner's request; no private-LAN security boundary is relaxed
+to connect a remote cloud emulator.
+
 This establishes one physical Android device controlling one physical Windows
 player. It does not establish two physical Android Together clients, a desktop
 process restart with the same pairing, or a physical Cast receiver. Independent

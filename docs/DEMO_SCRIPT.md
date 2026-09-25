@@ -82,7 +82,7 @@ indicators replace the earlier slow drift and expanding circles. The revised
 join, controls, fullscreen and ending layouts were inspected in Studio and
 representative cloud-rendered stills. The downloaded export reached the ending
 at 1× in the browser without a media error. The unchanged score's technical audio
-check found no clipping. Publication remains pending final review.
+check found no clipping. The final Unlisted video is linked below.
 
 Run **Remotion submission film** to prepare the documented sources, generate the
 score and export 1920 × 1080 H.264/AAC at 30 fps on hosted Ubuntu. The timeline

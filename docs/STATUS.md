@@ -101,9 +101,14 @@ stronger motion and music. That specific creative work is authorized; the
 recorder/observer freeze remains. Remotion 4.0.529 is installed in the local user
 global executable path, and the existing Codex Remotion skills are in use.
 The new composition lives in `showcase/remotion`; heavy rendering stays on hosted
-Ubuntu. A separate normal-APK clean-install rehearsal is running at `956d4f8`
-([36111219476](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36111219476));
-it has not yet supplied an acceptance result.
+Ubuntu. [Remotion render 36112159786](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36112159786)
+passes at `efec08e`, with original music, 1080p H.264 and AAC. Critical scenes and
+a short moving Studio preview are inspected. Final editorial acceptance remains
+open. The first normal-APK rehearsal `36111219476` prepared both emulators but
+stopped before app installation because its driver could not find `adb` in PATH.
+`b46d79d` supplies the platform-tools path; rerun
+[36112282849](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36112282849)
+is in progress. No complete rehearsal pass is claimed.
 
 [Film export 36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
 produces the final 94.000-second, 1920 × 1080 silent H.264 candidate. All 2,820

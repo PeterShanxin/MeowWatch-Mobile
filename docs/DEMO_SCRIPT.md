@@ -1,14 +1,21 @@
 # MeowWatch Mobile — submission film
 
-The current edit is **94 seconds**, using actual Android phone/tablet recordings
+The current Remotion edit is **94 seconds**, using actual Android phone/tablet recordings
 from the frozen product source. It covers Start/Join, shared playback controls,
 conversation, Local Mode resume and the real RevenueCat Test Store purchase,
-Restore and Plus features. [Hosted export 36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
-at `7bcd6f4` passed: 94.000 seconds, 1920 × 1080, H.264 at 30 fps,
-2,820 frames, silent, 3,925,136 bytes. Strict full decoding passed in hosted CI.
-The export is prepared locally and uploaded to YouTube as a private review
-video with the entrant's authorization. Full-motion review and a publicly
-playable YouTube/Vimeo link remain open. This is not a submission-ready declaration.
+Restore and Plus features. [Remotion export 36112159786](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36112159786)
+at `efec08e` passes: 1920 × 1080, H.264, 30 fps and an AAC music track. The
+composition is 2,820 frames; encoded duration includes normal audio padding.
+It adds a kinetic branded opening, alternating device layouts, restrained focus
+changes and an original synthesized 120 BPM score. The editable project is in
+[showcase/remotion](../showcase/remotion/README.md). Critical scenes and a short
+moving Studio preview are inspected. Full editorial review and a publicly
+playable final video link remain open. This is not a submission-ready declaration.
+
+The earlier silent export [36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
+at `7bcd6f4` remains a private YouTube review upload. It is 94.000 seconds and
+3,925,136 bytes; its full decoding passed in hosted CI. The Remotion edition
+supersedes its presentation while retaining the same source intervals.
 
 [Edit decision list](demo/submission-final.edl.json) ·
 [Exact source artifacts](demo/submission-final.edl.sources.json) ·
@@ -36,7 +43,7 @@ All clips run at 1×. Thin device frames and captions sit outside the complete
 capture. Paired clips retain their shared approximate recording clock; neither
 device is independently retimed. Native held frames and latency remain visible.
 This is an edited feature demonstration from separate journeys and binaries,
-not one uninterrupted take. The silent film uses the CC0 Bee fixture; licensing
+not one uninterrupted take. The footage uses the CC0 Bee fixture; licensing
 and the separate in-app Sintel sample are in [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Source and runtime
@@ -58,8 +65,8 @@ There are no `lib`, `android` or `assets` changes between `5f5dd7f` and
 `67d0206`. The later commits update the network verifier and documentation.
 Full hashes, source intervals and artifact names are in the EDL. Selected
 original screens and representative output frames have been inspected, including
-the final free-host explanatory card. The complete export still needs motion
-review. Its SHA-256 is
+the final free-host explanatory card. Full editorial review is still open.
+The earlier silent export's SHA-256 is
 `20926535cb81b2f07d685674d7603360914b45c3eb798678d08bf463d1c08750`.
 
 Physical Android-to-Windows Nearby and receiver Cast acceptance remain open.
@@ -70,7 +77,12 @@ failures remain recorded in STATUS. The frozen film does not add another clip.
 
 ## Render and publish
 
-Run the existing **Check** workflow with
+Run **Remotion submission film** for the current edition. It prepares the original
+clips, generates the original score and renders on hosted Ubuntu with two workers.
+Its separate preview artifact can be downloaded into the project's `public/`
+directory to use Studio without local transcoding.
+
+For the earlier silent edition, run the existing **Check** workflow with
 `submission_edit=docs/demo/submission-final.edl.json` on the branch containing the
 EDL. Rendering, exact-source checks and full decoding run on hosted GitHub
 Actions. No emulator starts in the rendering job. Its artifact includes the

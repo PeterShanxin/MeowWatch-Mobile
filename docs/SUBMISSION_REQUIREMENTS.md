@@ -171,9 +171,12 @@ Do not infer email, staff/sponsor status, promotional codes or growth-fund opt-i
 
 On 2026-09-17, the entrant confirmed active student status, reaching the local
 age of majority, and availability of a student/academic email for Devpost. No
-email address was collected. Domain recognition in the actual Devpost path is
-still unverified. The entrant subsequently provided an academic email and
-authorized its use; it is saved only in the Devpost form, not this repository.
+email address was collected at that time. The entrant subsequently provided an
+academic email and authorized its use; it is saved only in the Devpost form,
+not this repository. On September 25 the domain was checked against JetBrains/swot,
+including its documented coverage of subdomains. The entrant also confirmed
+GitHub sign-in uses the school email. This records domain coverage and the
+entrant's statement, not an independent Devpost eligibility decision.
 On September 25 the entrant explicitly accepted the official
 rules and Devpost terms and confirmed registration eligibility. Registration
 succeeded, and [MeowWatch Mobile](https://devpost.com/software/meowwatch-mobile)

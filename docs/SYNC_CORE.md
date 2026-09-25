@@ -70,6 +70,11 @@ pause even during buffering or a pending native command. A new explicit Play
 is required in Together. Local Mode retains its native transient-focus resume
 policy. Ordinary decoder buffering does not publish a room Pause.
 
+The Android decoder retains ten seconds of media behind its current position,
+including the preceding keyframe. Short sync calibration and rewind commands
+can reuse those samples instead of refetching an old HTTP range. This is a
+bounded native back buffer, not a persistent media cache or an offline download.
+
 After an accepted first Play, the bridge checks startup lag only once the native
 position advances beyond the accepted seek. It projects from a room heartbeat
 no older than two seconds, including heartbeats that did not issue a follow

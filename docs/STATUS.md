@@ -161,6 +161,16 @@ Profile comparison `36097713336` uses the same `828f7a4` source and unchanged
 failed-decoder gates. It is a build-mode comparison, not a replacement for the
 failed debug runs. The normal run's original screen and both recording hashes
 are reviewed; both cloud decodes pass. Neither recording establishes recovery.
+The profile comparison reaches a real offline Source error at 85 seconds and
+rebuilds guest controller 2 as controller 3; paused rejoin restores about 38
+seconds. It then fails explicit replay convergence. Its closest qualified
+position pair differs by 1,273 ms with only 1.736 ms between the start and end of
+both reads, so sequential sampling does not explain the failure. A host
+calibration rewinds 2.6 seconds, issues a new HTTP range request and buffers for
+about 2.3 seconds while the guest advances. The decoder now retains ten seconds
+behind playback, using the upstream native back-buffer option, to allow short
+rewinds to reuse media samples. This mitigation needs fresh native verification;
+the original profile run remains failed.
 
 Normal network `36091067116` stops before radio loss because its independent
 accessibility observer cannot obtain an app root within 15 attempts. PID 3155

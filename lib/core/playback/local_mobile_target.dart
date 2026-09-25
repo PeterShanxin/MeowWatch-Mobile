@@ -17,6 +17,9 @@ class LocalMobileTarget extends PlaybackTarget
   }) : _options = VideoPlayerOptions(
          mixWithOthers: mixWithOthers,
          allowBackgroundPlayback: true,
+         // Keep short sync rewinds inside the retained media instead of
+         // fetching old ranges and creating another buffering-induced gap.
+         backBufferDurationMs: 10000,
        ),
        _configureInterruptionPolicy =
            configureInterruptionPolicy ?? _configureAndroidInterruptionPolicy;

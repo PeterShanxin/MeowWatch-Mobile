@@ -26,6 +26,7 @@ from tools.normal_apk_rehearsal.run import (
 SAMPLE_URL = "https://storage.googleapis.com/exoplayer-test-media-0/BigBuckBunny_320x180.mp4"
 SAMPLE_TITLE = "BigBuckBunny_320x180.mp4"
 MAX_SECONDS = 20 * 60
+PEER_REPLY_SECONDS = 3 * 60
 ROOM_PATTERN = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{2,35}", re.ASCII)
 STAGES = frozenset({
     "READY", "DESKTOP_READY", "CLOUD_PLAY", "SAW_CLOUD_PLAY",
@@ -111,11 +112,11 @@ class Guest:
         self.device.tap("Send message")
         self.capture(f"{phase}-sent", lambda xml: receipt(xml, message(self.room, stage)))
 
-    def receive(self, stage: str, phase: str, timeout: int = 90) -> None:
+    def receive(self, stage: str, phase: str, timeout: int = PEER_REPLY_SECONDS) -> None:
         self.capture(f"{phase}-received", lambda xml: receipt(xml, message(self.room, stage)), timeout)
         self.device.tap("Close chat")
 
-    def await_peer(self, stage: str, phase: str, timeout: int = 90) -> None:
+    def await_peer(self, stage: str, phase: str, timeout: int = PEER_REPLY_SECONDS) -> None:
         self.device.tap("Chat")
         self.receive(stage, phase, timeout)
 
@@ -174,14 +175,14 @@ def run(guest: Guest, report: dict[str, object]) -> None:
     guest.receive("SAW_CLOUD_SEEK", "20-desktop-saw-seek")
 
     guest.send("READY_DESKTOP_PLAY", "21-ready-for-desktop")
-    guest.receive("DESKTOP_PLAY", "22-desktop-play-command", 90)
+    guest.receive("DESKTOP_PLAY", "22-desktop-play-command")
     started = guest.player("23-cloud-follows-desktop-play", True)
     time.sleep(3)
     require_playing_advance(started, guest.player("24-cloud-follows-desktop-advance", True))
     guest.send("SAW_DESKTOP_PLAY", "25-cloud-saw-desktop-play")
     device.tap("Close chat")
 
-    guest.await_peer("DESKTOP_PAUSE", "26-desktop-pause-command", 90)
+    guest.await_peer("DESKTOP_PAUSE", "26-desktop-pause-command")
     stopped = guest.player("27-cloud-follows-desktop-pause", False)
     time.sleep(2)
     stable = guest.player("28-desktop-pause-stable", False)
@@ -190,7 +191,7 @@ def run(guest: Guest, report: dict[str, object]) -> None:
     guest.send("SAW_DESKTOP_PAUSE", "29-cloud-saw-desktop-pause")
     device.tap("Close chat")
 
-    guest.await_peer("DESKTOP_SEEK", "30-desktop-seek-command", 90)
+    guest.await_peer("DESKTOP_SEEK", "30-desktop-seek-command")
     sought = guest.player("31-cloud-follows-desktop-seek", False)
     if not 270 <= sought.position_seconds <= 330:
         raise RuntimeFailure("desktop seek did not reach about five minutes on cloud timeline")

@@ -35,6 +35,10 @@ The Windows operator sends each exact prefixed chat message **after** seeing
 the relevant state in the ordinary client. Wait for the next cloud message or
 acknowledgment before acting again:
 
+Each manual reply has up to three minutes, including the operator's independent
+rendered-state inspection. The overall 20-minute journey deadline and native
+playback-state deadlines remain unchanged.
+
 | Cloud message | Windows action and reply |
 | --- | --- |
 | `READY` | Confirm same room and media; send `DESKTOP_READY`. |

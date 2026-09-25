@@ -31,11 +31,12 @@ const Screen: React.FC<{
   height: number;
   label?: string;
 }> = ({id, device, width, height, label}) => (
-  <div style={{position: 'relative', width: width + 16, flexShrink: 0}}>
+  <div style={{position: 'relative', width: width + 18, flexShrink: 0}}>
     <div
       style={{
         width,
         height,
+        boxSizing: 'content-box',
         padding: 8,
         background: '#172735',
         border: '1px solid #668297',
@@ -46,7 +47,7 @@ const Screen: React.FC<{
       <Video
         src={staticFile(`media/${id}-${device}.mp4`)}
         muted
-        style={{width, height, objectFit: 'contain', background: '#05080D'}}
+        style={{width, height, display: 'block', objectFit: 'contain', background: '#05080D'}}
       />
     </div>
     {label && (
@@ -198,18 +199,6 @@ export const FeatureScene: React.FC<{feature: Feature}> = ({feature}) => {
 
       {feature.kind === 'single' ? (
         <>
-          <div
-            style={{
-              position: 'absolute',
-              left: reverse ? 130 : 1211,
-              top: 115,
-              width: 570,
-              height: 817,
-              border: `1px solid ${accent}66`,
-              borderRadius: 42,
-              opacity: reveal(frame, 10, 22),
-            }}
-          />
           <div
             style={{
               position: 'absolute',

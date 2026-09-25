@@ -1,9 +1,11 @@
 import React from 'react';
 import {
   AbsoluteFill,
+  Img,
   Interactive,
   interpolate,
   spring,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
 } from 'remotion';
@@ -85,6 +87,15 @@ export const Opening: React.FC = () => {
       <div style={{position: 'absolute', left: 122, top: 98}}>
         <Brand size={42} />
       </div>
+      <div style={{
+        position: 'absolute', right: 170, top: 365,
+        width: 360, height: 360, borderRadius: 54, overflow: 'hidden',
+        opacity: reveal(frame, 18, 20),
+        scale: interpolate(spring({frame: frame - 18, fps, config: {damping: 20}}), [0, 1], [.72, 1]),
+        rotate: `${interpolate(frame, [18, 105], [-7, 2], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}deg`,
+      }}>
+        <Img src={staticFile('brand/meowwatch.svg')} style={{width: 360, height: 360}} />
+      </div>
       <div style={{position: 'absolute', left: 122, top: 278, width: 1120}}>
         <Interactive.Div
           name="Opening headline"
@@ -137,7 +148,7 @@ export const Opening: React.FC = () => {
           opacity: reveal(frame, 45, 22),
         }}
       >
-        THE ANDROID FILM
+        MEOWWATCH MOBILE · SHIPATON 2026
       </div>
     </AbsoluteFill>
   );

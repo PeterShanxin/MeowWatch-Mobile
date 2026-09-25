@@ -8,7 +8,7 @@ from tools.android_lifecycle_runtime.prepare_avd import ORIGINAL, PREPARED, prep
 
 class PhonePreparationTests(unittest.TestCase):
     def test_same_dp_layout_and_unrelated_settings_survive(self):
-        for kind in ("lifecycle", "interruption"):
+        for kind in ("lifecycle", "interruption", "network"):
             with self.subTest(kind=kind), tempfile.TemporaryDirectory() as directory:
                 root = Path(directory)
                 name = f"meowwatch_{kind}_123_1"

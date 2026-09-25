@@ -6,6 +6,13 @@ real STARTTLS connection and Android decoder. Only the host player is rendered.
 This is **one emulator and one process**, not a two-device or physical-phone test.
 Both clients lose that emulator's network together.
 
+Before boot, the owned AVD uses the same phone configuration preparation as
+the lifecycle and focus gates: 540×1200 pixels at 210 dpi instead of
+1080×2400 at 420 dpi. This preserves the 411×914 dp layout while reducing
+software-rendered pixels. Original and prepared configurations are retained.
+The video fixture, two decoders, application build mode, native position and
+UI deadlines, radio loss, byte cap and convergence assertions are unchanged.
+
 The acceptance APK contains only the x86_64 ABI used by this dedicated AVD;
 normal-application install workflows separately build the distributable APKs.
 Each `svc` request retains bounded stdout/stderr and its exit code before the

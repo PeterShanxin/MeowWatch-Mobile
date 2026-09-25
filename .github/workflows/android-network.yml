@@ -49,6 +49,7 @@ jobs:
     env:
       NETWORK_RUN_ID: network_${{ github.run_id }}_${{ github.run_attempt }}
       NETWORK_AVD_NAME: meowwatch_network_${{ github.run_id }}_${{ github.run_attempt }}
+      PHONE_ACCEPTANCE_AVD_NAME: meowwatch_network_${{ github.run_id }}_${{ github.run_attempt }}
       NETWORK_BUILD_MODE: ${{ inputs.build_mode || 'debug' }}
       NETWORK_VARIANT: ${{ inputs.variant || 'normal' }}
     steps:
@@ -74,6 +75,7 @@ jobs:
         run: |
           python3 -m unittest discover -s tools/android_network_runtime -p 'test_*.py'
           python3 -m unittest tools.android_multi_device.test_fixture_server
+          python3 -m unittest tools.android_lifecycle_runtime.test_prepare_avd
           bash -n tools/android_network_runtime/ci.sh
           bash -n tools/android_multi_device/start_fixture_server.sh
       - name: Prepare native playback fixture
@@ -107,6 +109,7 @@ jobs:
           ram-size: 4096M
           heap-size: 512M
           disable-animations: true
+          pre-emulator-launch-script: python3 -m tools.android_lifecycle_runtime.prepare_avd
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: bash tools/android_network_runtime/ci.sh
       - name: Retain original UI, video, network states and teardown
@@ -116,6 +119,7 @@ jobs:
           name: android-network-${{ github.run_attempt }}
           path: |
             build/android-network-artifacts/
+            build/android-phone-acceptance-avd/
             build/android-network-fixture-server/
             build/android-network-fixture/*.sha256
             build/android-network-fixture/*.ffprobe.json

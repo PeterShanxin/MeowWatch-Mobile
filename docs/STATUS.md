@@ -121,8 +121,25 @@ observation tolerates temporary projection wobble, while actual calibration
 and its queued recheck retain the original 600 ms clock-error limit. A socket
 trace regression and stale/stalled/slow-clock counterexamples are added.
 Independent source review caught and corrected a test startup-clock issue.
-All 846 hosted app tests pass, including the socket trace regression; normal
-network `36095103607` and failed-decoder `36095106426` are running at `8e31b65`.
+All 846 hosted app tests pass, including the socket trace regression. Normal
+network `36095103607` at `8e31b65` reaches initial playback readiness, then
+fails its independent complete-XML capture: the app root appears only after
+the eight-second deadline. PID 2972 remains focused; its original screenshot
+shows playback. Failed-decoder `36095106426` stops earlier when host controller
+1's position query takes more than five seconds. Both decoders are buffering;
+the same PID 3244 continues processing room heartbeats, and no decoder error or
+replacement occurs. The fixture's 977 byte-span records show ongoing delivery,
+no cap wait and a maximum offset well below the cap; they do not prove decoder
+consumption or a specific cause of the timeout. Neither run reaches radio loss.
+Both original recording hashes match successful cloud decode receipts; the
+selected original PNGs are reviewed. Neither failed gate is accepted.
+
+The network AVD still rendered at 1080x2400/420 dpi, unlike the smaller physical
+framebuffer used by the focus/lifecycle gates. It now uses the same guarded
+pre-boot 540x1200/210 dpi preparation, preserving the phone's logical layout.
+Two focused preparation tests cover all three task-owned AVD names, unchanged
+dp size and refusal of unknown or ambiguous configurations. The fixture, build
+mode, two decoders and all timing/convergence/byte-proof gates stay unchanged.
 Fresh native convergence and recovery remain required.
 
 Normal network `36091067116` stops before radio loss because its independent

@@ -1,4 +1,4 @@
-"""Reduce only an owned interruption AVD's pixels, preserving its phone dp size."""
+"""Reduce an owned phone acceptance AVD's pixels, preserving its dp size."""
 
 import json
 import os
@@ -11,8 +11,8 @@ PREPARED = {"hw.lcd.width": 540, "hw.lcd.height": 1200, "hw.lcd.density": 210}
 
 
 def prepare(home: Path, name: str, output: Path) -> None:
-    if re.fullmatch(r"meowwatch_(lifecycle|interruption)_[0-9]+_[0-9]+", name) is None:
-        raise ValueError("only a named lifecycle or interruption AVD may be prepared")
+    if re.fullmatch(r"meowwatch_(lifecycle|interruption|network)_[0-9]+_[0-9]+", name) is None:
+        raise ValueError("only a named lifecycle, interruption or network AVD may be prepared")
     root = home.resolve(strict=True)
     config = root / f"{name}.avd" / "config.ini"
     if config.resolve(strict=True) != config:

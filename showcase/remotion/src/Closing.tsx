@@ -1,138 +1,63 @@
 import React from 'react';
-import {AbsoluteFill, Interactive, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
+import {AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 import {Brand} from './Brand';
 import {blue, cream, ink, muted, peach, reveal} from './theme';
 
 export const Closing: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const title = spring({frame: frame - 7, fps, config: {damping: 22, stiffness: 80}});
+  const lockup = spring({frame: frame - 47, fps, config: {damping: 24, stiffness: 85}});
+  const route = reveal(frame, 11, 55);
+
   return (
     <AbsoluteFill style={{background: ink, overflow: 'hidden'}}>
+      <div style={{position: 'absolute', inset: 0, background: cream, translate: `${interpolate(frame, [0, 18], [0, 1990], {extrapolateRight: 'clamp'})}px 0`, zIndex: 12}} />
+      <svg width="1920" height="1080" style={{position: 'absolute', inset: 0}}>
+        <path d="M 132 343 C 420 130, 670 110, 960 520" fill="none" stroke={peach} strokeWidth="3" strokeDasharray="1100" strokeDashoffset={1100 * (1 - route)} />
+        <path d="M 1788 343 C 1500 130, 1250 110, 960 520" fill="none" stroke={blue} strokeWidth="3" strokeDasharray="1100" strokeDashoffset={1100 * (1 - route)} />
+        <circle cx="132" cy="343" r={17 * reveal(frame, 10, 17)} fill={peach} />
+        <circle cx="1788" cy="343" r={17 * reveal(frame, 10, 17)} fill={blue} />
+        <circle cx="960" cy="520" r={23 * reveal(frame, 54, 18)} fill={cream} />
+      </svg>
+      <div style={{position: 'absolute', left: 790, top: 127, opacity: reveal(frame, 35, 21), scale: 0.9 + 0.1 * lockup}}><Brand size={58} /></div>
       <div
         style={{
           position: 'absolute',
-          left: 305,
-          top: -490,
-          width: 1300,
-          height: 1300,
-          border: '1px solid #416277',
-          borderRadius: '50%',
-          opacity: 0.5,
-          scale: 0.88 + 0.12 * reveal(frame, 0, 65),
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: 515,
-          top: -290,
-          width: 900,
-          height: 900,
-          border: '1px solid #5D7990',
-          borderRadius: '50%',
-          opacity: 0.44,
-          scale: 0.83 + 0.17 * reveal(frame, 0, 65),
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: 556,
-          top: 116,
-          width: 17,
-          height: 17,
-          background: peach,
-          borderRadius: '50%',
-          boxShadow: '0 0 45px #EFC4A6AA',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: 554,
-          top: 266,
-          width: 17,
-          height: 17,
-          background: blue,
-          borderRadius: '50%',
-          boxShadow: '0 0 45px #8FCBEBAA',
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          top: 205,
-          left: 765,
-          opacity: reveal(frame, 8, 20),
+          left: 101,
+          right: 101,
+          top: 354,
+          textAlign: 'center',
+          color: cream,
+          fontFamily: 'DM Sans',
+          fontSize: 157,
+          fontWeight: 800,
+          lineHeight: 1,
+          letterSpacing: -9,
+          opacity: lockup,
+          translate: `0 ${interpolate(lockup, [0, 1], [83, 0])}px`,
         }}
       >
-        <Brand size={57} />
+        TOGETHER.
       </div>
-      <Interactive.Div
-        name="Closing statement"
+      <div style={{position: 'absolute', left: 462, top: 621, width: 996, height: 3, background: '#3B5869'}} />
+      <div style={{position: 'absolute', left: 462, top: 621, width: 996 * reveal(frame, 62, 26), height: 3, background: `linear-gradient(90deg, ${peach}, ${blue})`}} />
+      <div
         style={{
           position: 'absolute',
-          left: 230,
-          right: 230,
-          top: 360,
+          top: 679,
+          left: 130,
+          right: 130,
+          textAlign: 'center',
           color: cream,
           fontFamily: 'DM Serif Display',
-          fontSize: 120,
-          letterSpacing: -3,
-          lineHeight: 1.02,
-          textAlign: 'center',
-          opacity: title,
-          translate: `0 ${interpolate(title, [0, 1], [48, 0])}px`,
+          fontSize: 64,
+          opacity: reveal(frame, 68, 22),
         }}
       >
-        Watch together,
-        <br />
-        wherever you are.
-      </Interactive.Div>
-      <div
-        style={{
-          position: 'absolute',
-          left: 720,
-          top: 722,
-          width: 480 * reveal(frame, 38, 26),
-          height: 3,
-          background: `linear-gradient(90deg, ${peach}, ${blue})`,
-        }}
-      />
-      <Interactive.Div
-        name="Closing descriptor"
-        style={{
-          position: 'absolute',
-          left: 300,
-          right: 300,
-          bottom: 218,
-          color: muted,
-          fontFamily: 'DM Sans',
-          fontSize: 29,
-          textAlign: 'center',
-          opacity: reveal(frame, 49, 22),
-        }}
-      >
-        A new Android counterpart to open-source MeowWatch.
-      </Interactive.Div>
-      <div
-        style={{
-          position: 'absolute',
-          left: 0,
-          right: 0,
-          bottom: 76,
-          color: blue,
-          fontFamily: 'DM Sans',
-          fontSize: 18,
-          fontWeight: 700,
-          letterSpacing: 3.5,
-          textAlign: 'center',
-          opacity: reveal(frame, 67, 20),
-        }}
-      >
-        ANDROID  ·  OPEN SOURCE  ·  AGPL-3.0-ONLY
+        Watch together, wherever you are.
       </div>
+      <div style={{position: 'absolute', left: 0, right: 0, bottom: 147, textAlign: 'center', color: muted, fontFamily: 'DM Sans', fontSize: 26, opacity: reveal(frame, 77, 18)}}>A new Android counterpart to open-source MeowWatch.</div>
+      <div style={{position: 'absolute', left: 0, right: 0, bottom: 66, textAlign: 'center', color: blue, fontFamily: 'DM Sans', fontSize: 18, fontWeight: 700, letterSpacing: 4, opacity: reveal(frame, 83, 19)}}>ANDROID　 ·　 OPEN SOURCE　 ·　 AGPL-3.0-ONLY</div>
     </AbsoluteFill>
   );
 };

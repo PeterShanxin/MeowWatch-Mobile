@@ -2,10 +2,12 @@ import React from 'react';
 import {Audio} from '@remotion/media';
 import {AbsoluteFill, Sequence, interpolate, staticFile} from 'remotion';
 import {Closing} from './Closing';
+import {AnimatedJourney} from './AnimatedJourney';
 import {Feature, FeatureScene} from './FeatureScene';
 import {FreeCard} from './FreeCard';
 import {Opening} from './Opening';
 import {PhysicalFullscreen} from './PhysicalFullscreen';
+import {PremiumScene} from './PremiumScene';
 
 const FPS = 30;
 const OPENING_FRAMES = 3 * FPS;
@@ -25,7 +27,7 @@ const sections: FilmSection[] = [
     eyebrow: 'Start together',
     title: 'Make room for movie night.',
     caption: 'Start a room on your phone. Invite someone in.',
-    disclosure: 'Android emulator footage · 1×',
+    disclosure: 'UI animation · based on the app',
   },
   {
     id: 'join',
@@ -35,7 +37,7 @@ const sections: FilmSection[] = [
     eyebrow: 'Join from anywhere',
     title: 'Two people. One room.',
     caption: 'A tablet joins while the host waits on the phone.',
-    disclosure: 'Two Android emulators · 1×  /  Separate recordings · Approximate alignment',
+    disclosure: 'UI animation · based on the app',
   },
   {
     id: 'controls',
@@ -45,7 +47,7 @@ const sections: FilmSection[] = [
     eyebrow: 'Playback in step',
     title: 'Two screens. Shared controls.',
     caption: 'Play, pause and seek from either device.',
-    disclosure: 'Two Android emulators · 1×  /  Separate recordings · Approximate alignment',
+    disclosure: 'UI animation · based on the app',
   },
   {
     id: 'chat',
@@ -55,7 +57,7 @@ const sections: FilmSection[] = [
     eyebrow: 'Conversation',
     title: 'A message. A shared moment.',
     caption: 'Keep the conversation beside the movie.',
-    disclosure: 'Two Android emulators · 1×  /  Separate recordings · Approximate alignment',
+    disclosure: 'UI animation · based on the app',
     accent: 'peach',
   },
   {
@@ -168,7 +170,11 @@ export const MeowWatchLaunch: React.FC = () => (
         from={from}
         durationInFrames={durationInFrames}
       >
-        {section.kind === 'free' ? (
+        {section.id === 'start' || section.id === 'join' || section.id === 'controls' || section.id === 'chat' ? (
+          <AnimatedJourney kind={section.id} />
+        ) : section.id === 'purchase' || section.id === 'restore' || section.id === 'aurora' || section.id === 'reaction' || section.id === 'another' ? (
+          <PremiumScene feature={section} />
+        ) : section.kind === 'free' ? (
           <FreeCard />
         ) : section.kind === 'fullscreen' ? (
           <PhysicalFullscreen />

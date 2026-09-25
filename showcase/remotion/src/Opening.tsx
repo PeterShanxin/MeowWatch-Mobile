@@ -1,155 +1,74 @@
 import React from 'react';
-import {
-  AbsoluteFill,
-  Img,
-  Interactive,
-  interpolate,
-  spring,
-  staticFile,
-  useCurrentFrame,
-  useVideoConfig,
-} from 'remotion';
+import {AbsoluteFill, interpolate, spring, useCurrentFrame, useVideoConfig} from 'remotion';
 import {Brand} from './Brand';
-import {blue, cream, ink, muted, peach, reveal} from './theme';
+import {blue, cream, ink, peach, reveal} from './theme';
+
+const KineticLine: React.FC<{frame: number; from: number; top: number; children: React.ReactNode; serif?: boolean; outline?: boolean}> = ({frame, from, top, children, serif = false, outline = false}) => {
+  const inValue = reveal(frame, from, 21);
+  return (
+    <div style={{position: 'absolute', left: 100, right: 100, top, height: 166, overflow: 'hidden'}}>
+      <div
+        style={{
+          fontFamily: serif ? 'DM Serif Display' : 'DM Sans',
+          fontSize: serif ? 139 : 165,
+          fontWeight: serif ? 400 : 800,
+          letterSpacing: serif ? -4 : -8,
+          lineHeight: 1,
+          color: outline ? 'transparent' : cream,
+          WebkitTextStroke: outline ? `2px ${blue}` : undefined,
+          translate: `${interpolate(inValue, [0, 1], [-118, 0])}px ${interpolate(inValue, [0, 1], [160, 0])}px`,
+          opacity: inValue,
+          whiteSpace: 'nowrap',
+        }}
+      >
+        {children}
+      </div>
+    </div>
+  );
+};
 
 export const Opening: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
-  const title = spring({frame: frame - 8, fps, config: {damping: 22, stiffness: 85}});
-  const line = reveal(frame, 15, 30);
+  const impact = spring({frame: frame - 5, fps, config: {damping: 24, stiffness: 94}});
   return (
     <AbsoluteFill style={{background: ink, overflow: 'hidden'}}>
       <div
         style={{
           position: 'absolute',
-          width: 930,
-          height: 930,
-          border: '1px solid #2E5265',
-          borderRadius: '50%',
-          right: -105,
-          top: 82,
-          scale: 0.91 + 0.09 * line,
-          opacity: 0.55,
+          top: -320,
+          left: interpolate(frame, [0, 43], [-1250, 1100], {extrapolateRight: 'clamp'}),
+          width: 760,
+          height: 1700,
+          rotate: '27deg',
+          background: '#2C7095',
+          opacity: 0.65,
         }}
       />
+      <div style={{position: 'absolute', top: 80, left: 100, opacity: reveal(frame, 31, 18)}}><Brand size={39} /></div>
+      <KineticLine frame={frame} from={6} top={250}>MOVIE NIGHT.</KineticLine>
+      <div style={{position: 'absolute', top: 432, left: 110, fontFamily: 'DM Serif Display', fontSize: 70, color: peach, opacity: reveal(frame, 20, 16), rotate: '-8deg'}}>even</div>
+      <KineticLine frame={frame} from={25} top={527} serif outline>MILES APART.</KineticLine>
+      <div style={{position: 'absolute', left: 106, top: 736, width: 1694, height: 3, background: '#315064', opacity: 0.6}} />
+      <div style={{position: 'absolute', left: 106, top: 736, width: 1694 * reveal(frame, 44, 30), height: 3, background: `linear-gradient(90deg, ${peach}, ${blue})`}} />
+      <div style={{position: 'absolute', left: 98, top: 722, width: 30, height: 30, borderRadius: 15, background: peach, opacity: reveal(frame, 44, 15)}} />
+      <div style={{position: 'absolute', right: 104, top: 722, width: 30, height: 30, borderRadius: 15, background: blue, opacity: reveal(frame, 65, 13)}} />
       <div
         style={{
           position: 'absolute',
-          width: 680,
-          height: 680,
-          border: '1px solid #385368',
-          borderRadius: '50%',
-          right: 20,
-          top: 205,
-          scale: 0.85 + 0.15 * line,
-          opacity: 0.7,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          width: 24,
-          height: 24,
-          borderRadius: '50%',
-          right: 330,
-          top: 195,
-          background: peach,
-          boxShadow: '0 0 56px #EFC4A677',
-          opacity: line,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          width: 17,
-          height: 17,
-          borderRadius: '50%',
-          right: 108,
-          bottom: 253,
-          background: blue,
-          boxShadow: '0 0 50px #8FCBEB88',
-          opacity: line,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          right: 117,
-          bottom: 264,
-          width: 475 * line,
-          height: 2,
-          background: `linear-gradient(90deg, ${peach}, ${blue})`,
-          rotate: '-35deg',
-          transformOrigin: 'right center',
-          opacity: 0.7,
-        }}
-      />
-      <div style={{position: 'absolute', left: 122, top: 98}}>
-        <Brand size={42} />
-      </div>
-      <div style={{
-        position: 'absolute', right: 170, top: 365,
-        width: 360, height: 360, borderRadius: 54, overflow: 'hidden',
-        opacity: reveal(frame, 18, 20),
-        scale: interpolate(spring({frame: frame - 18, fps, config: {damping: 20}}), [0, 1], [.72, 1]),
-        rotate: `${interpolate(frame, [18, 105], [-7, 2], {extrapolateLeft: 'clamp', extrapolateRight: 'clamp'})}deg`,
-      }}>
-        <Img src={staticFile('brand/meowwatch.svg')} style={{width: 360, height: 360}} />
-      </div>
-      <div style={{position: 'absolute', left: 122, top: 278, width: 1120}}>
-        <Interactive.Div
-          name="Opening headline"
-          style={{
-            fontFamily: 'DM Serif Display',
-            fontSize: 122,
-            lineHeight: 0.98,
-            letterSpacing: -3.5,
-            color: cream,
-            opacity: title,
-            translate: `0 ${interpolate(title, [0, 1], [58, 0])}px`,
-          }}
-        >
-          Movie night,
-          <br />
-          even miles apart.
-        </Interactive.Div>
-        <div
-          style={{
-            height: 4,
-            width: 238 * reveal(frame, 26, 23),
-            background: peach,
-            marginTop: 54,
-          }}
-        />
-        <Interactive.Div
-          name="Opening subtitle"
-          style={{
-            fontFamily: 'DM Sans',
-            fontSize: 31,
-            color: muted,
-            letterSpacing: 0.2,
-            marginTop: 24,
-            opacity: reveal(frame, 31, 21),
-          }}
-        >
-          Watch together. Stay close.
-        </Interactive.Div>
-      </div>
-      <div
-        style={{
-          position: 'absolute',
-          left: 122,
-          bottom: 75,
-          color: blue,
-          fontFamily: 'DM Sans',
-          fontSize: 18,
-          fontWeight: 700,
-          letterSpacing: 4,
-          opacity: reveal(frame, 45, 22),
+          left: 110,
+          top: 786,
+          color: cream,
+          fontFamily: 'DM Serif Display',
+          fontSize: 80,
+          letterSpacing: -1.7,
+          opacity: reveal(frame, 52, 22),
+          translate: `0 ${interpolate(impact, [0, 1], [24, 0])}px`,
         }}
       >
-        MEOWWATCH MOBILE · SHIPATON 2026
+        Watch together. Stay close.
       </div>
+      <div style={{position: 'absolute', bottom: 55, left: 107, color: blue, fontFamily: 'DM Sans', fontSize: 19, fontWeight: 700, letterSpacing: 3, opacity: reveal(frame, 66, 15)}}>MEOWWATCH MOBILE</div>
     </AbsoluteFill>
   );
 };

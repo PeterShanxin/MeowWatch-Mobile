@@ -1,20 +1,23 @@
 # MeowWatch launch film
 
-The editable Remotion edition is a 94-second story built from real app captures.
-It adds physical OnePlus local playback and fullscreen footage to the original
-Android emulator room, chat, history and RevenueCat Test Store scenes. Motion,
-typography, device framing and an original soundtrack sit around the captures.
-The physical-phone scenes are separate journeys; they do not depict paired sync
-or a purchase on that phone. No app interactions or device results are synthesized
-or sped up.
+The editable Remotion edition is a 94-second story combining app-based UI
+animation and real app captures. The Start, Join, playback-control and Chat
+chapters recreate the current Flutter layouts in React so the tap and its
+result can be seen smoothly. Each is labeled “UI animation · based on the app”
+in the film. These scenes explain the product; they are not runtime or paired
+device proof. The connected-screen lines are a story motif, not a measured
+sync signal. The recreated room and chat copy comes from the app and the
+recorded test journey; no extra product capability is implied.
 
-The paired control scene uses three matching 1× cuts from its original 25-second
-phone and tablet recordings: 0–2 seconds (playing), 10.5–13.5 seconds (pause),
-and 16.5–21.5 seconds (seek and resume). The two captures retain their common
-approximate clock within every cut. The physical portrait clip is 10 seconds of
-the 105–115 second interval from `02-local-playback.mp4`; the physical landscape
-clip is seven seconds from 29–36 seconds in `03-landscape.mp4`. The raw onboarding
-recording is not used.
+Real footage documents Local Player Mode and fullscreen playback on a physical
+OnePlus, Continue Watching on an Android emulator, and the RevenueCat Test
+Store purchase, restore and Plus features on an Android emulator. The
+physical-phone scenes are separate journeys; they do not depict paired sync
+or a purchase on that phone. Capture scenes are played at 1× without synthetic
+app states. The physical portrait clip is 10 seconds of the 105–115 second
+interval from `02-local-playback.mp4`; the physical landscape clip is seven
+seconds from 29–36 seconds in `03-landscape.mp4`. The raw onboarding recording
+is not used.
 
 ## Preview
 
@@ -29,6 +32,11 @@ on constrained hosts.
 
 The global `remotion` command is optional; this project's lockfile pins the
 renderer and all Remotion packages to 4.0.529 for reproducible output.
+
+The UI animation uses `public/media/bee-still.jpg`, a crop of the Bee playback
+image in the existing source capture. The film also requires the prepared
+footage in `public/media/`, the brand SVG, two bundled fonts and the generated
+soundtrack. See [STORYBOARD.md](STORYBOARD.md) for timing and source boundaries.
 
 ## Export
 

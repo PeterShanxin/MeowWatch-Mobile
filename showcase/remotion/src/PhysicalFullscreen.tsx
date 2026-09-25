@@ -16,6 +16,7 @@ export const PhysicalFullscreen: React.FC = () => {
   const frame = useCurrentFrame();
   const {fps} = useVideoConfig();
   const entrance = spring({frame: frame - 4, fps, config: {damping: 24, stiffness: 95}});
+  const expansion = spring({frame: frame - 2, fps, config: {damping: 25, stiffness: 72}});
 
   return (
     <AbsoluteFill style={{background: ink, overflow: 'hidden'}}>
@@ -110,8 +111,8 @@ export const PhysicalFullscreen: React.FC = () => {
           borderRadius: 22,
           background: '#0B1520',
           boxShadow: '0 28px 74px #00000080, 0 0 90px #8FCBEB13',
-          opacity: entrance,
-          scale: 0.95 + 0.05 * entrance,
+          opacity: reveal(frame, 2, 9),
+          transform: `translate3d(${interpolate(expansion, [0, 1], [540, 0])}px, ${interpolate(expansion, [0, 1], [100, 0])}px, 0) perspective(1600px) rotateY(${interpolate(expansion, [0, 1], [-19, 0])}deg) rotateZ(${interpolate(expansion, [0, 1], [-7, 0])}deg) scale(${interpolate(expansion, [0, 1], [0.45, 1])})`,
           transformOrigin: 'center center',
         }}
       >

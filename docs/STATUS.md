@@ -45,19 +45,19 @@ sources remain labeled.
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
 | 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Current PR-head Check 36131237368 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks. Draft PR #1 at `9e3f033` has 25 successful and two skipped checks, with no pending or failed checks. Main still contains the foundation README. Repository merge/closeout remains open |
-| 3 | Clear first-launch create/join | Verified on emulators | Final-source five-viewport run 36103033060 and Together 36103033024 attempt 2 pass onboarding, Start, reviewed invitation and Join |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Together 36103033024 attempt 2 passes 26 host and 25 guest stages on two independent phone/tablet emulators. Settled positions match at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
-| 5 | Real-session chat/reactions/presence | Verified on two emulators | Final-source Together verifies native chat, reaction, presence and peer links. Test Store journey 36103033131 also verifies a premium reaction received by a headless TLS peer |
+| 3 | Clear first-launch create/join | Verified on emulators | Ordinary-APK 36137630270 passes the first-run guide, visible Start and invitation code, and Join on independent API 35 phone/tablet emulators. Five-viewport run 36103033060 and Together 36103033024 attempt 2 also pass |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators | Ordinary-APK 36137630270 passes advancing native playback and play/pause/seek in both directions on independent phone/tablet emulators using the same controlled 90-second URL. Together 36103033024 attempt 2 passes 26 host and 25 guest stages, with settled positions matching at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
+| 5 | Real-session chat/reactions/presence | Verified on two emulators | Ordinary-APK 36137630270 visibly passes presence, chat in both directions and a peer reaction on the independent phone/tablet emulators. Earlier Together and Test Store journeys also pass; 36103033131 verifies a premium reaction received by a headless TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Verified within stated runtime limits | Failed-decoder profile 36101860905 and current-head normal network 36131237104 pass. The latter uses one API 35 AVD, two real STARTTLS clients/decoders and one rendered MainApp. It verifies actual emulator radio loss, paused same-room recovery, unchanged quota and explicit replay/seek. Hosted lifecycle and physical Local/Nearby restart also pass; physical Together radio-loss recovery is not claimed |
 | 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
 | 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. The stale device-selector label fix passes hosted Check 36124174769. Desktop process restart is not claimed |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Current-head hosted 36131237099 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Its original Settings screenshot was visually inspected: active Plus and successful Restore feedback appear directly below Restore. Physical OnePlus passes native cancellation/failure/success, confirms active-customer Restore feedback, and retains Plus after relaunch. No Google Play production billing claim |
-| 10 | Correct daily quota and session continuity | Verified in native flows and tests | Latest Together and purchase journeys verify one free host, free joining, unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Physical phone and emulator layouts verified; final changes pending | Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded. Final UI fixes and hybrid film require review |
+| 10 | Correct daily quota and session continuity | Verified in native flows and tests | Ordinary-APK 36137630270 completes one free host, free guest join, quota paywall on the next Start, native Test Store purchase and a distinct Plus host. Earlier Together and purchase journeys verify unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Verified within physical and emulator scope | Ordinary-APK 36137630270 passes independent phone/tablet layouts and the phone's first fullscreen entry, Android tip and Back. Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded; hybrid film review is separate |
 | 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
-| 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Physical acceptance is recorded below; its two UI defects are fixed and pass hosted checks. Complete normal-APK rehearsal remains open |
-| 14 | Clean-install full demo rehearsal | Partial | Ordinary-APK run 36134921762 passes two-way controls/chat, a peer reaction, phone fullscreen and Back, and both devices' saved history. It then stops before the second host because the runner swipes toward the top of the landscape home instead of exposing Start below the hero. The direction is corrected; a fresh complete run is required. Separate journeys do not replace this complete repair-free rehearsal |
-| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and a 94-second hybrid film are prepared. Registration and Devpost draft fields are saved (3/5 sections). Final video publication, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
+| 13 | No placeholders, dead ends or silent failures | Verified for the rehearsed demo path | Ordinary-APK 36137630270 completes the visible first-install path through two-client Together playback, history, quota paywall, native purchase, Restore and Local resume without a dead end. Earlier onboarding, recovery and failure-path checks retain their separate scope; physical acceptance and its corrected UI defects are recorded below |
+| 14 | Clean-install full demo rehearsal | Verified on two API 35 emulators | Ordinary `lib/main.dart` debug/Test Store APK run [36137630270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270) at `b5b9f77` completes on fresh independent phone/tablet emulators. It passes onboarding, visible invitation-code join, the same controlled URL and advancing native playback, two-way controls/chat, reaction, fullscreen/Back, both histories, free-host quota paywall, native Test Store success, a distinct Plus host, Settings Restore and Local leave/resume. This is emulator evidence, not physical two-device or production Google Play billing proof |
+| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and the 94-second hybrid film are prepared; the complete ordinary-APK rehearsal passes. The final film is uploaded as a private YouTube draft with HD processing complete. Registration and Devpost draft fields are saved (3/5 sections). Public video access, project declarations, external Windows/cloud rehearsal and repository closeout remain open |
 
 ## Current verification
 
@@ -112,8 +112,12 @@ settle within 0.3–0.5 seconds, titles move offscreen, and small translucent do
 mark taps. TypeScript checks and representative Studio/cloud still review pass.
 The downloaded export played to its 94.059-second ending at 1× in the browser
 without a media error; representative frames were visually inspected.
-This export replaces the earlier slow-moving editions. The previous private
-YouTube upload is not the final submission video; public publication is open.
+This export replaces the earlier slow-moving editions. The final
+[YouTube review copy](https://youtu.be/gRUYlHb3LiI) is saved as **Private**;
+SD and HD processing are complete, and the upload copyright check reports no
+issues. That automated check is not a legal determination. The private link is
+not yet suitable for submission; changing its visibility requires the entrant's
+publication approval. The earlier silent private upload is superseded.
 
 The owner requested the phone back. At 10:36 UTC its original 30-second timeout
 and charging-awake setting were restored and read back; developer mode and USB
@@ -159,10 +163,23 @@ history and stops at the next Start action. Its landscape phone home shows the
 hero and Continue Watching, with Start below the viewport; the runner swipes
 toward the top. The direction is corrected, retaining a fresh exact clickable
 target check after every swipe. Eighteen focused runner checks pass. Purchase,
-Restore and Local Mode still require completion in one ordinary-APK run.
-An identical queued push run was cancelled to avoid duplicate work. These
-failed runs do not replace a full normal-APK journey; remaining stages still
-need the complete rehearsal.
+Restore and Local Mode were not reached in that failed run. An identical queued
+push run was cancelled to avoid duplicate work. These earlier failed runs remain
+failed; the subsequent complete rehearsal is the accepted result.
+
+[Ordinary-APK rehearsal 36137630270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270)
+at `b5b9f77` completes the full visible journey with no integration-test
+entrypoint. One debug APK (`ae42360ebf0b9522a78785a2c622dabb197551a6b36376cbd219d27b6f683e13`)
+runs on independent API 35 x86_64 `sdk_gphone64_x86_64` phone and tablet
+emulators (`emulator-5554`/`emulator-5556`), using the same controlled 90-second
+fixture URL. Its result reports `completed: true`, 39 phone phases and 21 tablet
+phases. The ordinary UI shows the native RevenueCat Test Store
+`TEST VALID PURCHASE` dialog; the visible first and Plus-host invite codes
+differ. Settings shows active Plus and the successful Restore message beside
+its action. Local history saves `0:14 of 1:30`, and selecting that card restores
+the native player paused at `0:14`. Original XML and screenshots for these
+stages were inspected. This closes criterion 14 within emulator/Test Store
+scope; Cast receiver and production Google Play billing remain unverified.
 
 ### Earlier accepted product baseline, September 25
 
@@ -226,21 +243,23 @@ global executable path, and the existing Codex Remotion skills are in use.
 The new composition lives in `showcase/remotion`; heavy rendering stays on hosted
 Ubuntu. [Remotion render 36112159786](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36112159786)
 passes at `efec08e`, with original music, 1080p H.264 and AAC. Critical scenes and
-a short moving Studio preview are inspected. Final editorial acceptance remains
-open. The first normal-APK rehearsal `36111219476` prepared both emulators but
+a short moving Studio preview were inspected. This edition is superseded by
+the accepted `36130037521` export above. The first normal-APK rehearsal
+`36111219476` prepared both emulators but
 stopped before app installation because its driver could not find `adb` in PATH.
 `b46d79d` supplies the platform-tools path; rerun
 [36112282849](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36112282849)
-is in progress. No complete rehearsal pass is claimed.
+was an earlier attempt; the complete `36137630270` rehearsal above is now the
+accepted ordinary-APK result.
 
 [Film export 36106912082](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36106912082)
-produces the final 94.000-second, 1920 × 1080 silent H.264 candidate. All 2,820
+produces the earlier 94.000-second, 1920 × 1080 silent H.264 candidate. All 2,820
 frames decode in hosted CI; representative output frames and the final free-host
 card are inspected. Sources, separate runtime boundaries and the complete story
 are in [DEMO_SCRIPT.md](DEMO_SCRIPT.md). The entrant authorized a private YouTube
 upload, which is saved and verified as private. A bounded 360p browser replay
-reached the end with sampled visual checks. Full editorial review and public
-video availability remain open; the requested Remotion edition is now in work.
+reached the end with sampled visual checks. The final Remotion export and
+private upload above supersede this candidate; public video access remains open.
 No local emulator or encoding process was started.
 
 The local delivery folder contains the normal Test Store APK, the film,
@@ -526,8 +545,8 @@ from c53fc6a Together originals without starting Android. Its 960-frame
 SHA-256 is `bad6295ccf57cb1c5c9b99c281d37a2115ededf18dfbdc9e24eb9f9961ee77b7`.
 One exported full-size paired frame was inspected for framing and legibility.
 This is a cloud-render rehearsal, not the final film or full motion acceptance.
-The new 94-second edit is exported; full motion and the complete clean-install
-rehearsal remain open. Historical runs and asset provenance are preserved in
+The final 94-second export has been replayed and the complete clean-install
+rehearsal now passes as documented above. Historical runs and asset provenance are preserved in
 [Acceptance history](ACCEPTANCE_HISTORY.md).
 
 ## Human/external dependencies

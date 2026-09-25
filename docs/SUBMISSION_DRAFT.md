@@ -61,8 +61,8 @@ ledger across process restarts.
 Nearby pairing requires explicit approval, pinned TLS identity, protected
 credentials and revocation. Automated checks and native Android emulator
 journeys include independent phone and tablet clients. The [acceptance
-ledger](STATUS.md) distinguishes those results from remaining physical-device
-and final-demo checks. Matching positions do not prove identical decoded
+ledger](STATUS.md) records the complete ordinary-APK clean-install rehearsal
+and the remaining hardware limits. Matching positions do not prove identical decoded
 frames or smooth footage.
 
 ## Why RevenueCat belongs here
@@ -94,12 +94,12 @@ Nearby control still needs explicit, revocable pairing.
 
 ## Before publishing
 
-- [ ] Close the remaining [product gates](STATUS.md), run required checks and
-  rehearse the final build from a
-  clean install without manual repair.
-- [ ] Verify the final UI fixes after physical playback, purchase and trusted-LAN
+- [x] Rehearse the ordinary APK from a clean install through Together, history,
+  quota, Test Store purchase, Restore and Local resume on two independent emulators.
+- [x] Verify the final UI fixes after physical playback, purchase and trusted-LAN
   Nearby acceptance. Prove Cast on a receiver or document the unavailable
   receiver and working phone fallback.
+- [ ] Finish the accepted local Windows/cloud Android check and repository closeout.
 - [ ] Watch the complete final film at normal speed, verify a duration strictly
   under two minutes, accurate runtime and Test Store labels, rights to every
   asset, and a public YouTube or Vimeo link. Follow the [demo script](DEMO_SCRIPT.md).

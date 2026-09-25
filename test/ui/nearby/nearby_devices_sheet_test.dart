@@ -118,7 +118,9 @@ void main() {
       findsNothing,
     );
     expect(
-      tester.widget<ListTile>(find.widgetWithText(ListTile, 'This phone')).onTap,
+      tester
+          .widget<ListTile>(find.widgetWithText(ListTile, 'This phone'))
+          .onTap,
       isNotNull,
     );
     await tester.pumpWidget(const SizedBox.shrink());

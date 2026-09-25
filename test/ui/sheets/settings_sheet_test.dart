@@ -345,6 +345,10 @@ void main() {
   testWidgets('restores Plus through the injected billing service', (
     tester,
   ) async {
+    tester.view.physicalSize = const Size(393, 640);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
     final billing = TestBilling()..grantOnRestore = true;
     final app = createTestApp(billing: billing);
     await tester.pumpWidget(
@@ -371,6 +375,10 @@ void main() {
     expect(billing.restoreCalls, 1);
     expect(find.text('Plus is active · unlimited hosting'), findsOneWidget);
     expect(find.text('Restored. MeowWatch Plus is active.'), findsOneWidget);
+    _expectRestoreFeedbackVisible(
+      tester,
+      'Restored. MeowWatch Plus is active.',
+    );
     await app.close();
   });
 
@@ -409,6 +417,7 @@ void main() {
         expect(billing.isPlus, isTrue);
         expect(find.text('Restored. MeowWatch Plus is active.'), findsNothing);
         expect(find.text(billing.restoreResult.message!), findsOneWidget);
+        _expectRestoreFeedbackVisible(tester, billing.restoreResult.message!);
         await app.close();
       },
     );
@@ -454,6 +463,23 @@ void main() {
     );
     await app.close();
   });
+}
+
+void _expectRestoreFeedbackVisible(WidgetTester tester, String message) {
+  final plus = find.byKey(const Key('settings-plus-content'));
+  final restore = find.text('Restore purchases');
+  final feedback = find.text(message);
+  expect(find.descendant(of: plus, matching: restore), findsOneWidget);
+  expect(find.descendant(of: plus, matching: feedback), findsOneWidget);
+
+  final viewport = tester.getRect(
+    find.ancestor(of: plus, matching: find.byType(SingleChildScrollView)),
+  );
+  for (final item in [restore, feedback]) {
+    final bounds = tester.getRect(item);
+    expect(bounds.top, greaterThanOrEqualTo(viewport.top));
+    expect(bounds.bottom, lessThanOrEqualTo(viewport.bottom));
+  }
 }
 
 Future<void> _openSettings(

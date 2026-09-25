@@ -55,7 +55,13 @@ jobs:
           paths = git('ls-files', '-z').split('\0')
           paths = [path for path in paths if path]
           pattern = re.compile(r'(?i)(^|/)(\.local|\.env(?:\..*)?|key\.properties|credentials)(/|$)|\.(log|pem|key|keystore|jks|mp4|webm|p12|pfx)$')
-          suspicious = [path for path in paths if pattern.search(path)]
+          # Curated, app-only submission clips; raw captures remain untracked.
+          # Both snapshot and history still pass the full secret scanner below.
+          published_media = {
+              'showcase/remotion/source-media/physical-fullscreen-phone.mp4',
+              'showcase/remotion/source-media/physical-local-phone.mp4',
+          }
+          suspicious = [path for path in paths if pattern.search(path) and path not in published_media]
           summary = {'head': git('rev-parse', 'HEAD'), 'gitleaksVersion': '8.30.1',
                      'trackedFileCount': len(paths), 'fetchedCommitCount': int(git('rev-list', '--all', '--count')),
                      'suspiciousTrackedPaths': suspicious, 'scans': {}}

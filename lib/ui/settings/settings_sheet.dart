@@ -57,7 +57,9 @@ class _SettingsSheet extends StatefulWidget {
 
 class _SettingsSheetState extends State<_SettingsSheet> {
   late final TextEditingController _name;
+  final GlobalKey _restoreFeedbackKey = GlobalKey();
   String? _message;
+  String? _restoreMessage;
   bool _working = false;
 
   BillingService get _billing => widget.app.billing;
@@ -79,6 +81,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     setState(() {
       _working = true;
       _message = null;
+      _restoreMessage = null;
     });
     try {
       await widget.app.setName(_name.text);
@@ -97,6 +100,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     setState(() {
       _working = true;
       _message = null;
+      _restoreMessage = null;
     });
     BillingResult result;
     if (!_billing.isConfigured) {
@@ -110,12 +114,21 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     if (!mounted) return;
     setState(() {
       _working = false;
-      _message = !result.succeeded
+      _restoreMessage = !result.succeeded
           ? (result.message ?? 'Could not restore purchases right now.')
           : _billing.isPlus
           ? 'Restored. MeowWatch Plus is active.'
           : 'No active Plus purchase was found for this store account.';
     });
+    await WidgetsBinding.instance.endOfFrame;
+    final feedback = _restoreFeedbackKey.currentContext;
+    if (mounted && feedback != null) {
+      await Scrollable.ensureVisible(
+        feedback,
+        alignment: 0.8,
+        duration: const Duration(milliseconds: 200),
+      );
+    }
   }
 
   Future<void> _clearHistory() async {
@@ -150,6 +163,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
     setState(() {
       _working = true;
       _message = null;
+      _restoreMessage = null;
     });
     try {
       final keys = widget.app.repository.history
@@ -250,7 +264,10 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                             textInputAction: TextInputAction.done,
                             style: TextStyle(color: colors.onSurface),
                             cursorColor: colors.primary,
-                            onChanged: (_) => setState(() => _message = null),
+                            onChanged: (_) => setState(() {
+                              _message = null;
+                              _restoreMessage = null;
+                            }),
                             onSubmitted: (_) {
                               if (!_inRoom && !_working) _saveName();
                             },
@@ -302,6 +319,7 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                     _Section(
                       title: 'MeowWatch Plus',
                       child: Column(
+                        key: const Key('settings-plus-content'),
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
                           Row(
@@ -363,6 +381,21 @@ class _SettingsSheetState extends State<_SettingsSheet> {
                                 : _restore,
                             child: const Text('Restore purchases'),
                           ),
+                          if (_restoreMessage != null) ...[
+                            const SizedBox(height: 8),
+                            Semantics(
+                              key: _restoreFeedbackKey,
+                              liveRegion: true,
+                              child: Text(
+                                _restoreMessage!,
+                                textAlign: TextAlign.center,
+                                style: TextStyle(
+                                  color: colors.primary,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
                         ],
                       ),
                     ),

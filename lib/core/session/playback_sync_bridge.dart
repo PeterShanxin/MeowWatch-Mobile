@@ -36,6 +36,7 @@ class PlaybackSyncBridge {
   final Stopwatch _roomClock = Stopwatch()..start();
   Duration get _now => roomClockNow?.call() ?? _roomClock.elapsed;
   StreamSubscription<PlaybackSnapshot>? _playerSub;
+  StreamSubscription<int>? _focusSub;
   StreamSubscription<PeerPlayState>? _peerSub;
   StreamSubscription<PeerPlayState>? _roomSub;
   StreamSubscription<SyncConnectionState>? _connectionSub;
@@ -58,6 +59,7 @@ class PlaybackSyncBridge {
   bool _externalPlayPending = false;
   int? _pauseCorrectionSource;
   int? _pauseCorrectionIntent;
+  int? _pendingLocalPlayIntent;
   _PlayStartCatchUp? _playStartCatchUp;
   Timer? _rateExpiry;
   Stopwatch? _rateWindow;
@@ -85,10 +87,11 @@ class PlaybackSyncBridge {
     if (_disposed || _playerSub != null) return;
     final playback = target;
     if (playback is PlaybackInterruptionTarget) {
+      final interruptions = playback as PlaybackInterruptionTarget;
+      _focusSub = interruptions.focusInterruptions.listen(_onFocusInterruption);
       // Acquire synchronously so even a source loaded immediately after start
       // receives the native policy before it can play.
-      final ready = (playback as PlaybackInterruptionTarget)
-          .requireExplicitResume(this);
+      final ready = interruptions.requireExplicitResume(this);
       _background(_enqueue(() => ready));
     }
     _connected =
@@ -235,7 +238,10 @@ class PlaybackSyncBridge {
       // Moving a running Local session into Together must pass the same host
       // allowance check as pressing Play in a newly created Together room.
       await target.pause();
-      if (await play()) return;
+      final playing = play();
+      final playIntent = _intent;
+      if (await playing) return;
+      if (playIntent != _intent) return;
     }
     _publish(target.snapshot, changed: true, seek: true);
   }
@@ -359,6 +365,23 @@ class PlaybackSyncBridge {
       // that native request before focus returns and starts playback again.
       _reassertPause(alreadyPublished: true);
     }
+  }
+
+  void _onFocusInterruption(int _) {
+    if (!_hasSource) return;
+    final roomWasPlaying = _publishedPaused == false;
+    if (!roomWasPlaying && _pendingLocalPlayIntent != _intent) return;
+    // Native focus loss is a distinct event: buffering and delayed player
+    // echoes cannot establish this intent, and must not hide it either.
+    _nextIntent();
+    _expected = null;
+    _pendingLocalPlayIntent = null;
+    _publish(
+      target.snapshot,
+      changed: roomWasPlaying && _connected,
+      paused: true,
+    );
+    _reassertPause(alreadyPublished: true);
   }
 
   void _recoverNetworkSource() {
@@ -1066,29 +1089,34 @@ class PlaybackSyncBridge {
     _connectionRecovery = null;
     final intent = _nextIntent();
     final source = _sourceGeneration;
+    _pendingLocalPlayIntent = intent;
     var played = false;
-    await _enqueue(() async {
-      if (!_current(intent, source)) return;
-      _applying++;
-      try {
-        if (externallyStarted) {
-          await target.pause().timeout(commandTimeout);
+    try {
+      await _enqueue(() async {
+        if (!_current(intent, source)) return;
+        _applying++;
+        try {
+          if (externallyStarted) {
+            await target.pause().timeout(commandTimeout);
+            if (!_current(intent, source)) return;
+          }
+          if (!await _authorize()) {
+            if (_current(intent, source)) await _denyPlayback();
+            return;
+          }
           if (!_current(intent, source)) return;
+          _expected = null;
+          await target.play().timeout(commandTimeout);
+          if (!_current(intent, source)) return;
+          _publish(target.snapshot, changed: true, paused: false);
+          played = true;
+        } finally {
+          _applying--;
         }
-        if (!await _authorize()) {
-          if (_current(intent, source)) await _denyPlayback();
-          return;
-        }
-        if (!_current(intent, source)) return;
-        _expected = null;
-        await target.play().timeout(commandTimeout);
-        if (!_current(intent, source)) return;
-        _publish(target.snapshot, changed: true, paused: false);
-        played = true;
-      } finally {
-        _applying--;
-      }
-    });
+      });
+    } finally {
+      if (_pendingLocalPlayIntent == intent) _pendingLocalPlayIntent = null;
+    }
     return played;
   }
 
@@ -1191,6 +1219,7 @@ class PlaybackSyncBridge {
       }
     }
     await _playerSub?.cancel();
+    await _focusSub?.cancel();
     await _peerSub?.cancel();
     await _roomSub?.cancel();
     await _connectionSub?.cancel();

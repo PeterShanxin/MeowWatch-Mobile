@@ -62,6 +62,10 @@ abstract interface class PlaybackRateTarget {
 /// A room holds this policy until its bridge is disposed. Distinct owners keep
 /// an old room's teardown from disabling a replacement room's policy.
 abstract interface class PlaybackInterruptionTarget {
+  /// Native focus losses for the current decoder while explicit resume is held.
+  /// Separate from playback snapshots so buffering cannot hide an interruption.
+  Stream<int> get focusInterruptions;
+
   Future<void> requireExplicitResume(Object owner);
   Future<void> releaseExplicitResume(Object owner);
 }

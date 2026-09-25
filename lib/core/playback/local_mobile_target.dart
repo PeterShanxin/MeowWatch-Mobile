@@ -24,6 +24,13 @@ class LocalMobileTarget extends PlaybackTarget
   VideoPlayerController? _controller;
   PlaybackSnapshot _snapshot = const PlaybackSnapshot();
   final _states = StreamController<PlaybackSnapshot>.broadcast();
+  final _focusInterruptions = StreamController<int>.broadcast(sync: true);
+  static const _focusChannel = MethodChannel(
+    'com.meowwatch.mobile/player_focus',
+  );
+  static final Map<int, LocalMobileTarget> _focusTargets = {};
+  int? _activePlayerId;
+  int _lastFocusInterruptionVersion = 0;
   int _loadGeneration = 0;
   int _positionGeneration = 0;
   Duration? _pausedPosition;
@@ -37,6 +44,53 @@ class LocalMobileTarget extends PlaybackTarget
   Future<void> _policyTail = Future<void>.value();
   VideoPlayerController? _policyController;
   bool? _appliedExplicitResume;
+
+  static void _registerFocusTarget(int playerId, LocalMobileTarget target) {
+    if (_focusTargets.isEmpty) {
+      _focusChannel.setMethodCallHandler(_dispatchFocusInterruption);
+    }
+    _focusTargets[playerId] = target;
+    target._activePlayerId = playerId;
+    target._lastFocusInterruptionVersion = 0;
+  }
+
+  static void _unregisterFocusTarget(LocalMobileTarget target) {
+    final playerId = target._activePlayerId;
+    if (playerId == null) return;
+    if (identical(_focusTargets[playerId], target)) {
+      _focusTargets.remove(playerId);
+    }
+    target._activePlayerId = null;
+    if (_focusTargets.isEmpty) _focusChannel.setMethodCallHandler(null);
+  }
+
+  static Future<void> _dispatchFocusInterruption(MethodCall call) async {
+    if (call.method != 'onFocusInterruption') return;
+    final data = call.arguments;
+    if (data is! Map || data.length != 2) return;
+    final playerId = data['playerId'];
+    final version = data['interruptionVersion'];
+    if (playerId is! int || playerId <= 0 || version is! int || version <= 0) {
+      return;
+    }
+    _focusTargets[playerId]?._acceptFocusInterruption(playerId, version);
+  }
+
+  void _acceptFocusInterruption(int playerId, int version) {
+    if (_closed ||
+        _activePlayerId != playerId ||
+        _controller == null ||
+        version <= _lastFocusInterruptionVersion) {
+      return;
+    }
+    _lastFocusInterruptionVersion = version;
+    _positionGeneration++;
+    _playRequested = false;
+    // Local Mode keeps the native focus policy's transient auto-resume, but
+    // its controls must still reflect the immediate loss of play intent.
+    if (_explicitResumeOwners.isNotEmpty) _focusInterruptions.add(version);
+    notifyListeners();
+  }
 
   static Future<void> _configureAndroidInterruptionPolicy(
     int playerId,
@@ -114,6 +168,8 @@ class LocalMobileTarget extends PlaybackTarget
   bool get canReloadAfterConnectionLoss => true;
   @override
   Stream<PlaybackSnapshot> get states => _states.stream;
+  @override
+  Stream<int> get focusInterruptions => _focusInterruptions.stream;
   VideoPlayerController? get controller => _controller;
 
   void _publish(PlaybackSnapshot state) {
@@ -137,6 +193,7 @@ class LocalMobileTarget extends PlaybackTarget
     _playRequested = false;
     final old = _controller;
     _controller = null;
+    _unregisterFocusTarget(this);
     _publish(
       PlaybackSnapshot(
         media: media,
@@ -171,6 +228,8 @@ class LocalMobileTarget extends PlaybackTarget
         return;
       }
       _controller = next;
+      // ignore: invalid_use_of_visible_for_testing_member
+      _registerFocusTarget(next.playerId, this);
       await _applyInterruptionPolicy(next);
       if (generation != _loadGeneration || _closed) return;
       if (position > Duration.zero) {
@@ -187,6 +246,7 @@ class LocalMobileTarget extends PlaybackTarget
       await next.dispose();
       if (generation != _loadGeneration || _closed) return;
       _controller = null;
+      _unregisterFocusTarget(this);
       _publish(
         PlaybackSnapshot(
           media: media,
@@ -214,7 +274,9 @@ class LocalMobileTarget extends PlaybackTarget
     if (value.hasError || value.isCompleted) {
       _playRequested = false;
     } else if (value.isPlaying) {
-      _playRequested = true;
+      // A buffered position/value update may still carry the pre-interruption
+      // playing bit. Only a new native playing transition can resume its intent.
+      if (!_snapshot.playing) _playRequested = true;
     } else if (!value.isBuffering && !_snapshot.buffering) {
       _playRequested = false;
     }
@@ -323,6 +385,7 @@ class LocalMobileTarget extends PlaybackTarget
     if (_closed) return;
     _closed = true;
     _explicitResumeOwners.clear();
+    _unregisterFocusTarget(this);
     _policyController = null;
     _loadGeneration++;
     _positionGeneration++;
@@ -330,6 +393,7 @@ class LocalMobileTarget extends PlaybackTarget
     await _controller?.dispose();
     _controller = null;
     await _states.close();
+    await _focusInterruptions.close();
     super.dispose();
   }
 }

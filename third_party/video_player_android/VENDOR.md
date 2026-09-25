@@ -17,6 +17,12 @@ pause on transient or permanent loss, even when ExoPlayer coalesces playback
 events during a queued seek. Local Mode resumes after transient focus returns.
 The native callback also reports paused immediately, including when buffering
 already made ExoPlayer's `isPlaying` false and no state-change event can fire.
+The same private channel emits `onFocusInterruption` with exactly
+`{playerId: int, interruptionVersion: int}` after pausing and before the ordinary
+not-playing report. This distinguishes focus loss from ordinary buffering.
+Only callbacks for the still-owned player and engine are delivered; disposal
+clears the listener. Denied or delayed focus during Play also emits this event.
+Manual pause, decoder buffering/end, volume ducking and focus gain do not.
 With `setRequireExplicitResume(true)`, Together stays paused until a fresh Play.
 Enabling that policy during a transient loss cancels Local Mode's pending resume;
 disabling it never starts playback. Explicit Pause cancels pending resume.

@@ -5,6 +5,7 @@ package io.flutter.plugins.videoplayer;
 import android.content.Context;
 import android.os.Looper;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.annotation.VisibleForTesting;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.Player;
@@ -25,6 +26,7 @@ final class PlayerAudioFocus implements AudioFocusManager.PlayerControl {
   private float userVolume = 1f;
   private float volumeMultiplier = 1f;
   private int interruptionVersion;
+  @Nullable private VideoPlayer.FocusInterruptionHandler interruptionHandler;
 
   interface FocusManagerFactory {
     AudioFocusManager create(AudioFocusManager.PlayerControl control);
@@ -71,11 +73,11 @@ final class PlayerAudioFocus implements AudioFocusManager.PlayerControl {
       resumeOnGain = false;
       player.play();
     } else if (command == AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK) {
-      resumeOnGain = true;
-      pauseAndReport();
+      resumeOnGain = !requireExplicitResume;
+      interruptAndReport();
     } else if (command == AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY) {
       resumeOnGain = false;
-      pauseAndReport();
+      interruptAndReport();
     } else {
       resumeOnGain = false;
       pauseAndReport();
@@ -97,6 +99,23 @@ final class PlayerAudioFocus implements AudioFocusManager.PlayerControl {
     player.pause();
     // While buffering, isPlaying may already be false and ExoPlayer emits no state-change event.
     events.onIsPlayingStateUpdate(false);
+  }
+
+  private void interruptAndReport() {
+    interruptionVersion++;
+    player.pause();
+    // A paused decoder can still be buffering. Report the explicit interruption separately so
+    // Together does not mistake it for temporary starvation and keep its room intent playing.
+    if (interruptionHandler != null) {
+      interruptionHandler.onInterrupted(interruptionVersion);
+    }
+    events.onIsPlayingStateUpdate(false);
+  }
+
+  void setInterruptionHandler(@Nullable VideoPlayer.FocusInterruptionHandler handler) {
+    if (!disposed) {
+      interruptionHandler = handler;
+    }
   }
 
   void setRequireExplicitResume(boolean required) {
@@ -129,6 +148,7 @@ final class PlayerAudioFocus implements AudioFocusManager.PlayerControl {
     }
     disposed = true;
     resumeOnGain = false;
+    interruptionHandler = null;
     focusManager.release();
   }
 
@@ -147,14 +167,12 @@ final class PlayerAudioFocus implements AudioFocusManager.PlayerControl {
     }
     switch (command) {
       case AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK:
-        interruptionVersion++;
         resumeOnGain = !requireExplicitResume && (player.getPlayWhenReady() || resumeOnGain);
-        pauseAndReport();
+        interruptAndReport();
         break;
       case AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY:
-        interruptionVersion++;
         resumeOnGain = false;
-        pauseAndReport();
+        interruptAndReport();
         break;
       case AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY:
         if (resumeOnGain) {

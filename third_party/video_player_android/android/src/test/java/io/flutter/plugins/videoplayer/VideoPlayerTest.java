@@ -143,6 +143,78 @@ public final class VideoPlayerTest {
   }
 
   @Test
+  public void focusLossReportsExplicitInterruptionEvenWhenAlreadyNotPlaying() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    VideoPlayer.FocusInterruptionHandler handler = mock(VideoPlayer.FocusInterruptionHandler.class);
+    videoPlayer.setFocusInterruptionHandler(handler);
+    videoPlayer.setRequireExplicitResume(true);
+    assertFalse(mockExoPlayer.isPlaying());
+    PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
+
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY);
+
+    InOrder order = inOrder(mockExoPlayer, handler, mockEvents);
+    order.verify(mockExoPlayer).pause();
+    order.verify(handler).onInterrupted(1);
+    order.verify(mockEvents).onIsPlayingStateUpdate(false);
+    order.verify(mockExoPlayer).pause();
+    order.verify(handler).onInterrupted(2);
+    order.verify(mockEvents).onIsPlayingStateUpdate(false);
+    verify(mockExoPlayer, never()).play();
+    videoPlayer.dispose();
+    focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+    verifyNoMoreInteractions(handler);
+  }
+
+  @Test
+  public void decoderBufferingManualPauseAndStopDoNotReportFocusInterruption() {
+    VideoPlayer videoPlayer = createVideoPlayer();
+    VideoPlayer.FocusInterruptionHandler handler = mock(VideoPlayer.FocusInterruptionHandler.class);
+    videoPlayer.setFocusInterruptionHandler(handler);
+    verify(mockExoPlayer, times(2)).addListener(listenerCaptor.capture());
+    for (Player.Listener listener : listenerCaptor.getAllValues()) {
+      listener.onPlaybackStateChanged(Player.STATE_BUFFERING);
+      listener.onIsPlayingChanged(false);
+    }
+    videoPlayer.pause();
+    videoPlayer.getAudioFocusForTesting().onPlaybackStopped();
+    videoPlayer.getAudioFocusForTesting()
+        .executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+    verifyNoInteractions(handler);
+    videoPlayer.dispose();
+  }
+
+  @Test
+  public void delayedPlayFocusRequiresFreshPlayInTogetherButResumesLocal() {
+    for (boolean together : new boolean[] {false, true}) {
+      ExoPlayer player = mock(ExoPlayer.class);
+      VideoPlayerCallbacks events = mock(VideoPlayerCallbacks.class);
+      VideoPlayer.FocusInterruptionHandler handler = mock(VideoPlayer.FocusInterruptionHandler.class);
+      AudioFocusManager manager = mock(AudioFocusManager.class);
+      when(manager.updateAudioFocus(true, Player.STATE_BUFFERING))
+          .thenReturn(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
+      PlayerAudioFocus focus =
+          new PlayerAudioFocus(
+              player,
+              new AudioAttributes.Builder().setContentType(C.AUDIO_CONTENT_TYPE_MOVIE).build(),
+              false,
+              events,
+              control -> manager);
+      focus.setInterruptionHandler(handler);
+      focus.setRequireExplicitResume(together);
+      focus.play();
+      focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_PLAY_WHEN_READY);
+
+      verify(handler).onInterrupted(1);
+      verify(player).pause();
+      verify(player, times(together ? 0 : 1)).play();
+      focus.release();
+    }
+  }
+
+  @Test
   public void enablingTogetherDuringLocalTransientCancelsDeferredResume() {
     VideoPlayer videoPlayer = createVideoPlayer();
     when(mockExoPlayer.getPlayWhenReady()).thenReturn(true);
@@ -200,10 +272,13 @@ public final class VideoPlayerTest {
     VideoPlayerOptions options = new VideoPlayerOptions();
     options.mixWithOthers = true;
     VideoPlayer videoPlayer = createVideoPlayer(options);
+    VideoPlayer.FocusInterruptionHandler handler = mock(VideoPlayer.FocusInterruptionHandler.class);
+    videoPlayer.setFocusInterruptionHandler(handler);
     PlayerAudioFocus focus = videoPlayer.getAudioFocusForTesting();
     focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_WAIT_FOR_CALLBACK);
     focus.executePlayerCommand(AudioFocusManager.PLAYER_COMMAND_DO_NOT_PLAY);
     verify(mockExoPlayer, never()).pause();
+    verifyNoInteractions(handler);
     videoPlayer.dispose();
   }
 
@@ -229,11 +304,15 @@ public final class VideoPlayerTest {
             false,
             mockEvents,
             control -> focusManager);
+    VideoPlayer.FocusInterruptionHandler handler = mock(VideoPlayer.FocusInterruptionHandler.class);
+    focus.setInterruptionHandler(handler);
     assertFalse(mockExoPlayer.isPlaying());
     focus.play();
-    InOrder order = inOrder(focusManager, mockExoPlayer);
+    InOrder order = inOrder(focusManager, mockExoPlayer, handler, mockEvents);
     order.verify(focusManager).updateAudioFocus(true, Player.STATE_BUFFERING);
     order.verify(mockExoPlayer).pause();
+    order.verify(handler).onInterrupted(1);
+    order.verify(mockEvents).onIsPlayingStateUpdate(false);
     verify(mockExoPlayer, never()).play();
     verify(mockEvents).onIsPlayingStateUpdate(false);
     focus.release();

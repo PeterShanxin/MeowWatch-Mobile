@@ -283,6 +283,16 @@ final class _EarlyNativePauseMonitor {
     }
     _native = app.target.states.listen((state) {
       nativeEvents++;
+      if (nativeStateSamples.length < 256) {
+        nativeStateSamples.add({
+          'elapsedMs': _clock.elapsedMilliseconds,
+          'positionMs': state.position.inMilliseconds,
+          'playing': state.playing,
+          'buffering': state.buffering,
+          'ready': state.ready,
+          'playRequested': app.playRequested,
+        });
+      }
       if (!state.playing) {
         firstNativePauseElapsedMs ??= _clock.elapsedMilliseconds;
       } else if (firstNativePauseElapsedMs != null) {
@@ -310,6 +320,7 @@ final class _EarlyNativePauseMonitor {
   late final StreamSubscription<PeerPlayState> _room;
   final List<Map<String, Object>> forbidden = [];
   final List<Map<String, Object>> forbiddenRoomPlay = [];
+  final List<Map<String, Object>> nativeStateSamples = [];
   int nativeEvents = 0;
   int roomEvents = 0;
   int? firstNativePauseElapsedMs;
@@ -321,7 +332,7 @@ final class _EarlyNativePauseMonitor {
         forbidden.isNotEmpty ||
         forbiddenRoomPlay.isNotEmpty) {
       throw TestFailure(
-        'native playback resumed after the first early focus pause',
+        'early focus must pause native playback and the room without resuming',
       );
     }
   }
@@ -329,6 +340,8 @@ final class _EarlyNativePauseMonitor {
   Map<String, Object?> receipt() => {
     'monitoredMs': _clock.elapsedMilliseconds,
     'nativeEvents': nativeEvents,
+    'nativeStateSamples': List<Map<String, Object>>.of(nativeStateSamples),
+    'droppedNativeStateSamples': nativeEvents - nativeStateSamples.length,
     'roomEvents': roomEvents,
     'sawNativePause': firstNativePauseElapsedMs != null,
     'sawRoomPause': firstRoomPauseElapsedMs != null,

@@ -20,6 +20,7 @@ import io.flutter.plugins.videoplayer.platformview.PlatformVideoViewFactory;
 import io.flutter.plugins.videoplayer.platformview.PlatformViewVideoPlayer;
 import io.flutter.plugins.videoplayer.texture.TextureVideoPlayer;
 import io.flutter.view.TextureRegistry;
+import java.util.HashMap;
 import java.util.Map;
 
 /** Android platform implementation of the VideoPlayerPlugin. */
@@ -172,6 +173,17 @@ public class VideoPlayerPlugin implements FlutterPlugin, AndroidVideoPlayerApi {
         () -> VideoPlayerInstanceApi.Companion.setUp(messenger, null, channelSuffix));
 
     videoPlayers.put(id, player);
+    final MethodChannel channel = playerFocusChannel;
+    player.setFocusInterruptionHandler(
+        version -> {
+          if (channel == null || playerFocusChannel != channel || videoPlayers.get(id) != player) {
+            return;
+          }
+          Map<String, Object> event = new HashMap<>();
+          event.put("playerId", id);
+          event.put("interruptionVersion", version);
+          channel.invokeMethod("onFocusInterruption", event);
+        });
   }
 
   void onPlayerFocusMethodCall(@NonNull MethodCall call, @NonNull MethodChannel.Result result) {

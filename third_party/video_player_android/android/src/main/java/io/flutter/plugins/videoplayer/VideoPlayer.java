@@ -63,6 +63,11 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     void onDispose();
   }
 
+  /** A focus loss is distinct from a decoder temporarily reporting that it is not playing. */
+  public interface FocusInterruptionHandler {
+    void onInterrupted(int interruptionVersion);
+  }
+
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi
   // Error thrown for this-escape warning on JDK 21+ due to
@@ -112,6 +117,10 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   /** Requires a fresh play command after transient audio focus loss for this player only. */
   public void setRequireExplicitResume(boolean required) {
     audioFocus.setRequireExplicitResume(required);
+  }
+
+  public void setFocusInterruptionHandler(@Nullable FocusInterruptionHandler handler) {
+    audioFocus.setInterruptionHandler(handler);
   }
 
   public void setDisposeHandler(@Nullable DisposeHandler handler) {

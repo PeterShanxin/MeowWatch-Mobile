@@ -60,6 +60,16 @@ can instead call `beginSourceLoad()` and pass the returned generation to
 `adoptOpenSource(uri)` handles a source already open before switching from
 Local to Together.
 
+Android focus loss is an explicit interruption, separate from an ordinary
+not-playing sample during buffering. The pinned player emits a private
+`onFocusInterruption` event with its player ID and monotonic interruption
+version. Only the current local target can route that event to its room bridge;
+disposed/replaced players and duplicate versions are ignored. The bridge
+invalidates pending Play, updates room intent to paused and reasserts native
+pause even during buffering or a pending native command. A new explicit Play
+is required in Together. Local Mode retains its native transient-focus resume
+policy. Ordinary decoder buffering does not publish a room Pause.
+
 After an accepted first Play, the bridge checks startup lag only once the native
 position advances beyond the accepted seek. It projects from a room heartbeat
 no older than two seconds, including heartbeats that did not issue a follow

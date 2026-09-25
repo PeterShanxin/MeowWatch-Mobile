@@ -261,6 +261,91 @@ void main() {
     expect(configured, [true, false]);
   });
 
+  test('focus events route only to the active owned decoder', () async {
+    final first = createTarget(configureInterruptionPolicy: (_, _) async {});
+    final second = createTarget(configureInterruptionPolicy: (_, _) async {});
+    final firstOwner = Object();
+    final secondOwner = Object();
+    await first.requireExplicitResume(firstOwner);
+    await second.requireExplicitResume(secondOwner);
+    await first.load(_media('focus-first'));
+    await second.load(_media('focus-second'));
+    final firstId = first.controller!.playerId;
+    final secondId = second.controller!.playerId;
+    final firstEvents = <int>[];
+    final secondEvents = <int>[];
+    final firstSub = first.focusInterruptions.listen(firstEvents.add);
+    final secondSub = second.focusInterruptions.listen(secondEvents.add);
+    addTearDown(() async {
+      await firstSub.cancel();
+      await secondSub.cancel();
+    });
+
+    await first.play();
+    await second.play();
+    await _sendFocusInterruption(firstId, 1);
+    expect(firstEvents, [1]);
+    expect(secondEvents, isEmpty);
+    expect(first.playRequested, isFalse);
+    expect(second.playRequested, isTrue);
+
+    await _sendFocusInterruption(firstId, 1);
+    await _sendFocusInterruption(firstId, 0);
+    await _sendFocusInterruption(-1, 2);
+    expect(firstEvents, [1]);
+    await _sendFocusInterruption(secondId, 4);
+    expect(secondEvents, [4]);
+    await _sendFocusInterruption(secondId, 3);
+    expect(secondEvents, [4]);
+
+    await first.load(_media('focus-replaced'));
+    final replacementId = first.controller!.playerId;
+    await _sendFocusInterruption(firstId, 2);
+    expect(firstEvents, [1]);
+    await _sendFocusInterruption(replacementId, 1);
+    expect(firstEvents, [1, 1]);
+
+    await second.close();
+    await _sendFocusInterruption(secondId, 5);
+    expect(secondEvents, [4]);
+    await first.releaseExplicitResume(firstOwner);
+    await first.play();
+    var localUiUpdates = 0;
+    first.addListener(() => localUiUpdates++);
+    final playsBeforeLocalFocus = platform.playCalls;
+    final pausesBeforeLocalFocus = platform.pauseCalls;
+    await _sendFocusInterruption(replacementId, 2);
+    expect(firstEvents, [1, 1]);
+    expect(first.playRequested, isFalse);
+    expect(localUiUpdates, greaterThan(0));
+    expect(platform.playCalls, playsBeforeLocalFocus);
+    expect(platform.pauseCalls, pausesBeforeLocalFocus);
+    platform.emit(VideoEvent(eventType: VideoEventType.bufferingStart));
+    platform.emit(
+      VideoEvent(
+        eventType: VideoEventType.isPlayingStateUpdate,
+        isPlaying: false,
+      ),
+    );
+    await _flushEvents();
+    expect(first.playRequested, isFalse);
+    platform.emit(
+      VideoEvent(
+        eventType: VideoEventType.isPlayingStateUpdate,
+        isPlaying: true,
+      ),
+    );
+    await _flushEvents();
+    expect(first.playRequested, isTrue);
+    expect(platform.playCalls, playsBeforeLocalFocus);
+    expect(platform.pauseCalls, pausesBeforeLocalFocus);
+    await first.requireExplicitResume(firstOwner);
+    await _sendFocusInterruption(replacementId, 2);
+    expect(firstEvents, [1, 1]);
+    await _sendFocusInterruption(replacementId, 3);
+    expect(firstEvents, [1, 1, 3]);
+  });
+
   test(
     'Play waits for a new room policy during pending Local Mode reset',
     () async {
@@ -620,6 +705,20 @@ void main() {
 Future<void> _flushEvents() async {
   await Future<void>.delayed(Duration.zero);
   await Future<void>.delayed(Duration.zero);
+}
+
+Future<void> _sendFocusInterruption(int playerId, int version) async {
+  await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+      .handlePlatformMessage(
+        'com.meowwatch.mobile/player_focus',
+        const StandardMethodCodec().encodeMethodCall(
+          MethodCall('onFocusInterruption', {
+            'playerId': playerId,
+            'interruptionVersion': version,
+          }),
+        ),
+        (_) {},
+      );
 }
 
 MediaItem _media(String name) => MediaItem(

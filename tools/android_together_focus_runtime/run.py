@@ -440,7 +440,7 @@ class FocusSession:
             (self.output / f"{stage}.png").write_bytes(self.adb.screenshot())
             native = playback(xml, expected_duration_seconds=180)
             if native.playing:
-                raise RuntimeFailure("Together native UI resumed after brief transient focus release")
+                raise RuntimeFailure("Together UI still advertises playing after brief transient focus release")
             audio = self.raw(stage, "focus-stack", "shell", "dumpsys", "audio")
             if any(row["package"] == HELPER for row in focus_stack(audio)):
                 raise RuntimeFailure("auto-released helper still owns audio focus")

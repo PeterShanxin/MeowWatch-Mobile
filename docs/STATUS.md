@@ -69,7 +69,18 @@ the test service is now prepared before the pre-Play marker without requesting
 focus. Its 15-second expiry, live PID/UID/nonce and absence of focus are checked.
 The existing app-focus ownership check and 3,000 ms/200–500 ms timing gates stay
 unchanged. Five focused mocked contracts pass, including an expired warm
-request that would otherwise fit the Play window. Fresh native proof is pending.
+request that would otherwise fit the Play window. Run `36095814793` at `953178e`
+then triggers a valid 366 ms loss, released 1,409 ms after the marker. Native
+pause is observed after 333 ms, but the room never pauses in the 6,053 ms monitor
+and the rendered button still says Pause together. No native or room Play
+transition is observed after pause: the failed UI check does not prove native
+autoplay. The original early-interruption screenshot is reviewed. The source
+has a concrete ambiguity: ordinary buffering and real focus loss both report
+not-playing while buffering, which the bridge intentionally ignores. A separate
+player-scoped focus event now cancels room intent independently of buffering;
+native and Dart regressions and a fresh native gate are required before this
+repair is accepted. The early monitor also retains bounded per-event state
+samples so future failures distinguish intent, buffering and native playback.
 
 Normal-release Local Mode `36093565684` at `37adcf6` passes the new focus policy
 in PID 3214 without setup ANR repair or observation timeout. Permanent pause
@@ -140,7 +151,16 @@ pre-boot 540x1200/210 dpi preparation, preserving the phone's logical layout.
 Two focused preparation tests cover all three task-owned AVD names, unchanged
 dp size and refusal of unknown or ambiguous configurations. The fixture, build
 mode, two decoders and all timing/convergence/byte-proof gates stay unchanged.
-Fresh native convergence and recovery remain required.
+Fresh run `36096381799` still fails the initial-ready accessibility root capture;
+`36096384236` now reaches the 30-second convergence limit with both decoders
+advancing but far apart. Neither reaches radio loss. Their preparation receipts
+confirm the reduced framebuffer and unchanged logical layout. Reducing rendered
+pixels does not resolve these failures; observer and playback evidence need
+separate diagnosis. Fresh native convergence and recovery remain required.
+Profile comparison `36097713336` uses the same `828f7a4` source and unchanged
+failed-decoder gates. It is a build-mode comparison, not a replacement for the
+failed debug runs. The normal run's original screen and both recording hashes
+are reviewed; both cloud decodes pass. Neither recording establishes recovery.
 
 Normal network `36091067116` stops before radio loss because its independent
 accessibility observer cannot obtain an app root within 15 attempts. PID 3155

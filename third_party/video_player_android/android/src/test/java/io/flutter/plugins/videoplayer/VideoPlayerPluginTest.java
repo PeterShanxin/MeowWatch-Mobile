@@ -13,17 +13,20 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin;
 import io.flutter.plugin.common.BinaryMessenger;
 import io.flutter.plugin.common.MethodCall;
 import io.flutter.plugin.common.MethodChannel;
+import io.flutter.plugin.common.StandardMethodCodec;
 import io.flutter.plugin.platform.PlatformViewRegistry;
 import io.flutter.plugins.videoplayer.platformview.PlatformVideoViewFactory;
 import io.flutter.plugins.videoplayer.platformview.PlatformViewVideoPlayer;
 import io.flutter.plugins.videoplayer.texture.TextureVideoPlayer;
 import io.flutter.view.TextureRegistry;
 import java.lang.reflect.Field;
+import java.nio.ByteBuffer;
 import java.util.HashMap;
 import java.util.Map;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.MockedStatic;
 import org.mockito.MockitoAnnotations;
@@ -127,6 +130,47 @@ public class VideoPlayerPluginTest {
 
       final LongSparseArray<VideoPlayer> videoPlayers = getVideoPlayers();
       assertTrue(videoPlayers.get(ids.getPlayerId()) instanceof TextureVideoPlayer);
+    }
+  }
+
+  @Test
+  public void focusEventsIdentifyTheOwnedPlayerAndDropDisposedOrDetachedCallbacks() {
+    TextureVideoPlayer first = mock(TextureVideoPlayer.class);
+    TextureVideoPlayer second = mock(TextureVideoPlayer.class);
+    try (MockedStatic<TextureVideoPlayer> players = mockStatic(TextureVideoPlayer.class)) {
+      players.when(() -> TextureVideoPlayer.create(any(), any(), any(), any(), any()))
+          .thenReturn(first, second);
+      CreationOptions options =
+          new CreationOptions("https://example.test/video.mp4", null, new HashMap<>(), null, null);
+      long firstId = plugin.createForTextureView(options).getPlayerId();
+      long secondId = plugin.createForTextureView(options).getPlayerId();
+      ArgumentCaptor<VideoPlayer.FocusInterruptionHandler> firstHandler =
+          ArgumentCaptor.forClass(VideoPlayer.FocusInterruptionHandler.class);
+      ArgumentCaptor<VideoPlayer.FocusInterruptionHandler> secondHandler =
+          ArgumentCaptor.forClass(VideoPlayer.FocusInterruptionHandler.class);
+      verify(first).setFocusInterruptionHandler(firstHandler.capture());
+      verify(second).setFocusInterruptionHandler(secondHandler.capture());
+
+      firstHandler.getValue().onInterrupted(1);
+      plugin.dispose(firstId);
+      firstHandler.getValue().onInterrupted(2);
+      secondHandler.getValue().onInterrupted(4);
+      plugin.onDetachedFromEngine(binding);
+      secondHandler.getValue().onInterrupted(5);
+
+      ArgumentCaptor<ByteBuffer> encoded = ArgumentCaptor.forClass(ByteBuffer.class);
+      verify(mockMessenger, times(2))
+          .send(eq("com.meowwatch.mobile/player_focus"), encoded.capture(), isNull());
+      ByteBuffer firstEvent = encoded.getAllValues().get(0);
+      firstEvent.flip();
+      MethodCall firstCall = StandardMethodCodec.INSTANCE.decodeMethodCall(firstEvent);
+      assertEquals("onFocusInterruption", firstCall.method);
+      assertEquals(Map.of("playerId", firstId, "interruptionVersion", 1), firstCall.arguments);
+      ByteBuffer secondEvent = encoded.getAllValues().get(1);
+      secondEvent.flip();
+      MethodCall secondCall = StandardMethodCodec.INSTANCE.decodeMethodCall(secondEvent);
+      assertEquals("onFocusInterruption", secondCall.method);
+      assertEquals(Map.of("playerId", secondId, "interruptionVersion", 4), secondCall.arguments);
     }
   }
 

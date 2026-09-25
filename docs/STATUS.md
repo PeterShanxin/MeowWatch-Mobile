@@ -16,9 +16,16 @@ Nonblocking recorder, observer and evidence-tool improvements are frozen.
 Existing recordings and required validation remain; do not repeat frame/hash
 audits or extend static showcase recording infrastructure. The proposed extra
 hosted Windows screenshot harness is deferred. Physical Android-to-Windows
-Nearby and Cast receiver checks remain explicit external gaps until performed;
-additional emulator runs cannot close them. Pending entrant confirmations are
-also retained. This changes execution priority, not the meaning of acceptance.
+Nearby discovery, pairing, controls, saved reconnect and revocation now pass
+on the September 25 phone check. Cast receiver acceptance remains open.
+Additional emulator runs cannot establish hardware behavior.
+
+The owner confirmed that Nearby should remain a secondary, explicitly paired
+desktop remote. Do not add automatic nearby room creation or a large Nearby
+chapter to the film. Prioritize distant Together sessions, recovery, phone/tablet
+usability and a clear, reliable Plus flow. The owner also requested a more
+designed hybrid film: accurate React UI animation for explanatory shots and
+real-device footage for runtime demonstration, clearly distinguished.
 
 ## Acceptance evidence
 
@@ -29,18 +36,55 @@ also retained. This changes execution priority, not the meaning of acceptance.
 | 3 | Clear first-launch create/join | Verified on emulators | Final-source five-viewport run 36103033060 and Together 36103033024 attempt 2 pass onboarding, Start, reviewed invitation and Join |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Together 36103033024 attempt 2 passes 26 host and 25 guest stages on two independent phone/tablet emulators. Settled positions match at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Final-source Together verifies native chat, reaction, presence and peer links. Test Store journey 36103033131 also verifies a premium reaction received by a headless TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | Failed-decoder profile 36101860905 passes on identical product code. Latest normal/profile network runs remain failed before recovery assertions; causes and limits below. Final-source lifecycle 36103033022 attempt 2 restores 69 seconds in a new process, paused until explicit Play; Local/Together audio-focus reruns pass. Physical checks remain open |
-| 7 | Local Mode and Continue Watching | Partial | Final-source lifecycle preserves 69 seconds across process restart without autoplay or setup repair; SAF relaunch 36103033079 and two-device history also pass. Physical playback acceptance remains open |
-| 8 | Secure phone-to-desktop discovery/pair/control | Partial | Final-source Nearby 36103033210 passes pinned TLS, approval, control, revocation and protected persistence on an Android emulator. Normal Windows companion 3ebba3a is packaged by 36103713800. Physical Android-to-Windows discovery/pair/control/revoke/restart remains open |
-| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Final-source production Test Store 36103033131 passes 12 stages: native cancellation/failure/success, one free and two Plus hosts, appearance/reaction and same-customer Restore after cache invalidation. Relaunch/expiry 36103033020 passes. Physical and Play-production evidence are separate |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | Failed-decoder profile 36101860905 passes; later network runs remain failed before recovery assertions. Hosted lifecycle restores 69 seconds paused. Physical Local restart restores 19 seconds paused and Nearby saved reconnect passes; physical Together radio-loss recovery is not claimed |
+| 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
+| 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified; UI fix pending | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. Device-selector stale verified label is fixed in source and awaiting validation. Desktop process restart is not claimed |
+| 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Hosted 36103033131 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Physical OnePlus passes native cancellation/failure/success and retains Plus after relaunch; Restore feedback placement fix is pending. No Google Play production billing claim |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | Latest Together and purchase journeys verify one free host, free joining, unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
-| 11 | Rendered phone, small phone, tablet and rotation QA | Partial | Final-source five-viewport run passes. Normal-release fullscreen 36103033180 passes phone attempt 3 and tablet attempt 2 with original PNG review. Fullscreen idle/transition motion and complete film motion review remain open; physical screens remain unverified |
+| 11 | Rendered phone, small phone, tablet and rotation QA | Physical phone and emulator layouts verified; final changes pending | Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded. Final UI fixes and hybrid film require review |
 | 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. No physical receiver is available to this task; receiver availability is awaiting the entrant. Phone playback is the fallback |
 | 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Selected final-film frames are inspected; full-motion review and physical acceptance remain open |
 | 14 | Clean-install full demo rehearsal | Partial | Final-source Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. Install receipt includes SDK Setup recovery |
-| 15 | Shipaton submission confidence | Partial | 94-second film, APK, Windows ZIP, icon and screenshot are prepared. Registration succeeded; Devpost draft, artwork, authorized academic email and technical fields are saved (3/5 sections). Public video, academic-email recognition, final rehearsal, physical gates and repository closeout remain open |
+| 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon and screenshot are prepared; a redesigned hybrid film is in work. Registration and Devpost draft fields are saved (3/5 sections). Public final video, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
 
 ## Current verification
+
+### Physical acceptance and final presentation revision
+
+[Physical acceptance](PHYSICAL_ACCEPTANCE_2026-09-25.md) records the actual
+OnePlus Android 16 / Windows runtime and its limits. It also verifies native
+RevenueCat Test Store cancellation, failure, success, active-customer Restore
+invocation and Plus after phone process restart. Clean-cache restore and two
+Plus hosting sessions retain the separate hosted evidence below. The physical
+fullscreen capture shows advancing video with hidden controls and system bars.
+
+`92422a7` changes only the Nearby sheet's live connection status and its test.
+Candidate `f981413` includes a bounded rehearsal observer correction for the
+tablet's title-free landscape layout. Check `36122799731` finds a test formatting
+issue and a path-classifier rejection of the two intentionally published app-only
+film clips; both actual secret scans report zero findings. The formatting and
+specific asset classification are being corrected. Normal install `36122803849`
+and normal-APK rehearsal `36122797821` are in progress. No new candidate pass
+is claimed yet.
+
+Earlier rehearsal `36120725219` loaded the exact fixture URL on both devices,
+then failed because its observer required a filename absent from the landscape
+layout. The correction requires the preceding exact-URL submission and the
+actual 90-second native timeline; it does not lower playback/synchronization
+acceptance. Earlier input/keyboard/invitation observer failures remain failed.
+
+[Remotion render 36120725164](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36120725164)
+exports the 94-second `ec26bb8` edition with real phone Local/fullscreen clips.
+The owner reviewed it and requested a stronger motion design and replacement
+of visibly choppy emulator footage. This edition is a review draft. The hybrid
+revision is in work; animated UI will be labeled separately from real captures.
+The earlier private YouTube upload is not the final submission video.
+
+Temporary phone sleep/debug settings and review firewall rules remain scheduled
+for cleanup after the final physical candidate check. No cleanup success is
+claimed before readback. Heavy builds, emulators and full film rendering remain
+on hosted CI; local work is limited to source edits, ADB, small captures and
+bounded formatting/media preparation.
 
 ### Final-source closeout, September 25
 
@@ -411,7 +455,7 @@ rehearsal remain open. Historical runs and asset provenance are preserved in
 
 - The entrant confirmed active student status, local age of majority, access to an academic email, registration eligibility and explicit rules/terms acceptance. Registration is complete. Academic-email recognition and project-specific ownership/new-work declarations remain separate checks.
 - RevenueCat login/Test Store catalog setup and user acceptance of the Android SDK license are complete. RevenueCat email confirmation remains visible.
-- Physical Android, trusted physical LAN and Cast receiver availability remain unconfirmed. Emulators and virtual network adapters are not substituted for this evidence.
+- Physical Android and trusted physical LAN are available and exercised as documented above. No physical Cast receiver has been established; phone playback remains the working fallback.
 - Desktop required native/manual review gates remain applicable before merge or release.
 
 ## Live development recording

@@ -18,3 +18,11 @@ The film playing inside MeowWatch is the official Sintel trailer:
 [Creative Commons Attribution 3.0](https://creativecommons.org/licenses/by/3.0/).
 [Original trailer](https://download.blender.org/durian/trailer/sintel_trailer-480p.mp4).
 The excerpt, device framing, and surrounding titles are edits for this showcase.
+
+## Media image for animated interfaces
+
+`bee-still.jpg` is the video area cropped from the tablet control recording at
+one second in the prepared `controls-tablet.mp4` clip. The underlying Bee fixture
+is CC0; see the source record in `docs/demo/submission-final.edl.sources.json`
+and the repository's third-party notices. This still illustrates the video
+inside React-rendered UI scenes. It is not evidence of advancing playback.

@@ -1,5 +1,15 @@
 # MeowWatch Mobile — submission film
 
+**Presentation revision in progress, September 25:** the owner reviewed the
+94-second physical-footage edition `ec26bb8` (render `36120725164`) and requested
+more deliberate motion and smoother UI scenes. The next edition combines
+faithful React-rendered app interaction animations with actual physical Local,
+fullscreen and native Test Store footage. Animated scenes must be identified
+as UI animation; they do not establish synchronization or purchase acceptance.
+The story table below describes the earlier review edit until the revised
+composition and complete film review are finished. Neither review draft is
+the final public submission video.
+
 The current Remotion edit is **94 seconds**, using actual Android phone/tablet recordings
 from the frozen product source. It covers Start/Join, shared playback controls,
 conversation, Local Mode resume and the real RevenueCat Test Store purchase,

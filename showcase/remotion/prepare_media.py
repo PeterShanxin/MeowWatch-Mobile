@@ -38,7 +38,7 @@ def main():
         destination.mkdir(exist_ok=True)
         for name in files:
             shutil.copyfile(ROOT / 'assets' / folder / name, destination / name)
-    for name in ('physical-local-phone.mp4', 'physical-fullscreen-phone.mp4'):
+    for name in ('physical-local-phone.mp4', 'physical-fullscreen-phone.mp4', 'bee-still.jpg'):
         shutil.copyfile(Path(__file__).parent / 'source-media' / name, media / name)
     (media / 'source-edit.json').write_text(json.dumps(plan['edl'], indent=2) + '\n', encoding='utf-8')
 

@@ -42,10 +42,11 @@ streams are outside direct-media support.
 Free users can host one real Together Session per local calendar day. Joining
 someone else, reconnecting and changing playback targets do not spend another
 session. MeowWatch Plus adds unlimited hosting, player appearances and a
-premium reaction. The Android app also has an authenticated Nearby companion
-path for desktop MeowWatch and a Cast sender. Their physical Android-to-Windows
-and receiver acceptance remain open, so neither is presented as proven
-hardware behavior.
+premium reaction. A secondary Nearby companion lets the phone control desktop
+MeowWatch after explicit pairing; discovery, playback controls, saved reconnect
+and revocation have been exercised on a physical Android phone and Windows PC.
+The Cast sender still lacks physical receiver acceptance; phone playback is
+the supported fallback.
 
 ## How we built it
 
@@ -71,8 +72,9 @@ The official RevenueCat Flutter SDK loads an Offering and
 uses the `meowwatch_plus` entitlement to unlock actual hosting and appearance
 benefits. Native emulator journeys cover purchase outcomes, Restore, a second
 hosted Plus session and a premium reaction seen by a peer. The demonstration
-uses **RevenueCat Test Store, with no real charge**; it does not claim Google
-Play production billing or physical-device purchase acceptance. Current
+uses **RevenueCat Test Store, with no real charge**. A physical Android phone
+also exercises cancellation, failure, successful entitlement activation and
+relaunch. This does not claim Google Play production billing. Current
 evidence and limits are in [STATUS.md](STATUS.md).
 
 ## Desktop heritage and lessons
@@ -95,9 +97,9 @@ Nearby control still needs explicit, revocable pairing.
 - [ ] Close the remaining [product gates](STATUS.md), run required checks and
   rehearse the final build from a
   clean install without manual repair.
-- [ ] Complete physical Android playback, purchase and trusted-LAN Nearby
-  acceptance. Prove Cast on a receiver or document a genuine blocker and the
-  working phone fallback.
+- [ ] Verify the final UI fixes after physical playback, purchase and trusted-LAN
+  Nearby acceptance. Prove Cast on a receiver or document the unavailable
+  receiver and working phone fallback.
 - [ ] Watch the complete final film at normal speed, verify a duration strictly
   under two minutes, accurate runtime and Test Store labels, rights to every
   asset, and a public YouTube or Vimeo link. Follow the [demo script](DEMO_SCRIPT.md).

@@ -164,6 +164,26 @@ class LifecycleRuntimeTests(unittest.TestCase):
             with self.subTest(pts=pts), self.assertRaises(RuntimeFailure):
                 recording_frame_clock(media, pts)
 
+    def test_winscope_clock_matches_android_muxer_duration_reuse(self):
+        # Android 15 reuses the previous 10048-tick duration here, shifting
+        # frame 2's PTS by 104 us from its raw Winscope time after rounding.
+        times = [100, 100.111642, 100.223393]
+        pts = [0, 0.111644, 0.223289]
+        self.assertEqual(recording_frame_clock(clock_media(times), pts), times)
+        with self.assertRaisesRegex(RuntimeFailure, 'does not match its actual video PTS'):
+            recording_frame_clock(clock_media(times), [0, 0.111644, 0.223393])
+        with self.assertRaisesRegex(RuntimeFailure, 'does not match its actual video PTS'):
+            recording_frame_clock(clock_media([100, 100.111642, 100.223393001]), pts)
+
+    def test_winscope_clock_rejects_negative_duration_before_muxer_adjustment(self):
+        # Reusing the second duration advances its timestamp past the next raw
+        # sample. AOSP rejects that negative duration before trying to reuse it.
+        with self.assertRaisesRegex(RuntimeFailure, 'does not match its actual video PTS'):
+            recording_frame_clock(
+                clock_media([100, 100.000020, 100.000030, 100.000035]),
+                [0, 0.000022, 0.000044, 0.000067],
+            )
+
     def test_actual_frame_clock_rejects_observation_beyond_last_picture(self):
         # Run 35219098578: its last real video frame precedes 04-advanced.
         times = [62.507731899, 123.391883899]

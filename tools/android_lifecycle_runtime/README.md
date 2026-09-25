@@ -241,7 +241,12 @@ Play never substitutes for or resets the earlier no-autoplay assertions.
 
 The finalized original MP4 must contain one valid Android Winscope v2 frame-clock
 metadata record. Its frame count and relative timestamps must agree with the
-actual video frames reported by `ffprobe` (within 0.1 ms for muxer quantization).
+actual video frames reported by `ffprobe` after Android 15's 90 kHz MP4 duration
+rounding and bounded duration reuse are replayed exactly. The remaining tolerance
+is 0.51 microseconds for `ffprobe`'s six-decimal PTS text. Android's
+[MP4 writer](https://android.googlesource.com/platform/frameworks/av/+/refs/tags/android-15.0.0_r1/media/libstagefright/MPEG4Writer.cpp#3912)
+can move an isolated frame by up to 99 microseconds while combining nearly equal
+durations; comparing the raw clocks with a fixed 0.1 ms bound rejects such files.
 The first frame must precede, and the last frame must reach or follow, the final
 required device observation. Missing, ambiguous, malformed or mismatched clock
 metadata fails acceptance. The original three-second duration rule still covers

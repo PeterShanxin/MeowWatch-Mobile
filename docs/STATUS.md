@@ -13,7 +13,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Normal-release Local Mode audio focus 36074183098 passes. Together focus 36084442812 reaches both native interruptions but detects transient-focus autoplay; this gate fails. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36089506421 passes at 433d365 with the pinned player; one pre-test SDK Setup ANR repair is disclosed below. Together focus 36084442812 detects transient-focus autoplay and remains a failed gate. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
@@ -222,6 +222,17 @@ before evaluating control hiding. The preceding run `36088550167` passed its
 100 native player tests, but its stalled app job was superseded; it is not a
 passing full Check.
 
+Fresh normal-release Local Mode focus `36089506421` at `433d365` passes with
+the pinned player on API 35, app PID 2872. Permanent focus loss pauses within
+an 845 ms observed upper bound, holds at 44 seconds after release, and explicit
+Play advances 16 seconds. Transient loss pauses within 1,729 ms, returns to
+playing within 4,821 ms of release, and automatically advances 11 seconds.
+Three original phone PNGs and all three recording hashes are reviewed; cloud
+decoding succeeds. Preparation closes one Google SDK Setup ANR before the focus
+requests, so this is not zero-repair cold-start acceptance. Recording gaps and
+unreviewed full motion remain disclosed. Together focus and physical-device
+behavior are separate outstanding gates.
+
 Failed-decoder run `36088578047` at `4cc57b9` reaches initial native convergence
 in 3,729 ms, then times out in the Flutter screenshot helper before any radio
 interruption. The original initial PNG and failure trace are retained. This
@@ -238,6 +249,29 @@ setup check, requires a fresh unchanged Home observation and retains native
 ANR/lifecycle diagnostics if a later stage fails. Any post-install foreign
 window still fails; no interruption assertion or timing bound is relaxed.
 Both native journeys require fresh runtime evidence.
+
+Together focus `36090450938` at `1ab03e7` passes the new pre-install Home
+check with no ANR, then exposes the short-interruption defect in app PID 3857.
+The real helper holds transient focus for 356 ms and releases it 1,759 ms after
+the pre-Play marker, inside the unchanged three-second window. Android logs
+both loss and gain, but the continuous monitor sees neither a native nor a
+room pause; the original post-release PNG still shows Pause. MainActivity
+remains foreground. The suppression-listener policy is therefore insufficient
+despite its passing mocked native tests. Media3 1.9.2 can withhold listener state
+updates while native commands are pending; the repair must receive focus
+commands directly, with one focus owner and separate Local/Together resume
+policies. Fresh native proof is still required.
+
+Failed-decoder `36090309937` at `1ab03e7` now gets through real radio loss,
+socket unreachability and the original native decoder failure. It stops at
+`offline-confirmed` because the second recording's frame-clock comparison
+rejects a 104-microsecond difference. All 233 encoded sample timestamps match
+Android 15's muxer duration adjustment when derived from the raw Winscope
+timestamps; the existing 100-microsecond comparison does not model that
+adjustment. This original run remains failed, and never validates the
+reconnected decoder. The recording contract needs the platform's actual
+timestamp mapping, without weakening frame count, coverage, hash or decode
+requirements.
 
 The local machine remains limited to source edits, lightweight evidence reads
 and the bounded two-frame-per-second static showcase recording. Builds,

@@ -133,13 +133,39 @@ def recording_frame_clock(data: bytes, presentation_times: list[float]) -> list[
     version, _realtime_offset, count = struct.unpack_from("<IqI", found[0])
     if version != 2 or not 1 <= count <= 20000 or count != len(presentation_times) or len(found[0]) < 16 + count * 8:
         raise RuntimeFailure("native recording frame-clock version or count is invalid")
-    elapsed = [value / 1e9 for value in struct.unpack_from(f"<{count}Q", found[0], 16)]
-    if (any(value <= 0 for value in elapsed)
-            or any(b < a for a, b in zip(elapsed, elapsed[1:]))
-            or any(not math.isfinite(value) or value < 0 for value in presentation_times)
-            or any(abs((value - elapsed[0]) - (pts - presentation_times[0])) > 0.0001
-                   for value, pts in zip(elapsed, presentation_times))):
+    elapsed_ns = struct.unpack_from(f"<{count}Q", found[0], 16)
+    elapsed = [value / 1e9 for value in elapsed_ns]
+    if (any(value <= 0 for value in elapsed_ns)
+            or any(b < a for a, b in zip(elapsed_ns, elapsed_ns[1:]))
+            or any(not math.isfinite(value) or value < 0 for value in presentation_times)):
         raise RuntimeFailure("native recording frame clock does not match its actual video PTS")
+
+    # screenrecord gives the same microsecond PTS to the MP4 writer and Winscope.
+    # Android 15 MPEG4Writer rounds to 90 kHz ticks and may reuse the previous
+    # duration when doing so changes one timestamp by less than 100 us. Replay
+    # that exact integer conversion; ffprobe prints pts_time to six decimals.
+    timescale = 90000
+    previous_us = previous_duration_ticks = pts_ticks = 0
+    for raw_ns, pts in zip(elapsed_ns, presentation_times):
+        relative_ns = raw_ns - elapsed_ns[0]
+        if relative_ns % 1000:
+            raise RuntimeFailure("native recording frame clock does not match its actual video PTS")
+        timestamp_us = relative_ns // 1000
+        duration_ticks = ((timestamp_us * timescale + 500000) // 1000000
+                          - (previous_us * timescale + 500000) // 1000000)
+        if duration_ticks < 0:
+            raise RuntimeFailure("native recording frame clock does not match its actual video PTS")
+        if previous_duration_ticks and duration_ticks != previous_duration_ticks:
+            numerator = (previous_duration_ticks - duration_ticks) * 1000000 + timescale // 2
+            adjustment_us = (numerator // timescale if numerator >= 0
+                             else -((-numerator) // timescale))
+            if -100 < adjustment_us < 100:
+                duration_ticks = previous_duration_ticks
+                timestamp_us += adjustment_us
+        pts_ticks += duration_ticks
+        if abs(pts_ticks / timescale - (pts - presentation_times[0])) > 0.00000051:
+            raise RuntimeFailure("native recording frame clock does not match its actual video PTS")
+        previous_us, previous_duration_ticks = timestamp_us, duration_ticks
     return elapsed
 
 

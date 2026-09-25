@@ -2,7 +2,7 @@
 
 MeowWatch Mobile includes an Android Google Cast sender for direct HTTPS MP4 video. The phone remains the room controller; the receiver fetches and plays the video independently. This implements the first Cast slice described in [Product Spec §7.3](PRODUCT_SPEC.md#73-cast--external-playback---p1-strong-stretch-goal).
 
-**Status, 2026-09-16:** the sender and playback-target contracts are implemented, with 14 focused automated tests passing. Physical Android-to-Cast discovery, receiver playback, background controls and reconnection are **unverified**. No physical Cast receiver has been used for the acceptance matrix below. Follow [Delivery status](STATUS.md) for integrated build and application verification.
+**Status, 2026-09-25:** the sender and playback-target contracts are implemented. The owner confirmed that no Google Cast receiver is available for final acceptance. Physical discovery, receiver playback, background controls and reconnection remain **unverified**; emulator and contract tests cannot establish them. Continue on **This phone**, whose playback and fullscreen path have been exercised on physical Android. Follow [Delivery status](STATUS.md) for the exact build and application verification.
 
 ## Requirements and supported media
 

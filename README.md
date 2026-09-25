@@ -104,7 +104,8 @@ Choose **Local mode** to watch alone. The screen selector includes this phone,
 Nearby requires the companion implementation in
 [desktop draft PR 279](https://github.com/PeterShanxin/MeowWatch/pull/279), explicit
 pairing approval, and a trusted private LAN. Cast accepts public HTTPS MP4 links
-without URL parameters; receiver hardware acceptance is still pending. Ordinary
+without URL parameters; no receiver is available for hardware acceptance, so
+receiver behavior remains unverified and **This phone** is the fallback. Ordinary
 webpages and protected streaming services are not direct video sources.
 See [media source support](docs/MEDIA_SOURCE_SUPPORT.md) for supported inputs,
 codec limits and the evaluated webpage-extraction boundary.

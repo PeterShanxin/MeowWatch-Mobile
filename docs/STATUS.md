@@ -17,7 +17,14 @@ Existing recordings and required validation remain; do not repeat frame/hash
 audits or extend static showcase recording infrastructure. The proposed extra
 hosted Windows screenshot harness is deferred. Physical Android-to-Windows
 Nearby discovery, pairing, controls, saved reconnect and revocation now pass
-on the September 25 phone check. Cast receiver acceptance remains open.
+on the September 25 phone check. The owner requested virtual/client testing
+instead of further physical-phone testing; the phone remains released with
+its settings restored. The local Windows ARM host is not supported by Google's
+Android Emulator. The owner accepted an ordinary local Windows client on the
+secondary monitor plus one cloud Android emulator. That cross-client check is
+being prepared; it is not a second physical Android check.
+No Cast receiver is available. Receiver behavior remains unverified, with phone
+playback as the fallback.
 Additional emulator runs cannot establish hardware behavior.
 
 The owner confirmed that Nearby should remain a secondary, explicitly paired
@@ -37,17 +44,17 @@ sources remain labeled.
 | # | Required outcome | Status | Evidence / next check |
 |---|---|---|---|
 | 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
-| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Check 36124174769 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks on current product source `0df32c6`. Main is still the foundation README; implementation is in draft PR #1, with the latest UI/film work on the showcase branch. Repository merge/closeout remains open |
+| 2 | Public, licensed, documented, secret-free repository | Partial | Public AGPL-3.0 repository. Check 36124174769 passes formatting, analysis, app/native tests, normal debug APK and secret/contracts checks on current product source `0df32c6`. Draft PR #1 now includes the final UI fixes and film through `9e3f033`; its current checks are running. Main still contains the foundation README. Repository merge/closeout remains open |
 | 3 | Clear first-launch create/join | Verified on emulators | Final-source five-viewport run 36103033060 and Together 36103033024 attempt 2 pass onboarding, Start, reviewed invitation and Join |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | Together 36103033024 attempt 2 passes 26 host and 25 guest stages on two independent phone/tablet emulators. Settled positions match at 8,704, 53,361 and 55,544 ms. Failed-decoder recovery passes 36101860905 on identical product code. Physical hardware remains unverified; sampled position agreement is not frame identity |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Final-source Together verifies native chat, reaction, presence and peer links. Test Store journey 36103033131 also verifies a premium reaction received by a headless TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | Failed-decoder profile 36101860905 passes; later network runs remain failed before recovery assertions. Hosted lifecycle restores 69 seconds paused. Physical Local restart restores 19 seconds paused and Nearby saved reconnect passes; physical Together radio-loss recovery is not claimed |
+| 6 | Disconnect/reconnect/lifecycle recovery | Verified within stated runtime limits | Failed-decoder profile 36101860905 and current-head normal network 36131237104 pass. The latter uses one API 35 AVD, two real STARTTLS clients/decoders and one rendered MainApp. It verifies actual emulator radio loss, paused same-room recovery, unchanged quota and explicit replay/seek. Hosted lifecycle and physical Local/Nearby restart also pass; physical Together radio-loss recovery is not claimed |
 | 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
 | 8 | Secure phone-to-desktop discovery/pair/control | Physical core path verified | Ordinary Android `67d0206` and Windows `3ebba3a`: discovery, approved pairing, Play/Pause/±10-second seek, saved reconnect after phone relaunch, desktop revocation and rejected credential reuse pass. The stale device-selector label fix passes hosted Check 36124174769. Desktop process restart is not claimed |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Verified in Test Store with stated runtime limits | Hosted 36103033131 passes 12 stages including one free and two Plus hosts and clean-cache Restore. Physical OnePlus passes native cancellation/failure/success, confirms active-customer Restore feedback, and retains Plus after relaunch. Feedback placement fix passes hosted Check 36124174769. No Google Play production billing claim |
 | 10 | Correct daily quota and session continuity | Verified in native flows and tests | Latest Together and purchase journeys verify one free host, free joining, unchanged quota after link/media recovery/history and two distinct Plus hosts. Midnight has unit coverage; native journeys do not cross midnight |
 | 11 | Rendered phone, small phone, tablet and rotation QA | Physical phone and emulator layouts verified; final changes pending | Five-viewport and normal-release phone/tablet fullscreen gates pass. Physical OnePlus portrait/landscape playback, hidden bars/controls and Back are inspected and recorded. Final UI fixes and hybrid film require review |
-| 12 | Reliable Cast or exact blocker and fallback | Partial | Android sender and same-room handoff are implemented. No physical receiver is available to this task; receiver availability is awaiting the entrant. Phone playback is the fallback |
+| 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
 | 13 | No placeholders, dead ends or silent failures | Partial | Latest native onboarding, Together recovery/history and purchase journeys pass. Physical acceptance is recorded below; its two UI defects are fixed and pass hosted checks. Complete normal-APK rehearsal remains open |
 | 14 | Clean-install full demo rehearsal | Partial | Together, purchase, lifecycle and fullscreen journeys pass separately. Their builds and test entry points differ; they do not replace one complete clean normal-APK rehearsal without repair. The latest ordinary API 35 install has no SDK Setup ANR recovery; the launch wait times out before the independent native observer verifies onboarding |
 | 15 | Shipaton submission confidence | Partial | APK, Windows ZIP, icon, screenshot and a 94-second hybrid film are prepared. Registration and Devpost draft fields are saved (3/5 sections). Final video publication, project declarations, complete rehearsal, final UI validation and repository closeout remain open |
@@ -70,6 +77,20 @@ passes all required app, native player, Nearby, media and secret checks,
 including both new UI regressions. Earlier formatting, mounted-context lint and
 exact film-asset path-classification failures are corrected; no secret scan was
 disabled. Later commits change only the film, documentation and rehearsal code.
+
+At PR head `9e3f033`, [Check 36131237368](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36131237368)
+passes. [Normal network 36131237104](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36131237104)
+also passes actual emulator radio loss and paused same-room recovery, unchanged
+quota, explicit Play/Pause/Seek and peer synchronization. Its runtime is one
+API 35 AVD with two real STARTTLS clients and Android decoders; only MainApp's
+host player is rendered. This is separate from the accepted forced-failed-decoder
+profile and from the ordinary-APK two-device rehearsal.
+
+Local audio-focus run `36131237463` attempt 1 stops before sending any focus
+interruption: advancing playback is visible, but the first native recording
+contains corrupt H.264 frames. It establishes no new focus-recovery result.
+A single same-head retry is running; the earlier accepted focus receipts remain
+scoped to their recorded source. No recording verifier is relaxed.
 
 Earlier rehearsal `36120725219` loaded the exact fixture URL on both devices,
 then failed because its observer required a filename absent from the landscape
@@ -116,16 +137,23 @@ Run `36128627853` then passes both chat directions and reaches the reaction
 picker, where the runner chooses a nonclickable semantics label rather than
 its visible clickable heart. The exact heart target is corrected. The same
 run's home hierarchy also establishes the complete clickable Local Player Mode
-label, which the later step now uses. Fifteen Python checks pass. These failed
-runs do not replace a full normal-APK journey; the remaining stages still need
-the complete hosted rehearsal.
+label, which the later step now uses. Run `36130217458` then passes both control
+directions, both chat directions and the peer reaction. The app enters fullscreen,
+but Android's first-use "Viewing full screen / Got it" overlay blocks the app
+hierarchy observation. The runner now reuses the existing strict system-tip
+validator, confirms fresh button bounds and acknowledges the visible tip; the
+original app fullscreen/Back checks remain. Sixteen Python checks pass.
+Fresh rehearsal `36132938666` is running at `238cc6e`; an identical queued push
+run was cancelled to avoid duplicate work. These failed runs do not replace a
+full normal-APK journey; the remaining stages still need the complete rehearsal.
 
 ### Earlier accepted product baseline, September 25
 
 The physical-test candidate is `67d0206`; its `lib`, `android` and `assets` are
 unchanged from frozen product `5f5dd7f`. Later `d8b55b2`/`7bcd6f4` commits prepare
 the film and documentation on `feat/submission-showcase`. They do not rebuild
-or alter the app. Draft mobile PR #1 remains at `67d0206`.
+or alter the app. This paragraph records the earlier candidate; PR #1 now
+includes the later product fixes through `9e3f033` as recorded above.
 
 - [Check 36103033341](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36103033341)
   passes the required format/analyze/test/debug-build and contract/secret checks;

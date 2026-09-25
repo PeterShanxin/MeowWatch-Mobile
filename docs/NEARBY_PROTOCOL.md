@@ -1,8 +1,10 @@
 # Nearby MeowWatch protocol, version 1
 
 **Status: companion application server/client and platform adapters implemented.
-Native Android TLS, storage and NSD and Windows storage/player checks pass;
-physical phone-to-desktop LAN acceptance remains pending.**
+Native Android TLS, storage and NSD and Windows storage/player checks pass.
+The September 25 physical Android-to-Windows check verifies discovery, approved
+pairing, playback controls, saved reconnect and revocation; its precise scope
+and remaining limits are in [physical acceptance](PHYSICAL_ACCEPTANCE_2026-09-25.md).**
 Prepared 2026-09-16 against Product Spec sections 7.1–7.2 and 15. Desktop reference:
 `PeterShanxin/MeowWatch` main `c7cc4be5203abe28fb1cd043c286367fd1e3ba46`, verified
 against the remote. Its AGENTS.md and full AGENT_GUIDE.md were read. The dirty

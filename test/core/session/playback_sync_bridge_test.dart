@@ -1,4 +1,6 @@
 import 'dart:async';
+import 'dart:convert';
+import 'dart:io';
 
 import 'package:fake_async/fake_async.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -1415,6 +1417,210 @@ void main() {
           );
         }
         expect(target.commands.where((c) => c.startsWith('seek:')).length, 1);
+      },
+    );
+
+    test(
+      'a temporary room projection burst settles before calibration',
+      () async {
+        var now = Duration.zero;
+        await useRateTarget(roomClockNow: () => now);
+        for (final sample in <(int, int, int)>[
+          (0, 6800, 10000),
+          (1000, 8700, 11000),
+          (2000, 8800, 12000),
+          (3000, 9800, 13000),
+        ]) {
+          now = Duration(milliseconds: sample.$1);
+          heartbeat(Duration(milliseconds: sample.$2));
+          emitNativePosition(
+            target,
+            Duration(milliseconds: sample.$3),
+            playing: true,
+          );
+          await Future<void>.delayed(Duration.zero);
+        }
+        await until(() => target.commands.any((c) => c.startsWith('seek:')));
+        expect(
+          target.commands.where((c) => c.startsWith('seek:')),
+          hasLength(1),
+        );
+        expect(sync.changes, isEmpty);
+      },
+    );
+
+    test('slow room progress fails the final clock check', () async {
+      var now = Duration.zero;
+      await useRateTarget(roomClockNow: () => now);
+      for (final sample in <(int, int, int)>[
+        (0, 6800, 10000),
+        (1000, 7800, 11000),
+        (2000, 8800, 12000),
+        (5000, 10000, 13500),
+      ]) {
+        now = Duration(milliseconds: sample.$1);
+        heartbeat(Duration(milliseconds: sample.$2));
+        emitNativePosition(
+          target,
+          Duration(milliseconds: sample.$3),
+          playing: true,
+        );
+        await Future<void>.delayed(Duration.zero);
+      }
+      expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+      expect(sync.changes, isEmpty);
+    });
+
+    test(
+      'unchanged advancing evidence expires at its original receipt',
+      () async {
+        var now = Duration.zero;
+        await useRateTarget(roomClockNow: () => now);
+        heartbeat(const Duration(milliseconds: 6800));
+        emitNativePosition(target, const Duration(seconds: 10), playing: true);
+        now = const Duration(seconds: 1);
+        heartbeat(const Duration(milliseconds: 7800));
+        emitNativePosition(target, const Duration(seconds: 11), playing: true);
+        await Future<void>.delayed(const Duration(milliseconds: 2100));
+        now = const Duration(seconds: 4);
+        emitNativePosition(
+          target,
+          const Duration(milliseconds: 13700),
+          playing: true,
+        );
+        expect(target.commands.where((c) => c.startsWith('seek:')), isEmpty);
+        expect(rateTarget.rates.last, 1);
+      },
+    );
+
+    test(
+      'socket room jitter after buffering gets one local correction',
+      () async {
+        final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+        final accepted = server.first;
+        final clientSocket = await Socket.connect(
+          InternetAddress.loopbackIPv4,
+          server.port,
+        );
+        final serverSocket = await accepted;
+        serverSocket.listen((_) {});
+        final client = SyncplayClient();
+        clientSocket.listen(client.debugReceiveChunk);
+        client.debugAttachLoggedInSocket(clientSocket, username: 'guest');
+        final native = RateTestTarget();
+        var now = Duration.zero;
+        final networkBridge = PlaybackSyncBridge(
+          target: native,
+          sync: client,
+          authorizePlayback: () async => true,
+          roomClockNow: () => now,
+        );
+        addTearDown(() async {
+          await networkBridge.dispose();
+          await client.dispose();
+          await native.close();
+          serverSocket.destroy();
+          await server.close();
+        });
+
+        void sendRoom(int positionMs) {
+          serverSocket.add(
+            utf8.encode(
+              '${jsonEncode({
+                'State': {
+                  'playstate': {'position': positionMs / 1000, 'paused': false, 'doSeek': false, 'setBy': 'host'},
+                },
+              })}\r\n',
+            ),
+          );
+        }
+
+        // Begin at the gate's post-Play boundary. Other tests cover applying
+        // Play; here both the native decoder and bridge already accepted it.
+        await native.load(movie, position: const Duration(milliseconds: 6800));
+        await native.play();
+        networkBridge.start();
+        await networkBridge.markSourceOpen(movie.uri.toString());
+        serverSocket.add(utf8.encode('{"Hello":{"username":"guest"}}\r\n'));
+        await until(
+          () =>
+              client.lastConnectionState?.status ==
+              SyncConnectionStatus.connected,
+        );
+        sendRoom(6800);
+        await until(
+          () => client.lastObservedRoomState?.position.inMilliseconds == 6800,
+        );
+        // The gate's guest initially buffered, then resumed READY playback.
+        emitNative(native, playing: false, buffering: true);
+        emitNative(native, playing: true, buffering: false);
+        await Future<void>.delayed(const Duration(milliseconds: 1100));
+        native.commands.clear();
+        final outgoingStart = client.debugSentMessages.length;
+
+        // Raw room positions and receive times from network_36092743671_1.
+        // The 33/36 s backward steps do not themselves create progress; the
+        // room later resumes advancing and its projection settles by 41 s.
+        for (final sample in <(int, int, int)>[
+          (0, 8561, 11761),
+          (1128, 8754, 12000),
+          (2392, 9753, 13000),
+          (3452, 9432, 13300),
+          (4420, 9440, 13800),
+          (5252, 10589, 14000),
+          (6363, 10150, 14300),
+          (7376, 11150, 14600),
+          (8225, 12377, 15700),
+          (9042, 14228, 17300),
+          (10228, 14953, 17800),
+          (11303, 15416, 19075),
+        ]) {
+          now = Duration(milliseconds: sample.$1);
+          sendRoom(sample.$2);
+          await until(
+            () =>
+                client.lastObservedRoomState?.position.inMilliseconds ==
+                sample.$2,
+          );
+          emitNativePosition(
+            native,
+            Duration(milliseconds: sample.$3),
+            playing: true,
+          );
+          await Future<void>.delayed(Duration.zero);
+          if (sample.$1 == 7376) {
+            // Recovery requires one uninterrupted READY second and a heartbeat
+            // received after it, matching the interval after the stalled peer.
+            await Future<void>.delayed(const Duration(milliseconds: 1100));
+          }
+        }
+        await until(
+          () => native.commands.any((c) => c.startsWith('seek:')),
+          diagnostics: () =>
+              'commands=${native.commands} rates=${native.rates} '
+              'room=${client.lastAdvancingRoomState?.position}',
+        );
+        expect(
+          native.commands.where((c) => c.startsWith('seek:')),
+          hasLength(1),
+        );
+        expect(
+          (native.snapshot.position - client.lastAdvancingRoomState!.position)
+              .abs(),
+          lessThan(const Duration(milliseconds: 500)),
+        );
+        final outgoing = client.debugSentMessages.skip(outgoingStart);
+        expect(
+          outgoing.where((message) {
+            final state = message['State'];
+            if (state is! Map) return false;
+            final playstate = state['playstate'];
+            final ignore = state['ignoringOnTheFly'];
+            return (playstate is Map && playstate['doSeek'] == true) ||
+                (ignore is Map && ignore['client'] != null);
+          }),
+          isEmpty,
+        );
       },
     );
 

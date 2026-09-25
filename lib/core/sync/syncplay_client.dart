@@ -911,34 +911,45 @@ class SyncplayClient extends SyncCore {
           paused: msg.peer!.paused,
           doSeek: msg.peer!.doSeek,
         );
+        // Keep a high-water mark for correction evidence. The slowest-watcher
+        // projection can wobble backwards by a few hundred milliseconds while
+        // the peer keeps playing. A wobble is not new progress: retain the
+        // previous sample and its original age until the room passes the mark.
         final previous = _previousRateSetter == global.setBy
             ? _previousRatePeerPosition
             : null;
         final advance = previous == null
             ? Duration.zero
             : msg.peer!.position - previous;
-        _previousRatePeerPosition = msg.peer!.position;
-        _previousRateSetter = global.setBy;
-        lastAdvancingRoomState =
-            !_peerStall.stalled &&
-                !global.paused &&
-                !global.doSeek &&
-                global.setBy != null &&
-                global.setBy != _username &&
-                advance >= const Duration(milliseconds: 100) &&
-                advance <= const Duration(seconds: 3)
-            ? global
-            : null;
-        if (global.paused ||
-            global.doSeek ||
-            _peerStall.stalled ||
+        final samePlayingPeer =
+            !global.paused &&
+            !global.doSeek &&
+            global.setBy != null &&
+            global.setBy != _username;
+        if (!samePlayingPeer ||
             (previous != null &&
-                (advance < Duration.zero ||
-                    advance > const Duration(seconds: 3))) ||
-            global.setBy == null ||
-            global.setBy == _username) {
+                (advance < const Duration(milliseconds: -500) ||
+                    advance > const Duration(seconds: 3)))) {
+          lastAdvancingRoomState = null;
           _previousRatePeerPosition = null;
           _previousRateSetter = null;
+        } else if (_peerStall.stalled) {
+          // The stall revokes correction evidence immediately. Retaining only
+          // the position mark lets a later, genuinely advancing recovery count
+          // without treating the stalled heartbeats as fresh samples.
+          lastAdvancingRoomState = null;
+          if (previous == null) {
+            _previousRatePeerPosition = null;
+            _previousRateSetter = null;
+          }
+        } else if (previous == null) {
+          lastAdvancingRoomState = null;
+          _previousRatePeerPosition = msg.peer!.position;
+          _previousRateSetter = global.setBy;
+        } else if (advance >= const Duration(milliseconds: 100)) {
+          lastAdvancingRoomState = global;
+          _previousRatePeerPosition = msg.peer!.position;
+          _previousRateSetter = global.setBy;
         }
         var action = decideFollow(
           global: global,

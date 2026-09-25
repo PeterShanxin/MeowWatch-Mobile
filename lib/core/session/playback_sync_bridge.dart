@@ -31,6 +31,8 @@ class PlaybackSyncBridge {
   /// Injected only by deterministic room-clock tests.
   final Duration Function()? roomClockNow;
   static const _roomClockStabilityWindow = Duration(seconds: 3);
+  static const _roomClockProjectionTolerance = Duration(seconds: 2);
+  static const _roomClockCalibrationTolerance = Duration(milliseconds: 600);
   final Stopwatch _roomClock = Stopwatch()..start();
   Duration get _now => roomClockNow?.call() ?? _roomClock.elapsed;
   StreamSubscription<PlaybackSnapshot>? _playerSub;
@@ -517,14 +519,15 @@ class PlaybackSyncBridge {
       return;
     }
     if (identical(candidate.lastRoom, room)) return;
-    // Server room time is projected; require successive received heartbeats
-    // to progress with wall time before using it for a local decoder seek.
+    // Slowest-watcher re-anchoring can make successive projected heartbeats
+    // advance unevenly. Require real net progress over the stability window,
+    // while allowing bounded projection error between fresh samples.
     final progress = room.position - candidate.firstPosition;
     final wallProgress = candidate.elapsed(_now) + candidate.firstAge - age;
     final mismatch = progress - wallProgress;
     if (room.position <= candidate.lastRoom.position ||
-        mismatch < const Duration(milliseconds: -600) ||
-        mismatch > const Duration(milliseconds: 600)) {
+        mismatch < -_roomClockProjectionTolerance ||
+        mismatch > _roomClockProjectionTolerance) {
       _stableRoomClock = _StableRoomClock(room, age, _now);
       return;
     }
@@ -540,12 +543,21 @@ class PlaybackSyncBridge {
   ) {
     final candidate = _stableRoomClock;
     final window = _rateWindow;
+    final progress = candidate == null
+        ? Duration.zero
+        : room.position - candidate.firstPosition;
+    final wallProgress = candidate == null
+        ? Duration.zero
+        : candidate.elapsed(_now) + candidate.firstAge - age;
+    final mismatch = progress - wallProgress;
     if (candidate == null ||
         window == null ||
         candidate.elapsed(_now) < _roomClockStabilityWindow ||
         candidate.samples < 3 ||
-        room.position - candidate.firstPosition <
+        progress <
             _roomClockStabilityWindow - const Duration(milliseconds: 600) ||
+        mismatch < -_roomClockCalibrationTolerance ||
+        mismatch > _roomClockCalibrationTolerance ||
         (_localCalibrationIntent == _intent &&
             _localCalibrationSource == _sourceGeneration)) {
       return false;
@@ -599,8 +611,8 @@ class PlaybackSyncBridge {
               currentRoom.paused ||
               currentRoom.doSeek ||
               currentRoom.position < candidate.lastRoom.position ||
-              currentMismatch < const Duration(milliseconds: -600) ||
-              currentMismatch > const Duration(milliseconds: 600)) {
+              currentMismatch < -_roomClockCalibrationTolerance ||
+              currentMismatch > _roomClockCalibrationTolerance) {
             return;
           }
           final targetPosition = currentRoom.position + currentAge;

@@ -76,4 +76,82 @@ void main() {
     room(3000);
     expect(client.lastAdvancingRoomState, isNull);
   });
+
+  test(
+    'small backward jitter retains only the old high-water sample',
+    () async {
+      room(1000);
+      room(3100);
+      room(4000);
+      final advancing = client.lastAdvancingRoomState;
+      expect(advancing?.position, const Duration(seconds: 4));
+      await Future<void>.delayed(const Duration(milliseconds: 20));
+      final oldAge = client.lastAdvancingRoomStateAge!;
+
+      room(3650);
+      expect(identical(client.lastAdvancingRoomState, advancing), isTrue);
+      expect(client.lastAdvancingRoomStateAge!, greaterThanOrEqualTo(oldAge));
+      room(4120);
+      expect(
+        client.lastAdvancingRoomState?.position,
+        const Duration(milliseconds: 4120),
+      );
+    },
+  );
+
+  test('oscillation cannot refresh correction evidence forever', () {
+    room(1000);
+    room(3100);
+    room(4000);
+    final advancing = client.lastAdvancingRoomState;
+    expect(advancing, isNotNull);
+    for (final position in [3650, 4000, 3700, 4000]) {
+      room(position);
+    }
+    expect(client.lastAdvancingRoomState, isNull);
+  });
+
+  test('a large setback revokes correction evidence', () {
+    room(1000);
+    room(3100);
+    room(4000);
+    expect(client.lastAdvancingRoomState, isNotNull);
+    room(3400);
+    expect(client.lastAdvancingRoomState, isNull);
+    room(3500);
+    expect(client.lastAdvancingRoomState, isNull);
+    room(6200);
+    expect(
+      client.lastAdvancingRoomState?.position,
+      const Duration(milliseconds: 6200),
+    );
+  });
+
+  test('one large forward jump does not become a stable room clock', () {
+    room(1000);
+    room(3100);
+    room(4000);
+    expect(client.lastAdvancingRoomState, isNotNull);
+    room(7500);
+    expect(client.lastAdvancingRoomState, isNull);
+    room(7600);
+    expect(client.lastAdvancingRoomState, isNull);
+  });
+
+  test('recovery after stall needs real progress past the old mark', () {
+    room(1000);
+    room(3100);
+    room(4000);
+    for (var tick = 0; tick < 4; tick++) {
+      room(4000);
+    }
+    expect(client.lastAdvancingRoomState, isNull);
+    room(4800);
+    expect(client.lastAdvancingRoomState, isNull);
+    room(6200);
+    expect(
+      client.lastAdvancingRoomState?.position,
+      const Duration(milliseconds: 6200),
+    );
+  });
 }

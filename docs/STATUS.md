@@ -13,7 +13,7 @@ The controlling inputs are [Goal Brief](GOAL_BRIEF.md) and [Product Spec](PRODUC
 | 3 | Clear first-launch create/join | Verified on emulators | 6e46041 passes all five first-use/layout journeys. Fresh 9a3fc05 Together 36037966143 passes actual Start, invitation review and Join on independently running phone/tablet emulators |
 | 4 | Two real clients repeatedly play/pause/seek in sync | Partial | 6daa1ea Together 36078687173 passes 26 host and 25 guest stages on independent phone/tablet emulators. Settled positions match at 14,541, 53,361 and 55,374 ms. Normal network 36080635480 passes at 4c01143 with real radio loss, paused rejoin and explicit Play/Pause/Seek after the self-clock catch-up fix. Failed-source rebuilding remains unaccepted. Position agreement does not establish identical decoded frames or physical hardware |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | 9a3fc05 passes repeated real-keyboard chat, presence, confirmed peer links and actual player/reaction viewport bounds. 6e46041 Test Store journey verifies a premium reaction received by a real TLS peer |
-| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36089506421 passes at 433d365 with the pinned player; one pre-test SDK Setup ANR repair is disclosed below. Together focus 36084442812 detects transient-focus autoplay and remains a failed gate. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
+| 6 | Disconnect/reconnect/lifecycle recovery | Partial | 6daa1ea normal-release lifecycle 36078684061 passes HOME pause, no-autoplay return, new-process restoration and explicit replay; original receipts and selected screens are reviewed. Fresh normal-release Local Mode audio focus 36093565684 passes at 37adcf6 without setup ANR repair or observation timeout. Together focus 36084442812 detects transient-focus autoplay and remains a failed gate. Normal network 36080635480 passes at 4c01143; failed-source rebuilding, Together audio focus and physical interruption acceptance remain open |
 | 7 | Local Mode and Continue Watching | Partial | 6e46041 normal lifecycle restores 45 seconds in a new process without autoplay. Fresh 29eafe2 SAF relaunch 36074182994 retains the real content grant and restores 8 seconds; the original restored-player screenshot is reviewed. The same-source history restoration fix at 5347142 passes unit/widget checks and the standard-layout native journey 36041063625. Physical playback acceptance remains open |
 | 8 | Secure phone-to-desktop discovery/pair/control | Partial | Fresh 29eafe2 Android Nearby 36074183032 passes pinned TLS pairing/control/revocation and protected persistence across three processes on one emulator. Desktop f5a9103 clean Release builds and its actual Windows UI was inspected; dba4b57 updates its dependency pin and passes hosted Windows CI and 1,494 tests. Physical Android-to-Windows discovery/pair/control/revoke/restart proof remains open |
 | 9 | RevenueCat purchase, entitlement, unlimited hosting, restore | Partial | Fresh 29eafe2 production Test Store 36074182983 passes 12 stages, one free and two Plus hosts, native cancellation/failure/success, a premium reaction and same-customer Restore after cache invalidation. Original receipts and three selected screens are reviewed. Same-customer relaunch/expiry 36074183058 also passes at 29eafe2. Physical and Play-production evidence remain separate; the earlier anomalous Restore result remains historical and unexplained |
@@ -56,11 +56,25 @@ reset cannot override an intervening pause. Source regressions cover these
 boundaries, denied focus, ducking and mixing. Fresh Together gate `36092741332`
 stops before app installation: its initial baseline still has unfinished SDK
 provisioning/FallbackHome; five seconds later Android has completed setup and
-changed to NexusLauncher. No ANR occurs. A bounded read-only startup wait is
-now precedes the unchanged stable-Home admission gate. Six focused mocked
+changed to NexusLauncher. No ANR occurs. A bounded read-only startup wait
+precedes the unchanged stable-Home admission gate. Six focused mocked
 contracts cover startup, exact identity, deadline, eligible system ANR and the
 unchanged five-second admission. No focus test ran in the failed native job.
-Normal-release Local Mode `36093565684` is running against the changed policy.
+Fresh Together run `36094101888` passes that startup wait and the unchanged
+stable-Home gate without ANR repair. Its real 378 ms transient interruption is
+released 5,603 ms after the pre-Play marker, exceeding the required 3,000 ms
+early window. Native pause is observed, but room pause has not arrived when
+the runner aborts. This late trigger cannot establish early-focus acceptance;
+the trigger timing is being investigated without loosening the requirement.
+
+Normal-release Local Mode `36093565684` at `37adcf6` passes the new focus policy
+in PID 3214 without setup ANR repair or observation timeout. Permanent pause
+is observed within 2,042 ms, holds at 51 seconds after focus release, and
+explicit replay advances ten seconds. Transient pause is observed within
+1,744 ms and automatic resume within 6,987 ms, then advances twelve seconds.
+The app remains foreground throughout. Three original PNGs are reviewed;
+all three recording hashes match their successful cloud decode receipts.
+The recording gaps are 6.870 and 5.596 seconds; full motion remains unreviewed.
 
 The preceding normal-release Local Mode run `36089506421` at `433d365` passes:
 permanent pause within an 845 ms observed upper bound, a held 44-second clock,
@@ -94,8 +108,16 @@ remain required. The original run stays failed. Fresh failed-decoder gate
 `36092743671` at `37adcf6` passes that recording contract on 186 frames, but
 fails initial playback convergence before radio loss: both decoders advance,
 yet their last measured positions differ by 3,399 ms. All 100 native reads are
-retained without rejection/drop. The cause is under source investigation;
-neither radio recovery nor failed-decoder rebuilding was exercised.
+retained without rejection/drop. Neither radio recovery nor failed-decoder
+rebuilding was exercised. Small backward room-clock projections repeatedly
+invalidate correction evidence after buffering. The current source retains
+the original sample age until genuine progress passes its high-water mark;
+stall, setter changes and large jumps still revoke eligibility. Candidate
+observation tolerates temporary projection wobble, while actual calibration
+and its queued recheck retain the original 600 ms clock-error limit. A socket
+trace regression and stale/stalled/slow-clock counterexamples are added.
+Independent source review caught and corrected a test startup-clock issue;
+hosted tests and fresh native convergence remain required.
 
 Normal network `36091067116` stops before radio loss because its independent
 accessibility observer cannot obtain an app root within 15 attempts. PID 3155

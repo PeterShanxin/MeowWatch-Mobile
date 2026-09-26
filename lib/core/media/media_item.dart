@@ -17,6 +17,13 @@ class MediaItem {
   final bool canRemember;
   bool get isNetwork => uri.scheme == 'https' || uri.scheme == 'http';
 
+  /// The name announced to Syncplay peers for file-mismatch detection.
+  /// Network media announces its full URL — desktop's `compareFiles` (and
+  /// stock Syncplay) identify a stream by its whole link, since a basename
+  /// like `movie.mp4` or `index.m3u8` alone cannot disambiguate two different
+  /// streams. Local files keep announcing their [title].
+  String get announcedName => isNetwork ? uri.toString() : title;
+
   factory MediaItem.fromUrl(String value) {
     final uri = Uri.tryParse(value.trim());
     if (uri == null ||

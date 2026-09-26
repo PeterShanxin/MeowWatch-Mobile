@@ -85,6 +85,23 @@ void main() {
   }
 
   test(
+    'a network source is announced by its full URL, not a bare filename',
+    () async {
+      await bridge.load(movie);
+      expect(sync.announced.last, movie.uri.toString());
+    },
+  );
+
+  test('a local source is announced by its title', () async {
+    final localFile = MediaItem(
+      uri: Uri.parse('content://media/external/video/42'),
+      title: 'Home video.mp4',
+    );
+    await bridge.load(localFile);
+    expect(sync.announced.last, 'Home video.mp4');
+  });
+
+  test(
     'unconfirmed native open never publishes; local adoption asserts current time',
     () async {
       await target.load(movie, position: const Duration(seconds: 22));

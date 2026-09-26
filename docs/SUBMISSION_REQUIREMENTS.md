@@ -184,10 +184,7 @@ rules and Devpost terms and confirmed registration eligibility. Registration
 succeeded, and [MeowWatch Mobile](https://devpost.com/software/meowwatch-mobile)
 was initially saved as an authenticated **Draft**. Its description,
 technology tags, source links, gallery cover, original icon/screenshot, Android
-platform, RevenueCat project ID and judge notes are saved. At that earlier
-browser checkpoint the UI reported **3/5 steps done**. The final public video
-URL and submission still need completion; that earlier progress count is not
-a current submission receipt.
+platform, RevenueCat project ID and judge notes are saved.
 Personal registration answers are not stored in this repository.
 
 The project connector's September 25 13:53 UTC description update published the
@@ -197,12 +194,10 @@ The live submission requirements were fetched immediately beforehand and still
 show the first-version/store checkbox as optional. No additional mandatory
 ownership/new-work declaration appears in the complete field list. The
 entrant's accepted rules and the disclosed desktop heritage remain applicable.
-Following the owner's instruction to update the video and submission link,
-the final [YouTube video](https://youtu.be/gRUYlHb3LiI) is saved as Unlisted with
-HD processing complete. The project connector's video URL is verified, and the
-actual competition form also saves the URL and updated judge notes, reaching
-**4/5 steps done**. The final Submit page is available; the entry remains a draft
-pending repository closeout and final submission.
+The entry is submitted: Devpost confirms submission `1196850` with
+**Submitted, 5/5 steps** (see [STATUS.md](STATUS.md)). Devpost allows the
+description and video link to be edited until the deadline; keep the linked
+video public or Unlisted, never private.
 
 An authenticated Devpost account read on September 25 confirms the account
 email exactly matches the academic address already authorized for the entry.

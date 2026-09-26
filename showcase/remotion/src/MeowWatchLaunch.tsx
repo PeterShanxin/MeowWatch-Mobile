@@ -1,21 +1,28 @@
 import React from 'react';
 import {Audio} from '@remotion/media';
-import {AbsoluteFill, interpolate, staticFile} from 'remotion';
-import {OneTakeStage} from './OneTakeStage';
+import {AbsoluteFill, Sequence, interpolate, staticFile} from 'remotion';
+import {SCENES, TOTAL_FRAMES} from './Scenes';
+import {clamp, paper} from './theme';
 
-export const TOTAL_FRAMES = 94 * 30;
+export {TOTAL_FRAMES};
 
-export const MeowWatchLaunch: React.FC = () => (
-  <AbsoluteFill style={{backgroundColor: '#071522'}}>
-    <Audio
-      src={staticFile('music/soundtrack.wav')}
-      volume={(frame) =>
-        interpolate(frame, [0, 24, TOTAL_FRAMES - 105, TOTAL_FRAMES], [0, 0.58, 0.58, 0], {
-          extrapolateLeft: 'clamp',
-          extrapolateRight: 'clamp',
-        })
-      }
-    />
-    <OneTakeStage />
-  </AbsoluteFill>
-);
+export const MeowWatchLaunch: React.FC = () => {
+  let from = 0;
+  return (
+    <AbsoluteFill style={{backgroundColor: paper}}>
+      <Audio
+        src={staticFile('music/soundtrack.wav')}
+        volume={(frame) => interpolate(frame, [0, 20, TOTAL_FRAMES - 90, TOTAL_FRAMES], [0, 0.6, 0.6, 0], clamp)}
+      />
+      {SCENES.map(([Scene, frames]) => {
+        const start = from;
+        from += frames;
+        return (
+          <Sequence key={start} from={start} durationInFrames={frames}>
+            <Scene />
+          </Sequence>
+        );
+      })}
+    </AbsoluteFill>
+  );
+};

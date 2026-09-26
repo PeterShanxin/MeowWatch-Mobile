@@ -12,7 +12,7 @@ export const MeowWatchLaunch: React.FC = () => {
     <AbsoluteFill style={{backgroundColor: paper}}>
       <Audio
         src={staticFile('music/soundtrack.wav')}
-        volume={(frame) => interpolate(frame, [0, 20, TOTAL_FRAMES - 90, TOTAL_FRAMES], [0, 0.6, 0.6, 0], clamp)}
+        volume={(frame) => interpolate(frame, [0, 20, TOTAL_FRAMES - 90, TOTAL_FRAMES], [0, 1, 1, 0], clamp)}
       />
       {SCENES.map(([Scene, frames]) => {
         const start = from;

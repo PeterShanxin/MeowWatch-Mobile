@@ -5,7 +5,7 @@ import 'package:flutter/services.dart';
 import '../../core/media/sample_video.dart';
 import '../brand_mark.dart';
 
-const meowWatchVersion = '0.1.0+1';
+const meowWatchVersion = '0.1.1+2';
 const meowWatchSourceUrl = 'https://github.com/PeterShanxin/MeowWatch-Mobile';
 const meowWatchSyncCoreSourceUrl =
     'https://github.com/PeterShanxin/MeowWatch/tree/'

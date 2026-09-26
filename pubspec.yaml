@@ -1,7 +1,7 @@
 name: meowwatch_mobile
 description: "Movie night, even when you are miles apart. Android-first synchronized playback and nearby companion."
 publish_to: 'none'
-version: 0.1.0+1
+version: 0.1.1+2
 
 environment:
   sdk: ^3.12.0

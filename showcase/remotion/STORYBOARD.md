@@ -2,8 +2,7 @@
 
 Calm but never still: one statement per screen, words settling out of a soft
 blur, a slow push-in on every shot, and scene changes that drift up into the
-next scene on the beat. The opening and closing sit on a dark "lights down"
-stage; a quiet viewfinder frame counts bars against the 120 BPM score. 3D
+next scene on the beat. The title sits on a dark "lights down" stage; a quiet viewfinder frame counts bars against the 120 BPM score. 3D
 motion is used once, where it carries meaning: the two screens flying in from
 apart and meeting in one room. Every app shot is real footage at 1× with a
 source label.

@@ -2,7 +2,7 @@ import React from 'react';
 import {Video} from '@remotion/media';
 import {AbsoluteFill, Sequence, interpolate, staticFile, useCurrentFrame} from 'remotion';
 import {Kicker, Mark, Paper, PhoneCuts, Pill, SourceLabel, Statement} from './Parts';
-import {FPS, clamp, ink, night, paper, peach, pop, ramp, sans, serif} from './theme';
+import {FPS, clamp, ink, night, paper, peach, pop, ramp, sans, serif, soft} from './theme';
 
 const PHONE_LABEL = 'Real recording · MeowWatch on an Android phone (OnePlus, Android 16) · 1×';
 
@@ -334,13 +334,13 @@ export const Ending: React.FC = () => {
   const frame = useCurrentFrame();
   const mark = pop(frame, 0, 16);
   return (
-    <Night>
-            <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
+    <Paper>
+      <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
         <div style={{transform: `scale(${mark})`}}>
           <Mark size={150} />
         </div>
-        <div style={{fontFamily: serif, fontSize: 96, color: paper, marginTop: 34, opacity: ramp(frame, 8, 22)}}>MeowWatch</div>
-        <div style={{fontFamily: sans, fontSize: 34, color: '#B9B2A6', marginTop: 8, opacity: ramp(frame, 16, 30)}}>
+        <div style={{fontFamily: serif, fontSize: 96, color: ink, marginTop: 34, opacity: ramp(frame, 8, 22)}}>MeowWatch</div>
+        <div style={{fontFamily: sans, fontSize: 34, color: soft, marginTop: 8, opacity: ramp(frame, 16, 30)}}>
           Movie night, even miles apart.
         </div>
         <div
@@ -352,18 +352,17 @@ export const Ending: React.FC = () => {
             fontFamily: sans,
             fontSize: 24,
             fontWeight: 600,
-            color: paper,
-            background: night,
+            color: ink,
             opacity: ramp(frame, 30, 44),
           }}
         >
           Android · Open source (AGPL-3.0) · RevenueCat Shipaton 2026 · Next Gen
         </div>
       </AbsoluteFill>
-      <div style={{position: 'absolute', bottom: 70, width: '100%', textAlign: 'center', fontFamily: sans, fontSize: 18, color: '#8A847A'}}>
+      <div style={{position: 'absolute', bottom: 70, width: '100%', textAlign: 'center', fontFamily: sans, fontSize: 18, color: soft}}>
         Sintel trailer © Blender Foundation · sintel.org · CC BY 3.0 · Original score
       </div>
-    </Night>
+    </Paper>
   );
 };
 

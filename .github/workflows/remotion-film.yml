@@ -28,7 +28,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install --yes --no-install-recommends ffmpeg
-          python3 -m pip install 'numpy==2.4.3'
+          python3 -m pip install 'numpy==2.4.3' 'scipy==1.17.1'
           npm ci --prefix showcase/remotion --no-audit --no-fund
       - name: Stage the committed clips and original soundtrack
         run: |

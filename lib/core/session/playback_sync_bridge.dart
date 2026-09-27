@@ -140,7 +140,7 @@ class PlaybackSyncBridge {
       if (connected && _hasSource) {
         final snapshot = target.snapshot;
         sync.announceFile(
-          name: snapshot.media!.title,
+          name: snapshot.media!.announcedName,
           size: snapshot.media!.sizeBytes ?? 0,
           duration: snapshot.duration,
         );
@@ -189,7 +189,7 @@ class PlaybackSyncBridge {
     sync.lastAdvancingRoomState = null;
     final snapshot = target.snapshot;
     sync.announceFile(
-      name: snapshot.media!.title,
+      name: snapshot.media!.announcedName,
       size: snapshot.media!.sizeBytes ?? 0,
       duration: snapshot.duration,
     );
@@ -230,7 +230,7 @@ class PlaybackSyncBridge {
     }
     final snapshot = target.snapshot;
     sync.announceFile(
-      name: snapshot.media!.title,
+      name: snapshot.media!.announcedName,
       size: snapshot.media!.sizeBytes ?? 0,
       duration: snapshot.duration,
     );
@@ -429,7 +429,7 @@ class PlaybackSyncBridge {
           _publish(target.snapshot, changed: false, paused: true);
           if (_connected) {
             sync.announceFile(
-              name: media.title,
+              name: media.announcedName,
               size: media.sizeBytes ?? 0,
               duration: target.snapshot.duration,
             );

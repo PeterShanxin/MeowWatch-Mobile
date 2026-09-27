@@ -780,7 +780,8 @@ void main() {
         expect(app.room!.id, isNot(originalRoom.id));
         expect(app.room!.config.room, isNot(originalRoom.config.room));
         expect(app.room!.isHost, isFalse);
-        await _loadVideoThroughUi(tester, app);
+        // The host already has the video loaded, so the invite carries it.
+        await _waitForNativeVideo(tester, app, Uri.parse(_videoUrl));
       }
       await _waitForRoomAndVideo(tester, app, peerName, Uri.parse(_videoUrl));
       final nextRoom = app.room!;

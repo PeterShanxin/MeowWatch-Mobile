@@ -4,7 +4,7 @@ import wave
 import numpy as np
 
 RATE = 32000
-LENGTH = 70
+LENGTH = 68
 BEAT = .5
 rng = np.random.default_rng(20260925)
 mix = np.zeros((RATE * LENGTH, 2), dtype=np.float64)
@@ -61,8 +61,8 @@ chords = [(50, [62, 66, 69, 73]), (47, [59, 62, 66, 69]),
 for beat in range(round(LENGTH / BEAT)):
     start = beat * BEAT
     bass, chord = chords[(beat // 8) % len(chords)]
-    energy = .45 if start < 5.5 else (.75 if 50 <= start < 55.5 else 1.)
-    if start >= 63:
+    energy = .45 if start < 5.5 else (.75 if 48.5 <= start < 54 else 1.)
+    if start >= 61:
         energy = .5
     if beat % 8 == 0:
         for index, pitch in enumerate(chord):
@@ -71,7 +71,7 @@ for beat in range(round(LENGTH / BEAT)):
         drums(start, beat, energy)
         if beat % 2 == 0:
             add(note(bass - 12, .75, 'bass'), start, .14 * energy)
-    if beat % 2 == 0 or 23 <= start < 38:
+    if beat % 2 == 0 or 22.5 <= start < 37:
         pitch = chord[[0, 2, 1, 3][beat % 4]] + 12
         sound = note(pitch, 1.5)
         add(sound, start, .061 * energy, -.22)

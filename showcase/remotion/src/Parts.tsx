@@ -60,7 +60,7 @@ export const PhoneCuts: React.FC<{cuts: Cut[]; height?: number; style?: React.CS
   );
 };
 
-/** One statement per screen; lines rise out of a mask. */
+/** One statement per screen; each word rises out of a soft blur in turn. */
 export const Statement: React.FC<{
   lines: string[];
   delay?: number;
@@ -69,16 +69,31 @@ export const Statement: React.FC<{
   color?: string;
 }> = ({lines, delay = 0, size = 96, align = 'left', color = ink}) => {
   const frame = useCurrentFrame();
+  let order = 0;
   return (
-    <div style={{fontFamily: serif, fontSize: size, lineHeight: 1.04, color, textAlign: align, letterSpacing: -1}}>
-      {lines.map((line, index) => {
-        const progress = ramp(frame, delay + index * 5, delay + index * 5 + 16);
-        return (
-          <div key={line} style={{overflow: 'hidden', paddingBottom: size * 0.12}}>
-            <div style={{transform: `translateY(${(1 - progress) * 110}%)`}}>{line}</div>
-          </div>
-        );
-      })}
+    <div style={{fontFamily: serif, fontSize: size, lineHeight: 1.08, color, textAlign: align, letterSpacing: -1}}>
+      {lines.map((line) => (
+        <div key={line} style={{paddingBottom: size * 0.06}}>
+          {line.split(' ').map((word, index, words) => {
+            const start = delay + order++ * 4;
+            const t = ramp(frame, start, start + 20);
+            return (
+              <span
+                key={`${word}-${index}`}
+                style={{
+                  display: 'inline-block',
+                  marginRight: index < words.length - 1 ? '0.25em' : 0,
+                  opacity: t,
+                  filter: `blur(${(1 - t) * 12}px)`,
+                  transform: `translateY(${(1 - t) * 0.35}em)`,
+                }}
+              >
+                {word}
+              </span>
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 };
@@ -99,8 +114,8 @@ export const SourceLabel: React.FC<{text: string}> = ({text}) => {
     <div
       style={{
         position: 'absolute',
-        left: 64,
-        top: 40,
+        left: 70,
+        bottom: 30,
         fontFamily: sans,
         fontSize: 19,
         fontWeight: 500,

@@ -2,7 +2,7 @@ import React from 'react';
 import {Video} from '@remotion/media';
 import {AbsoluteFill, Sequence, interpolate, staticFile, useCurrentFrame} from 'remotion';
 import {Kicker, Mark, Paper, PhoneCuts, Pill, SourceLabel, Statement} from './Parts';
-import {FPS, clamp, ink, night, paper, peach, pop, ramp, sans, serif, soft} from './theme';
+import {FPS, clamp, ink, night, paper, peach, pop, ramp, sans, serif} from './theme';
 
 const PHONE_LABEL = 'Real recording · MeowWatch on an Android phone (OnePlus, Android 16) · 1×';
 
@@ -42,35 +42,43 @@ const COUNTDOWN: [string, boolean, number][] = [
   ['ok… again. 3…', true, 122],
 ];
 
-export const Hook: React.FC = () => {
-  const frame = useCurrentFrame();
-  const leave = ramp(frame, 146, 165);
-  return (
-    <Paper>
-      <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
-        <div style={{width: 780, opacity: 1 - leave, filter: `blur(${leave * 12}px)`, transform: `translateY(${-leave * 60}px)`}}>
-          {COUNTDOWN.map(([text, mine, at]) => (
-            <Bubble key={text} text={text} mine={mine} at={at} />
-          ))}
-        </div>
-      </AbsoluteFill>
-    </Paper>
-  );
-};
+export const Hook: React.FC = () => (
+  <Paper>
+    <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
+      <div style={{width: 780}}>
+        {COUNTDOWN.map(([text, mine, at]) => (
+          <Bubble key={text} text={text} mine={mine} at={at} />
+        ))}
+      </div>
+    </AbsoluteFill>
+  </Paper>
+);
 
+const Night: React.FC<{children?: React.ReactNode}> = ({children}) => (
+  <AbsoluteFill style={{backgroundColor: night, backgroundImage: 'radial-gradient(circle at 50% 50%, #1A2029 0%, #0C0F14 70%)'}}>
+    {children}
+  </AbsoluteFill>
+);
+
+// Lights down on the drum entry, like a cinema before the film.
 export const Title: React.FC = () => {
   const frame = useCurrentFrame();
-  const brand = pop(frame, 48);
+  const mark = pop(frame, 4, 15);
+  const wordmark = pop(frame, 70);
   return (
-    <Paper>
+    <Night>
       <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
-        <Statement lines={['Movie night,', 'even miles apart.']} size={150} align="center" delay={2} />
-        <div style={{display: 'flex', alignItems: 'center', gap: 18, marginTop: 36, opacity: brand, transform: `translateY(${(1 - brand) * 20}px)`}}>
-          <Mark size={64} />
-          <span style={{fontFamily: sans, fontSize: 38, fontWeight: 700, color: ink, letterSpacing: -0.5}}>MeowWatch</span>
+        <div style={{transform: `scale(${mark}) translateY(${(1 - mark) * 30}px)`, marginBottom: 44}}>
+          <Mark size={120} />
+        </div>
+        <Sequence from={14} layout="none">
+          <Statement lines={['Movie night,', 'even miles apart.']} size={140} align="center" color={paper} />
+        </Sequence>
+        <div style={{fontFamily: sans, fontSize: 30, fontWeight: 700, color: '#B9B2A6', letterSpacing: 6, marginTop: 30, opacity: wordmark, transform: `translateY(${(1 - wordmark) * 16}px)`}}>
+          MEOWWATCH
         </div>
       </AbsoluteFill>
-    </Paper>
+    </Night>
   );
 };
 
@@ -85,13 +93,20 @@ const PhoneBeat: React.FC<{
 }> = ({cuts, lines, kicker, phoneLeft = true, label = PHONE_LABEL, size = 124}) => {
   const frame = useCurrentFrame();
   const enter = pop(frame, 0, 16);
+  const bob = Math.sin(frame / 38) * 9;
+  const turn = Math.sin(frame / 55) * 5 * (phoneLeft ? 1 : -1);
   const phone = (
-    <div style={{transform: `translateY(${(1 - enter) * 140}px) rotateX(${(1 - enter) * 18}deg)`, opacity: enter}}>
-      <PhoneCuts cuts={cuts} height={950} />
+    <div
+      style={{
+        transform: `translateY(${(1 - enter) * 140 + bob}px) rotateX(${(1 - enter) * 18}deg) rotateY(${turn}deg)`,
+        opacity: enter,
+      }}
+    >
+      <PhoneCuts cuts={cuts} height={920} />
     </div>
   );
   const text = (
-    <div style={{width: 860}}>
+    <div style={{width: 860, transform: `translateY(${-bob * 0.5}px)`}}>
       <Statement lines={lines} size={size} delay={6} />
       {kicker ? <Kicker text={kicker} delay={18} /> : null}
     </div>
@@ -203,6 +218,7 @@ const CapturePair: React.FC<{src: string; cuts: {at: number; frames: number}[]; 
 }) => {
   const frame = useCurrentFrame();
   const apart = 1 - pop(frame, meetAt, 18);
+  const float = Math.sin(frame / 45) * 5;
   const fadeIn = interpolate(frame, [enterAt, enterAt + 12], [0, 1], clamp);
   return (
     <AbsoluteFill style={{perspective: 1800}}>
@@ -214,7 +230,7 @@ const CapturePair: React.FC<{src: string; cuts: {at: number; frames: number}[]; 
           left: PAIR_LEFT,
           top,
           opacity: fadeIn,
-          transform: `translateX(${-apart * 520}px) translateZ(${-apart * 900}px) rotateY(${apart * 42}deg)`,
+          transform: `translateX(${-apart * 520}px) translateY(${float}px) translateZ(${-apart * 900}px) rotateY(${apart * 42}deg)`,
         }}
       />
       <CapturePanel
@@ -225,7 +241,7 @@ const CapturePair: React.FC<{src: string; cuts: {at: number; frames: number}[]; 
           left: PAIR_LEFT + (DESKTOP.w + GAP) * SCALE,
           top,
           opacity: fadeIn,
-          transform: `translateX(${apart * 620}px) translateZ(${-apart * 900}px) rotateY(${-apart * 42}deg)`,
+          transform: `translateX(${apart * 620}px) translateY(${float}px) translateZ(${-apart * 900}px) rotateY(${-apart * 42}deg)`,
         }}
       />
     </AbsoluteFill>
@@ -238,7 +254,7 @@ const PHONE_MID = PAIR_LEFT + (DESKTOP.w + GAP + PHONE.w / 2) * SCALE;
 
 export const Together: React.FC = () => {
   const frame = useCurrentFrame();
-  const titleOut = ramp(frame, 45, 58);
+  const titleOut = ramp(frame, 60, 72);
   const pillY = 150 + CAPTURE_H * SCALE + 56;
   return (
     <Paper>
@@ -248,17 +264,17 @@ export const Together: React.FC = () => {
       <CapturePair
         src="together-sync"
         cuts={[
-          {at: 0.5, frames: 330},
-          {at: 20.3, frames: 120},
+          {at: 0, frames: 345},
+          {at: 20.3, frames: 105},
         ]}
         top={150}
-        meetAt={54}
-        enterAt={48}
+        meetAt={68}
+        enterAt={62}
       />
-      <Pill text="Play on the phone…" from={84} to={165} x={PHONE_MID} y={pillY} />
-      <Pill text="…the laptop plays too." from={128} to={215} x={DESKTOP_MID} y={pillY} />
-      <Pill text="Pause on the laptop. Both pause." from={282} to={330} x={DESKTOP_MID} y={pillY} />
-      <Pill text="Skip ahead, together." from={346} to={445} x={960} y={pillY} />
+      <Pill text="Play on the phone…" from={99} to={180} x={PHONE_MID} y={pillY} />
+      <Pill text="…the laptop plays too." from={143} to={230} x={DESKTOP_MID} y={pillY} />
+      <Pill text="Pause on the laptop. Both pause." from={297} to={345} x={DESKTOP_MID} y={pillY} />
+      <Pill text="Skip ahead, together." from={361} to={445} x={960} y={pillY} />
       <SourceLabel text={PAIR_LABEL} />
     </Paper>
   );
@@ -269,8 +285,8 @@ export const React_: React.FC = () => (
     <div style={{position: 'absolute', top: 64, width: '100%'}}>
       <Statement lines={['React together.']} size={84} align="center" delay={4} />
     </div>
-    <CapturePair src="together-react" cuts={[{at: 1.3, frames: 240}]} top={210} meetAt={-30} />
-    <div style={{position: 'absolute', top: 210 + CAPTURE_H * SCALE + 34, width: '100%', textAlign: 'center'}}>
+    <CapturePair src="together-react" cuts={[{at: 1.3, frames: 240}]} top={190} meetAt={-30} />
+    <div style={{position: 'absolute', top: 190 + CAPTURE_H * SCALE + 26, width: '100%', textAlign: 'center'}}>
       <Kicker text="A heart on the phone floats up on the laptop, the same moment." delay={20} />
     </div>
     <SourceLabel text={PAIR_LABEL} />
@@ -318,13 +334,13 @@ export const Ending: React.FC = () => {
   const frame = useCurrentFrame();
   const mark = pop(frame, 0, 16);
   return (
-    <Paper>
-      <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
+    <Night>
+            <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
         <div style={{transform: `scale(${mark})`}}>
           <Mark size={150} />
         </div>
-        <div style={{fontFamily: serif, fontSize: 96, color: ink, marginTop: 34, opacity: ramp(frame, 8, 22)}}>MeowWatch</div>
-        <div style={{fontFamily: sans, fontSize: 34, color: soft, marginTop: 8, opacity: ramp(frame, 16, 30)}}>
+        <div style={{fontFamily: serif, fontSize: 96, color: paper, marginTop: 34, opacity: ramp(frame, 8, 22)}}>MeowWatch</div>
+        <div style={{fontFamily: sans, fontSize: 34, color: '#B9B2A6', marginTop: 8, opacity: ramp(frame, 16, 30)}}>
           Movie night, even miles apart.
         </div>
         <div
@@ -336,23 +352,24 @@ export const Ending: React.FC = () => {
             fontFamily: sans,
             fontSize: 24,
             fontWeight: 600,
-            color: ink,
+            color: paper,
+            background: night,
             opacity: ramp(frame, 30, 44),
           }}
         >
           Android · Open source (AGPL-3.0) · RevenueCat Shipaton 2026 · Next Gen
         </div>
       </AbsoluteFill>
-      <div style={{position: 'absolute', bottom: 40, width: '100%', textAlign: 'center', fontFamily: sans, fontSize: 18, color: soft}}>
+      <div style={{position: 'absolute', bottom: 70, width: '100%', textAlign: 'center', fontFamily: sans, fontSize: 18, color: '#8A847A'}}>
         Sintel trailer © Blender Foundation · sintel.org · CC BY 3.0 · Original score
       </div>
-    </Paper>
+    </Night>
   );
 };
 
 export const SCENES: [React.FC, number][] = [
   [Hook, 165],
-  [Title, 105],
+  [Title, 150],
   [StartRoom, 240],
   [InviteVideo, 180],
   [Together, 450],
@@ -362,5 +379,3 @@ export const SCENES: [React.FC, number][] = [
   [Ending, 210],
 ];
 
-export const TOTAL_FRAMES = SCENES.reduce((sum, [, frames]) => sum + frames, 0);
-export const SECONDS = TOTAL_FRAMES / FPS;

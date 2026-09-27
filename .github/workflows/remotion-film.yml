@@ -47,8 +47,8 @@ jobs:
           npx remotion browser ensure
           npm run render
           npx remotion still src/index.ts MeowWatchLaunch out/preview-intro.png --frame=60 --scale=0.5
-          npx remotion still src/index.ts MeowWatchLaunch out/preview-together.png --frame=1050 --scale=0.5
-          npx remotion still src/index.ts MeowWatchLaunch out/preview-plus.png --frame=1760 --scale=0.5
+          npx remotion still src/index.ts MeowWatchLaunch out/preview-together.png --frame=1140 --scale=0.5
+          npx remotion still src/index.ts MeowWatchLaunch out/preview-plus.png --frame=1850 --scale=0.5
           ffprobe -v error -show_entries format=duration:stream=codec_name,width,height -of json out/MeowWatch-Mobile-Remotion.mp4 > out/export.json
       - name: Upload film and review stills
         if: always()

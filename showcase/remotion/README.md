@@ -1,6 +1,6 @@
 # MeowWatch launch film
 
-A 67-second product film: one idea per screen, set in type on a warm paper
+A 70-second product film: one idea per screen, set in type on a warm paper
 ground, with real app recordings carrying every functional claim. Each shot of
 the app is an unedited 1× excerpt of a real recording and carries a small
 label saying what it is. Titles, chat bubbles and the brand sign-off are the
@@ -12,7 +12,7 @@ only drawn elements. See [STORYBOARD.md](STORYBOARD.md) for the cut list and
 Node 24 is supported. Run `npm ci`, then `python prepare_media.py` to stage the
 committed clips, brand mark and fonts in `public/`, and
 `python compose_music.py` to generate the soundtrack. `npm run dev` opens the
-Studio; composition `MeowWatchLaunch` is 1920 × 1080, 30 fps and 2,025 frames.
+Studio; composition `MeowWatchLaunch` is 1920 × 1080, 30 fps and 2,115 frames.
 
 `prepare_media.py --recordings <dir>` re-cuts the clips in `source-media/` from
 the raw recordings, which are kept outside the repository.

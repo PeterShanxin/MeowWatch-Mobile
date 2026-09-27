@@ -16,22 +16,23 @@ import edge_tts
 HERE = Path(__file__).resolve().parent
 VOICE = 'en-US-AvaNeural'
 RATE = '-6%'
-LENGTH = 67.5
+LENGTH = 70.5
 SAMPLE_RATE = 44100
 
-# (film second, line). Each line must end before the next begins.
+# (film second, line). Each line must end before the next begins. The name is
+# written as two words so the voice says "Meow Watch" clearly.
 LINES = [
     (0.6, 'Long-distance movie nights usually start like this.'),
-    (5.9, 'Meet MeowWatch.'),
-    (10.0, 'Start a room, and send the invite. Joining is always free.'),
-    (17.4, "If you're watching a video link, the invite brings the movie along."),
-    (22.9, 'Two screens, one movie night. Press play on the phone, and the laptop plays too.'),
-    (31.8, 'Pause on either side, and you both pause.'),
-    (37.6, 'Send a reaction, and it floats up on their screen at the same moment.'),
-    (44.9, 'Then pick up right where you left off.'),
-    (48.4, 'Guests always join free. Hosts get one free movie night a day.'),
-    (54.4, "For more nights, there's MeowWatch Plus."),
-    (61.3, 'MeowWatch. Movie night, even miles apart.'),
+    (8.9, 'Meet Meow Watch!'),
+    (13.0, 'Start a room, and send the invite. Joining is always free.'),
+    (20.4, "If you're watching a video link, the invite brings the movie along."),
+    (25.9, 'Two screens, one movie night. Press play on the phone, and the laptop plays too.'),
+    (34.8, 'Pause on either side, and you both pause.'),
+    (40.6, 'Send a reaction, and it floats up on their screen at the same moment.'),
+    (47.9, 'Then pick up right where you left off.'),
+    (51.4, 'Guests always join free. Hosts get one free movie night a day.'),
+    (57.4, "For more nights, there's Meow Watch Plus."),
+    (64.3, 'Meow Watch. Movie night, even miles apart.'),
 ]
 
 

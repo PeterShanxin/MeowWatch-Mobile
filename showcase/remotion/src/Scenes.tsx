@@ -32,14 +32,14 @@ const Bubble: React.FC<{text: string; mine: boolean; at: number}> = ({text, mine
 };
 
 const COUNTDOWN: [string, boolean, number][] = [
-  ['ready?', false, 4],
-  ['3', true, 26],
-  ['2', true, 38],
-  ['1', true, 50],
-  ['play!', true, 62],
-  ['wait', false, 88],
-  ['I paused for snacks', false, 98],
-  ['ok… again. 3…', true, 122],
+  ['ready?', false, 30],
+  ['3', true, 70],
+  ['2', true, 88],
+  ['1', true, 106],
+  ['play!', true, 124],
+  ['wait', false, 164],
+  ['I paused for snacks', false, 182],
+  ['ok… again. 3…', true, 214],
 ];
 
 export const Hook: React.FC = () => (
@@ -360,7 +360,7 @@ export const Ending: React.FC = () => {
 };
 
 export const SCENES: [React.FC, number][] = [
-  [Hook, 165],
+  [Hook, 255],
   [Title, 150],
   [StartRoom, 240],
   [InviteVideo, 180],

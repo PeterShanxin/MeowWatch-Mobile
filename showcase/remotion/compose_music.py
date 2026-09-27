@@ -11,14 +11,14 @@ import numpy as np
 from scipy.signal import butter, sosfilt
 
 RATE = 44100
-LENGTH = 68
+LENGTH = 71
 BEAT = .5
 BAR = 4 * BEAT
 rng = np.random.default_rng(20260927)
 mix = np.zeros((RATE * LENGTH, 2))
 
-# Scene boundaries in the 2,025-frame cut.
-TITLE, GROOVE, TOGETHER, REACT, CONTINUE, PLUS_TALK, PLUS, ENDING = 5.5, 9.5, 22.5, 37, 44.5, 48, 54, 60.5
+# Scene boundaries in the 2,115-frame cut.
+TITLE, GROOVE, TOGETHER, REACT, CONTINUE, PLUS_TALK, PLUS, ENDING = 8.5, 12.5, 25.5, 40, 47.5, 51, 57, 63.5
 
 
 def add(sound: np.ndarray, start: float, gain: float = 1., pan: float = 0.) -> None:
@@ -140,11 +140,11 @@ room = lowpass(rng.normal(0, 1, len(mix)), 900) * .006
 crackle = np.zeros(len(mix))
 crackle[rng.integers(0, len(mix), 260)] = rng.choice([-1, 1], 260) * rng.uniform(.05, .18, 260)
 add(room + lowpass(crackle, 3000), 0, 1.)
-for second, pitch in [(26 / 30, 81), (38 / 30, 78), (50 / 30, 74), (62 / 30, 69), (62 / 30, 73)]:
+for second, pitch in [(70 / 30, 81), (88 / 30, 78), (106 / 30, 74), (124 / 30, 69), (124 / 30, 73)]:
     add(music_box(pitch), second, .11, .2)
-for second, pitch in [(88 / 30, 69), (98 / 30, 68), (122 / 30, 81)]:
+for second, pitch in [(164 / 30, 69), (182 / 30, 68), (214 / 30, 81)]:
     add(music_box(pitch), second, .07, -.3)
-add(pad(62, 3.2), 2.6, .02)
+add(pad(62, 3.6), 4.9, .02)
 
 # Lights down: one warm swell and a low hit on the title's downbeat.
 add(sub(38, 3.5), TITLE, .16)

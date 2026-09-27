@@ -1,101 +1,88 @@
 # MeowWatch Mobile — Devpost submission
 
-> **Submitted to Shipaton 2026; 5/5 steps verified on September 26.** The [acceptance ledger](STATUS.md)
-> records current evidence and runtime limits. The [demo script](DEMO_SCRIPT.md)
-> tracks the exported 94-second film and its source footage. The Devpost
-> [project page](https://devpost.com/software/meowwatch-mobile) is public with the
-> copy below, cover, icon and screenshot. Submission ID: `1196850`.
+> **Submitted to Shipaton 2026 (submission `1196850`, 5/5 steps).** Devpost
+> allows edits until the deadline. The [project page](https://devpost.com/software/meowwatch-mobile)
+> carries the story below, the [demo film](DEMO_SCRIPT.md), cover, icon and
+> screenshot. The [acceptance ledger](STATUS.md) records evidence and limits.
 
 ## Project name and tagline
 
-**MeowWatch Mobile**
+**MeowWatch Mobile** — Movie night, even when you're miles apart.
 
-**Movie night, even when you're miles apart.**
+## Story
 
-## Short description
+**Two screens. Two cities. One pause button.**
+Press pause, and the person you're watching with pauses too, wherever they are.
 
-MeowWatch Mobile brings shared movie nights to Android. Start or join a room,
-watch in sync, and talk beside the player with chat and reactions. Local viewing
-and Continue Watching work between movie nights, too.
+> **Next Gen Award entry** · Android-first · open source (AGPL-3.0) · working RevenueCat integration on **Test Store (no real charges)** · [Download the APK](https://github.com/PeterShanxin/MeowWatch-Mobile/releases/latest)
 
-## Inspiration
+### Inspiration
 
-A long-distance movie night can begin with “Three, two, one, play,” then need
-another countdown every time someone pauses. Conversation lives in a separate
-app. We wanted one place to watch, talk and pick up where you left off. The
-design starts with couples, but works for friends, family and small groups.
+The best part of watching a movie together was never the movie. It's the gasp at the twist, the "wait, go back," the laugh you share half a second later.
 
-## What it does
+Long-distance movie nights lose all of that. They start with a countdown over text, *"3, 2, 1… play,"* and restart every time someone grabs a snack. The conversation lives in another app, and twenty minutes in nobody is sure you're on the same scene. We built MeowWatch so the person on the other side feels like they're on the couch with you. It's made for couples first, and works just as well for friends and family.
 
-One person starts a Together Session and shares an invitation; another can
-join by link, pasted invitation or QR code after reviewing the room and
-server. Each person opens the same supported direct video URL or a local file
-they can access. MeowWatch coordinates play, pause and seek through the room;
-it does not upload one person's private video file to everyone else. Presence,
-chat and reactions keep people together around the video.
+### What it does
 
-Local Mode supports solo viewing. Continue Watching saves progress, and recent
-rooms help start another movie night. A first-use guide and licensed sample
-help new users try the flow. Ordinary video-platform webpages and protected
-streams are outside direct-media support.
+**Start a room in one tap.** Send the invite as a link, QR code or short code. Your partner joins free, with no sign-up. If you're already watching a direct video link, the invite carries it, so they land on the same movie.
 
-Free users can host one real Together Session per local calendar day. Joining
-someone else, reconnecting and changing playback targets do not spend another
-session. MeowWatch Plus adds unlimited hosting, player appearances and a
-premium reaction. A secondary Nearby companion lets the phone control desktop
-MeowWatch after explicit pairing; discovery, playback controls, saved reconnect
-and revocation have been exercised on a physical Android phone and Windows PC.
-Native Nearby social relay remains unverified on paired devices. Direct
-Together chat is the verified alternative. The Cast sender still lacks
-physical receiver acceptance; phone playback is the supported fallback.
+**Press pause, both pause.** Either person can play, pause or skip, and the other screen follows. If a connection drops, the room waits, paused, until you're both back.
 
-## How we built it
+**Talk without leaving the movie.** Chat, reactions and "who's here" sit right beside the player.
 
-Flutter and Dart provide the phone and tablet interface, while room protocol,
-hosting policy and entitlement logic remain separate from widgets. A portable
-Syncplay client uses fail-closed STARTTLS validation. Android's player reports
-actual position and state to the room, and lifecycle and audio-focus handling
-pause shared playback when interruption makes continued synchronization
-unsafe. Local storage retains history, onboarding state and the daily hosting
-ledger across process restarts.
+**Pick up where you left off.** Continue Watching remembers your spot, and recent rooms make the next movie night one tap away. You can also watch solo in Local Player mode.
 
-OpenAI Codex assisted implementation, debugging and test automation. The demo
-uses Remotion to combine React-rendered explanations with clearly labeled
-original Android footage.
+**Phone or computer.** The Android app joins the same rooms as our open-source [MeowWatch for Windows](https://github.com/PeterShanxin/MeowWatch), which is what you see syncing in the demo video.
 
-Nearby pairing requires explicit approval, pinned TLS identity, protected
-credentials and revocation. Automated checks and native Android emulator
-journeys include independent phone and tablet clients. The [acceptance
-ledger](STATUS.md) records the complete ordinary-APK clean-install rehearsal
-and the remaining hardware limits. Matching positions do not prove identical decoded
-frames or smooth footage.
+**What you need:** both people open the same video, either a direct video link or their own copy of the file. MeowWatch syncs the playback and never uploads your files. Streaming-site pages and DRM-protected services aren't supported.
 
-## Why RevenueCat belongs here
+### How RevenueCat powers the business
 
-Guests can still join, watch and talk for free. Plus serves frequent hosts.
-The official RevenueCat Flutter SDK loads an Offering and
-uses the `meowwatch_plus` entitlement to unlock actual hosting and appearance
-benefits. Native emulator journeys cover purchase outcomes, Restore, a second
-hosted Plus session and a premium reaction seen by a peer. The demonstration
-uses **RevenueCat Test Store, with no real charge**. A physical Android phone
-also exercises cancellation, failure, successful entitlement activation and
-relaunch. This does not claim Google Play production billing. Current
-evidence and limits are in [STATUS.md](STATUS.md).
+**Guests always watch free.** Hosting is where the cost and the value sit, so the host gets **one free movie night per day**. It only counts once someone has joined and you've actually pressed play. Reconnecting or switching videos never uses it up.
 
-## Desktop heritage and lessons
+**MeowWatch Plus** is for people who host more often: unlimited rooms, player themes (Glass Aurora, Cinema Noir) and a premium "Movie night" reaction your partner sees live.
 
-This is a new Android-first counterpart to the existing open-source
-[MeowWatch desktop project](https://github.com/PeterShanxin/MeowWatch), which
-already established synchronized playback, chat, reactions, Local Player Mode
-and Continue Watching. The mobile repository adds a touch interface, Android
-playback and lifecycle behavior, mobile persistence, RevenueCat integration
-and companion work. Portable ideas and code are adapted with their provenance
-and notices; both projects use **AGPL-3.0-only**.
+- The **RevenueCat Flutter SDK** loads the current Offering, so plan and price come from the dashboard, not the app.
+- The **`meowwatch_plus` entitlement** unlocks real behavior: the hosting limit lifts, and the themes and premium reaction switch on.
+- **Purchase, cancel, failure and Restore** are all handled. They were tested end to end with RevenueCat Test Store on emulators and on a physical Android phone.
 
-The hardest question was which state to trust when native players, a shared
-room and the network disagree. We learned to verify actual player state,
-preserve a paused recovery path and tie evidence to its runtime. Convenient
-Nearby control still needs explicit, revocable pairing.
+What we haven't proven yet is willingness to pay. The next step is to learn from real hosts whether they value unlimited rooms, a couple plan or a one-off "movie night pass" most. RevenueCat Offerings let us test that without shipping a new app.
+
+### How we built it
+
+- **Flutter + Kotlin** for Android phones and tablets. The room protocol, hosting quota and entitlement logic are kept separate from the UI and covered by tests.
+- It builds on our open-source **MeowWatch desktop app** and speaks the same **Syncplay** protocol over encrypted connections.
+- **Android-specific work:** a native player that reports its real position, auto-pause for calls and audio interruptions, fullscreen landscape, and progress saved across restarts.
+- **Tested like a product:** CI runs full journeys on two independent Android clients (join, play/pause/seek in both directions, chat, reactions, quota, purchase, Restore), plus a Windows desktop ↔ Android room.
+- AI coding assistants helped with implementation and test automation.
+
+### Challenges we ran into
+
+Syncing looks simple until the player, the room and the network disagree. A phone call interrupts audio, a decoder fails, or Wi-Fi drops mid-scene. We learned to trust the player's *actual* state rather than what we asked it to do, and to recover into a paused room instead of letting two people drift apart.
+
+### What we learned
+
+- The hard part of "watch together" isn't the Play button. It's getting both people onto the same video in the first place, which is why invites now carry the movie.
+- A paywall only works when the free experience is complete. That's why guests never pay.
+
+### What's next
+
+- Google Play release, then iOS
+- Casting to the TV (sender built, still needs testing on a real receiver)
+- Pricing experiments with real hosts through RevenueCat Offerings
+
+### Current limits
+
+- Judging build = **Test Store APK**. No Google Play production billing yet.
+- Sync is verified on a physical Android phone with Windows desktop, on two independent Android emulators, and on Windows ↔ cloud Android. It hasn't been tested on two physical phones.
+- Chromecast receiver playback and chat relay through the paired desktop "Nearby" remote are not yet verified.
+- Full evidence: [acceptance ledger](https://github.com/PeterShanxin/MeowWatch-Mobile/blob/main/docs/STATUS.md)
+
+### Try it
+
+- Android APK (Test Store): https://github.com/PeterShanxin/MeowWatch-Mobile/releases/latest
+- Source: https://github.com/PeterShanxin/MeowWatch-Mobile
+- MeowWatch for Windows: https://github.com/PeterShanxin/MeowWatch/releases/tag/v0.51.0-alpha
 
 ## Submission checklist
 
@@ -111,9 +98,12 @@ Nearby control still needs explicit, revocable pairing.
 - [x] Verify desktop signed release `v0.51.0-alpha` and R2 metadata.
 - [x] Merge mobile PR #1 and publish the ordinary Android `v0.1.0` Test Store
   APK with source/install receipts and a verified public download.
+- [x] Merge mobile PR #2 and publish `v0.1.1` (invite carries the host's video)
+  as the latest release, so `releases/latest` resolves to the Test Store APK.
 - [x] Watch the complete final film at normal speed, verify a duration strictly
   under two minutes, accurate runtime and Test Store labels, rights to every
   asset, and a public YouTube or Vimeo link. Follow the [demo script](DEMO_SCRIPT.md).
+  The re-cut 70-second film is Public on YouTube and linked from the project.
 - [x] Recheck the public repository, AGPL license visibility, desktop and asset
   provenance, setup instructions and final secret scan. Confirm the icon,
   original unframed 1179 × 2556 screenshot and gallery thumbnail are attached.

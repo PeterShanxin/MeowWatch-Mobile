@@ -16,14 +16,16 @@ import edge_tts
 HERE = Path(__file__).resolve().parent
 VOICE = 'en-US-AvaNeural'
 RATE = '-6%'
+PAUSE = .38
 LENGTH = 70.5
 SAMPLE_RATE = 44100
 
 # (film second, line). Each line must end before the next begins. The name is
-# written as two words so the voice says "Meow Watch" clearly.
+# written as two words so the voice says "Meow Watch" clearly; "|" splits a line
+# into separately spoken parts with a short pause between them.
 LINES = [
     (0.6, 'Long-distance movie nights usually start like this.'),
-    (8.9, 'Meet Meow Watch!'),
+    (8.7, 'Meet our app, | Meow | Watch!'),
     (13.0, 'Start a room, and send the invite. Joining is always free.'),
     (20.4, "If you're watching a video link, the invite brings the movie along."),
     (25.9, 'Two screens, one movie night. Press play on the phone, and the laptop plays too.'),
@@ -46,12 +48,31 @@ async def speak(text: str, path: Path) -> None:
     await edge_tts.Communicate(text, VOICE, rate=RATE).save(str(path))
 
 
+def speak_line(text: str, path: Path) -> None:
+    parts = [part.strip() for part in text.split('|')]
+    if len(parts) == 1:
+        asyncio.run(speak(text, path))
+        return
+    clips = []
+    for index, part in enumerate(parts):
+        clip = path.with_name(f'{path.stem}-{index}.mp3')
+        asyncio.run(speak(part, clip))
+        clips.append(clip)
+    # Trim each part's own leading/trailing silence, then join with a fixed pause.
+    trim = 'silenceremove=start_periods=1:start_threshold=-45dB,areverse,silenceremove=start_periods=1:start_threshold=-45dB,areverse'
+    inputs = [arg for clip in clips for arg in ('-i', str(clip))]
+    chain = ''.join(f'[{i}:a]{trim},apad=pad_dur={PAUSE}[p{i}];' for i in range(len(clips)))
+    joined = ''.join(f'[p{i}]' for i in range(len(clips)))
+    subprocess.run(['ffmpeg', '-v', 'error', '-y', *inputs, '-filter_complex',
+                    f'{chain}{joined}concat=n={len(clips)}:v=0:a=1[out]', '-map', '[out]', str(path)], check=True)
+
+
 def main() -> None:
     with tempfile.TemporaryDirectory() as tmp:
         clips = []
         for index, (start, text) in enumerate(LINES):
             clip = Path(tmp) / f'line-{index:02d}.mp3'
-            asyncio.run(speak(text, clip))
+            speak_line(text, clip)
             clips.append((start, clip, duration(clip)))
         intervals = []
         for index, (start, clip, length) in enumerate(clips):

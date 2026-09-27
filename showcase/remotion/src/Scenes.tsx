@@ -54,31 +54,24 @@ export const Hook: React.FC = () => (
   </Paper>
 );
 
-const Night: React.FC<{children?: React.ReactNode}> = ({children}) => (
-  <AbsoluteFill style={{backgroundColor: night, backgroundImage: 'radial-gradient(circle at 50% 50%, #1A2029 0%, #0C0F14 70%)'}}>
-    {children}
-  </AbsoluteFill>
-);
-
-// Lights down on the drum entry, like a cinema before the film.
 export const Title: React.FC = () => {
   const frame = useCurrentFrame();
   const mark = pop(frame, 4, 15);
   const wordmark = pop(frame, 70);
   return (
-    <Night>
+    <Paper>
       <AbsoluteFill style={{justifyContent: 'center', alignItems: 'center'}}>
         <div style={{transform: `scale(${mark}) translateY(${(1 - mark) * 30}px)`, marginBottom: 44}}>
           <Mark size={120} />
         </div>
         <Sequence from={14} layout="none">
-          <Statement lines={['Movie night,', 'even miles apart.']} size={140} align="center" color={paper} />
+          <Statement lines={['Movie night,', 'even miles apart.']} size={140} align="center" />
         </Sequence>
-        <div style={{fontFamily: sans, fontSize: 30, fontWeight: 700, color: '#B9B2A6', letterSpacing: 6, marginTop: 30, opacity: wordmark, transform: `translateY(${(1 - wordmark) * 16}px)`}}>
+        <div style={{fontFamily: sans, fontSize: 30, fontWeight: 700, color: soft, letterSpacing: 6, marginTop: 30, opacity: wordmark, transform: `translateY(${(1 - wordmark) * 16}px)`}}>
           MEOWWATCH
         </div>
       </AbsoluteFill>
-    </Night>
+    </Paper>
   );
 };
 
@@ -360,7 +353,7 @@ export const Ending: React.FC = () => {
         </div>
       </AbsoluteFill>
       <div style={{position: 'absolute', bottom: 70, width: '100%', textAlign: 'center', fontFamily: sans, fontSize: 18, color: soft}}>
-        Sintel trailer © Blender Foundation · sintel.org · CC BY 3.0 · Original score
+        Sintel trailer © Blender Foundation · sintel.org · CC BY 3.0 · Original score · Synthesized narration
       </div>
     </Paper>
   );

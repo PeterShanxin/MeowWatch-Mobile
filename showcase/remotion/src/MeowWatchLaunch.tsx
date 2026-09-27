@@ -5,7 +5,8 @@ import type {TransitionPresentation, TransitionPresentationComponentProps} from 
 import {AbsoluteFill, interpolate, staticFile, useCurrentFrame} from 'remotion';
 import {Hud} from './Motion';
 import {SCENES} from './Scenes';
-import {clamp, ease, paper} from './theme';
+import {FPS, clamp, ease, paper} from './theme';
+import voiceover from './voiceover.json';
 
 // One beat at 120 BPM: every scene change overlaps by exactly one beat, so the
 // cuts stay on the score's grid.
@@ -36,6 +37,13 @@ const Drift: React.FC<TransitionPresentationComponentProps<Record<string, never>
 
 const drift: TransitionPresentation<Record<string, never>> = {component: Drift, props: {}};
 
+/** The score dips under each spoken line of the narration. */
+const duck = (frame: number) => {
+  const t = frame / FPS;
+  const speaking = Math.max(...voiceover.map(([start, end]) => interpolate(t, [start - 0.3, start, end, end + 0.5], [0, 1, 1, 0], clamp)));
+  return 1 - 0.55 * speaking;
+};
+
 /** A slow push-in so no shot is ever completely still. */
 const PushIn: React.FC<{frames: number; children: React.ReactNode}> = ({frames, children}) => {
   const frame = useCurrentFrame();
@@ -48,8 +56,9 @@ export const MeowWatchLaunch: React.FC = () => (
   <AbsoluteFill style={{backgroundColor: paper}}>
     <Audio
       src={staticFile('music/soundtrack.wav')}
-      volume={(frame) => interpolate(frame, [0, 20, TOTAL_FRAMES - 90, TOTAL_FRAMES], [0, 1, 1, 0], clamp)}
+      volume={(frame) => interpolate(frame, [0, 20, TOTAL_FRAMES - 90, TOTAL_FRAMES], [0, 1, 1, 0], clamp) * duck(frame)}
     />
+    <Audio src={staticFile('music/voiceover.mp3')} />
     <TransitionSeries>
       {SCENES.map(([Scene, frames], index) => (
         <React.Fragment key={index}>

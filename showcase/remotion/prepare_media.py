@@ -50,6 +50,9 @@ def main():
     media.mkdir(parents=True, exist_ok=True)
     for clip in (HERE / 'source-media').glob('*.mp4'):
         shutil.copyfile(clip, media / clip.name)
+    music = HERE / 'public' / 'music'
+    music.mkdir(parents=True, exist_ok=True)
+    shutil.copyfile(HERE / 'source-media' / 'voiceover.mp3', music / 'voiceover.mp3')
     for folder, files in {
         'brand': ['meowwatch.svg'],
         'fonts': ['DMSans.ttf', 'DMSerifDisplay.ttf', 'DMSans-OFL.txt', 'DMSerifDisplay-OFL.txt'],

@@ -102,11 +102,27 @@ CHORDS = [
     (43, [54, 57, 59, 62]),
     (43, [52, 55, 58, 62]),
 ]
-MELODY = [(0, 73), (1.5, 71), (2, 69), (4, 69), (5.5, 68), (6, 66), (8, 71), (9, 69), (10, 67), (12, 70), (13, 69)]
+# Melody as positions in the current chord (top voice first), so it always fits the harmony.
+MOTIF = [(0, 3), (1.5, 2), (2, 1), (4, 2), (5.5, 1), (6, 0)]
 
 
 def chord_at(second: float) -> tuple[int, list[int]]:
+    # The film's last scene lands on the tonic rather than mid-progression.
+    if second >= ENDING - BEAT:
+        return CHORDS[0]
     return CHORDS[int(second // (2 * BAR)) % len(CHORDS)]
+
+
+def section_at(second: float) -> str:
+    if second < GROOVE:
+        return 'intro'
+    if CONTINUE <= second < PLUS_TALK:
+        return 'soft'
+    if PLUS_TALK <= second < PLUS:
+        return 'break'
+    if second >= ENDING - BEAT:
+        return 'end'
+    return 'full' if TOGETHER <= second < CONTINUE or second >= PLUS else 'groove'
 
 
 def energy_at(second: float) -> float:
@@ -144,31 +160,38 @@ for beat in range(round(TITLE / BEAT), round(LENGTH / BEAT)):
         for index, pitch in enumerate(chord):
             add(pad(pitch, 4.3), start, .022 * max(energy, .6), (index - 1.5) / 3)
         add(sub(bass, 3.8), start, .11 * max(energy, .5))
-    if GROOVE <= start < ENDING + BAR and energy >= .6:
-        # Half-time: kick on 1 and the "and" of 2; brush on 3.
+    section = section_at(start)
+    # Half-time: kick on 1 and the "and" of 2; brush on 3.
+    if section in ('groove', 'full'):
         if beat % 4 == 0 or (beat % 4 == 1 and in_bar >= 4):
             add(kick(), start + (BEAT / 2 if beat % 4 == 1 else 0), .2 * energy)
-        if beat % 4 == 2:
-            add(brush(), start, .09 * energy, .1)
-        if energy >= .8:
-            for step in range(4):
-                add(shaker(), start + step * BEAT / 4, (.022 if step % 2 else .012) * energy, -.4)
+    if section in ('groove', 'full', 'soft') and beat % 4 == 2:
+        add(brush(), start, .09 * energy, .1)
+    if section == 'full':
+        for step in range(4):
+            add(shaker(), start + step * BEAT / 4, (.022 if step % 2 else .012) * energy, -.4)
     # Electric piano: soft stabs on the offbeats, voiced across the chord.
-    if start >= GROOVE and beat % 2 == 1:
+    if section in ('groove', 'full', 'soft', 'break') and beat % 2 == 1:
         for index, pitch in enumerate(chord):
             add(epiano(pitch + 12, 1.1), start + index * .012, .07 * max(energy, .5), (index - 1.5) / 4)
 
-# A short melody over the paired-screen chapter and the Plus return.
-for section in (TOGETHER + 1, PLUS):
-    for offset, pitch in MELODY:
-        second = section + offset * BEAT
-        if second < LENGTH - 1:
-            add(epiano(pitch + 12, 1.6), second, .07, .25)
-            add(music_box(pitch + 12), second, .018, -.25)
+# A short melody, answered once per chord, over the paired screens and the Plus return.
+for first, last in ((TOGETHER + 2 * BAR - TOGETHER % (2 * BAR), CONTINUE), (PLUS + 2 * BAR - PLUS % (2 * BAR), ENDING - BEAT)):
+    phrase = first
+    while phrase + 3.5 <= last:
+        _, chord = chord_at(phrase)
+        for offset, position in MOTIF:
+            add(epiano(chord[position] + 12, 1.6), phrase + offset * BEAT, .055, .25)
+        phrase += 2 * BAR
 
-# Ending: the tonic rings out.
-for index, pitch in enumerate([50] + CHORDS[0][1] + [76]):
-    add(epiano(pitch + 12, 5.5), ENDING + 1 + index * .06, .06, (index - 2.5) / 4)
+# A soft swell back into the Plus section.
+add(pad(57, 2.2), PLUS - 2, .035, -.2)
+add(pad(62, 2.2), PLUS - 2, .03, .2)
+add(brush(), PLUS - BEAT, .07)
+
+# Ending: Dmaj9 rings out over the tonic.
+for index, pitch in enumerate([50, 57, 61, 64, 66, 69]):
+    add(epiano(pitch + 12, 5.5), ENDING + index * .07, .06, (index - 2.5) / 4)
 
 # Soft room reverb from a few decaying delay taps, then gentle glue.
 wet = np.zeros_like(mix)

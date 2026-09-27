@@ -1,7 +1,7 @@
 # MeowWatch launch film
 
 A 67-second product film: one idea per screen, set in type on a warm paper
-ground with a dark title card, with real app recordings carrying every functional claim. Each shot of
+ground, with real app recordings carrying every functional claim. Each shot of
 the app is an unedited 1× excerpt of a real recording and carries a small
 label saying what it is. Titles, chat bubbles and the brand sign-off are the
 only drawn elements. See [STORYBOARD.md](STORYBOARD.md) for the cut list and
@@ -26,6 +26,9 @@ committed clips and uploads the film with three review stills.
 `compose_music.py` creates an original late-night score on the film's
 120 BPM grid, with a half-time feel: synthesized electric piano, pads, sub
 bass, brushed drums and a music box that answers the opening countdown. It
-uses no third-party recording, sample or melody. DM Sans and DM Serif Display keep their bundled SIL Open Font License
+uses no third-party recording, sample or melody. `compose_voiceover.py`
+synthesizes the narration with a Microsoft neural voice through `edge-tts`
+(network required) and writes `source-media/voiceover.mp3` plus the spoken
+intervals the score ducks under; both outputs are committed. DM Sans and DM Serif Display keep their bundled SIL Open Font License
 notices. The Sintel trailer shown inside the app is © Blender Foundation
 (sintel.org), CC BY 3.0, credited in the film's closing frame.

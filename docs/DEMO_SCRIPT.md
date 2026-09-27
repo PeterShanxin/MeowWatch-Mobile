@@ -31,7 +31,7 @@ details.
   screen capture.
 - Sintel is © Blender Foundation (sintel.org), CC BY 3.0. DM Sans and DM Serif
   Display include their OFL notices. The music is an original synthesized
-  120 BPM score. See [third-party notices](../THIRD_PARTY_NOTICES.md).
+  120 BPM score; the narration is a synthesized Microsoft neural voice. See [third-party notices](../THIRD_PARTY_NOTICES.md).
 
 ## Rendering
 

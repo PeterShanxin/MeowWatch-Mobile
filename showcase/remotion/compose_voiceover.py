@@ -34,7 +34,7 @@ LINES = [
     (47.9, 'Then pick up right where you left off.'),
     (51.4, 'Guests always join free. Hosts get one free movie night a day.'),
     (57.4, "For more nights, there's Meow Watch Plus."),
-    (64.3, 'Meow Watch. Movie night, even miles apart.'),
+    (64.1, 'Meow | Watch. | Movie night, even miles apart.'),
 ]
 
 

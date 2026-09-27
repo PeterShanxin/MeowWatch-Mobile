@@ -301,4 +301,72 @@ void main() {
       await fixture.close();
     },
   );
+
+  testWidgets('an invite carrying a direct video shows it before joining', (
+    tester,
+  ) async {
+    final fixture = UiTestApp.create();
+    const invite =
+        'meowwatch://join?room=quiet-otter&server=syncplay.pl&port=8995'
+        '&video=https%3A%2F%2Fvideo.example%2Fmovie.mp4';
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => ElevatedButton(
+              onPressed: () => showJoinSheet(
+                context,
+                app: fixture.controller,
+                initialInvite: invite,
+              ),
+              child: const Text('Open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Room: quiet-otter'), findsOneWidget);
+    expect(find.text('Video: video.example/movie.mp4'), findsOneWidget);
+    await fixture.close();
+  });
+
+  testWidgets(
+    'an invite with no video, or an invalid one, shows no video line',
+    (tester) async {
+      final fixture = UiTestApp.create();
+      for (final invite in [
+        'meowwatch://join?room=quiet-otter&server=syncplay.pl&port=8995',
+        'meowwatch://join?room=quiet-otter&server=syncplay.pl&port=8995'
+            '&video=not+a+direct+link',
+      ]) {
+        await tester.pumpWidget(
+          MaterialApp(
+            home: Scaffold(
+              body: Builder(
+                builder: (context) => ElevatedButton(
+                  onPressed: () => showJoinSheet(
+                    context,
+                    app: fixture.controller,
+                    initialInvite: invite,
+                  ),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+          ),
+        );
+        await tester.tap(find.text('Open'));
+        await tester.pumpAndSettle();
+
+        expect(find.text('Room: quiet-otter'), findsOneWidget);
+        expect(find.textContaining('Video:'), findsNothing);
+        await tester.pumpWidget(const SizedBox.shrink());
+      }
+      await fixture.close();
+    },
+  );
 }

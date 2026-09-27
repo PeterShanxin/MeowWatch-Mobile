@@ -158,7 +158,9 @@ class AppController extends ChangeNotifier {
   List<ChatMessage> get messages =>
       isNearby ? _nearbyMessages : _chat?.messages ?? const [];
   bool get firstLaunch => repository.displayName == null;
-  Uri? get invite => room == null ? null : encodeRoomInvite(room!.config);
+  Uri? get invite => room == null
+      ? null
+      : encodeRoomInvite(room!.config, media: target.snapshot.media);
 
   void _changed() {
     if (!_closed) notifyListeners();

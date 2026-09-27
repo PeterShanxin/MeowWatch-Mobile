@@ -446,10 +446,20 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
       initialInvite: invite.toString(),
     );
     if (value != null && mounted) {
-      await _run(() async {
-        await app.joinRoom(value);
-      });
+      await _run(() => _joinRoomWithVideo(app, value));
     }
+  }
+
+  /// Joining a room is the guest's confirmation; a video the invite carries
+  /// opens right after, under the same guards as the "Watch this too" flow.
+  /// A failed join never loads anything.
+  Future<void> _joinRoomWithVideo(AppController app, String value) async {
+    final joined = await app.joinRoom(value);
+    if (!joined || !mounted) return;
+    final video = parseInviteVideo(value);
+    if (video == null || app.isCasting || app.isNearby || app.busy) return;
+    if (!app.inPlayer) await app.useLocalMode();
+    await app.load(video);
   }
 
   static bool _sameRoom(RoomConfig? left, RoomConfig right) =>
@@ -486,9 +496,7 @@ class _MainAppState extends State<MainApp> with WidgetsBindingObserver {
     try {
       final value = await showJoinSheet(context, app: _app!);
       if (value != null && mounted) {
-        await _run(() async {
-          await _app!.joinRoom(value);
-        });
+        await _run(() => _joinRoomWithVideo(_app!, value));
       }
     } finally {
       _modalOpen = false;

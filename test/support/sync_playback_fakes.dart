@@ -94,6 +94,7 @@ class SyncTestTarget extends PlaybackTarget {
 class SyncTestCore extends SyncCore {
   final published = <PeerPlayState>[];
   final changes = <bool>[];
+  final announced = <String>[];
   void peer(PeerPlayState state) {
     lastObservedRoomState = state;
     emitPeerState(state);
@@ -117,7 +118,7 @@ class SyncTestCore extends SyncCore {
     required String name,
     required int size,
     required Duration duration,
-  }) {}
+  }) => announced.add(name);
   @override
   void notifyLocalChange({required bool doSeek}) => changes.add(doSeek);
   @override

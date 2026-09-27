@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 
 import '../../app/app_controller.dart';
 import '../../core/connect/room_config.dart';
+import '../../core/media/media_item.dart';
 import '../../core/session/room_invite.dart';
 import '../shared/invitation_scanner.dart';
 
@@ -146,11 +147,17 @@ class _JoinSheetState extends State<_JoinSheet> {
     }
   }
 
+  MediaItem? _parsedIncomingVideo() {
+    if (!_isIncomingInvite) return null;
+    return parseInviteVideo(_controller.text);
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final bottomInset = MediaQuery.viewInsetsOf(context).bottom;
     final incomingConfig = _parsedIncomingConfig();
+    final incomingVideo = _parsedIncomingVideo();
     return AnimatedPadding(
       duration: const Duration(milliseconds: 180),
       curve: Curves.easeOut,
@@ -283,6 +290,12 @@ class _JoinSheetState extends State<_JoinSheet> {
                             Text(
                               'Server: ${incomingConfig.server}:${incomingConfig.port}',
                             ),
+                            if (incomingVideo != null) ...[
+                              const SizedBox(height: 4),
+                              Text(
+                                'Video: ${incomingVideo.uri.host}/${incomingVideo.uri.pathSegments.last}',
+                              ),
+                            ],
                           ],
                         ),
                       ),

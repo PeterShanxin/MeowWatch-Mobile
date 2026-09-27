@@ -220,7 +220,7 @@ mark taps. TypeScript checks and representative Studio/cloud still review pass.
 The downloaded export played to its 94.059-second ending at 1× in the browser
 without a media error; representative frames were visually inspected.
 This export replaces the earlier slow-moving editions. The final
-[YouTube video](https://youtu.be/gRUYlHb3LiI) is saved as **Unlisted**;
+[YouTube video](https://youtu.be/gRUYlHb3LiI) was saved as **Unlisted** (now Private, superseded by the re-cut film);
 SD and HD processing are complete, and the upload copyright check reports no
 issues. That automated check is not a legal determination. On September 25
 the owner requested the final video update and submission link. Studio confirms

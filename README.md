@@ -9,7 +9,7 @@ that keeps couples, friends and small groups connected across the distance.
 
 This is the mobile counterpart to [MeowWatch for desktop](https://github.com/PeterShanxin/MeowWatch), with a new touch interface, Android playback, lifecycle handling, and subscription flow.
 
-**[Download the Android preview](https://github.com/PeterShanxin/MeowWatch-Mobile/releases/tag/v0.1.0)** · **[Watch the 94-second demo](https://youtu.be/gRUYlHb3LiI)** · **[Shipaton project](https://devpost.com/software/meowwatch-mobile)**
+**[Download the Android preview](https://github.com/PeterShanxin/MeowWatch-Mobile/releases/latest)** · **[Watch the demo](https://youtu.be/17fDf58Xyxc)** · **[Shipaton project](https://devpost.com/software/meowwatch-mobile)**
 
 The preview uses the real RevenueCat **Test Store**, with no real charges. It is
 an ordinary Android app, version 0.1.0, signed with the debug key for judging;
@@ -137,7 +137,7 @@ and independent phone/tablet journeys. The
 failures and hardware checks. Native recordings and screenshots are retained as
 GitHub Actions artifacts; an artifact from a failed job is development evidence.
 
-The [94-second hybrid film and demo script](docs/DEMO_SCRIPT.md),
+The [demo film and script](docs/DEMO_SCRIPT.md),
 [English submission draft](docs/SUBMISSION_DRAFT.md), and
 [verified submission requirements](docs/SUBMISSION_REQUIREMENTS.md) document the
 entry and its evidence. The local [showcase](tools/showcase/README.md) can

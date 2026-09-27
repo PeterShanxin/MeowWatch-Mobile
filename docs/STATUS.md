@@ -1,6 +1,6 @@
 # Delivery status
 
-Last updated: 2026-09-26 (Asia/Shanghai). **Submitted to RevenueCat Shipaton 2026 for Next Gen review, with the hardware and runtime limits below disclosed.**
+Last updated: 2026-09-27 (Asia/Shanghai). **Submitted to RevenueCat Shipaton 2026 for Next Gen review, with the hardware and runtime limits below disclosed.**
 
 The owner authorized final submission. Devpost confirms submission `1196850`
 at **2026-09-25 16:17:48 UTC** (September 26, 00:17:48 in China/Singapore).
@@ -43,14 +43,8 @@ Additional emulator runs cannot establish hardware behavior.
 The owner confirmed that Nearby should remain a secondary, explicitly paired
 desktop remote. Do not add automatic nearby room creation or a large Nearby
 chapter to the film. Prioritize distant Together sessions, recovery, phone/tablet
-usability and a clear, reliable Plus flow. The owner also requested a more
-designed hybrid film: accurate React UI animation for explanatory shots and
-real-device footage for runtime demonstration, clearly distinguished. Following
-review of the hybrid edition, the owner requested a continuous-shot visual
-treatment and one consistent palette. The film uses a deep navy stage, quick
-0.3–0.5-second device/camera moves and still reading holds. Titles leave by
-moving offscreen; small translucent touch indicators mark taps. Its edited
-sources remain labeled.
+usability and a clear, reliable Plus flow. The submission film was later re-shot as a restrained product film in which
+every functional claim is a real 1× recording; see [demo script](DEMO_SCRIPT.md).
 
 ## Acceptance evidence
 
@@ -59,7 +53,7 @@ sources remain labeled.
 | 1 | Clean checkout builds and installs | Verified on emulators | Current product source `0df32c6`, packaged from `a65b8ef`: normal install 36125719065 passes API 29/35 debug and API 35 release. The ordinary Test Store debug APK is the judging build. Clean launch alone does not establish the complete repair-free demo rehearsal |
 | 2 | Public, licensed, documented, secret-free repository | Verified | PR #1 is merged as `7f05b9f`; main contains the complete app, AGPL license, setup, provenance and submission assets. Check 36156902449 passes at final PR head `a20921f`. Its secret audit covers 645 tracked files and 274 fetched commits with zero snapshot/history findings. Public prerelease `v0.1.0` includes the ordinary APK and source/install receipts |
 | 3 | Clear first-launch create/join | Verified on emulators | Ordinary-APK 36137630270 passes the first-run guide, visible Start and invitation code, and Join on independent API 35 phone/tablet emulators. Five-viewport run 36103033060 and Together 36103033024 attempt 2 also pass |
-| 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators and Windows/cloud Android | Ordinary-APK 36137630270 passes advancing native playback and play/pause/seek in both directions on independent phone/tablet emulators. [Cross-client 36143500404](CROSS_CLIENT_ACCEPTANCE_2026-09-25.md) also passes ordinary Windows/cloud Android controls in both directions, including matching paused 3:54 and 4:58 positions; Windows uses an unchanged downloaded copy after remote-source failure. Failed-decoder recovery passes 36101860905 on identical product code. Physical two-Android behavior and frame identity are not claimed |
+| 4 | Two real clients repeatedly play/pause/seek in sync | Verified on two emulators and Windows/cloud Android | Ordinary-APK 36137630270 passes advancing native playback and play/pause/seek in both directions on independent phone/tablet emulators. [Cross-client 36143500404](CROSS_CLIENT_ACCEPTANCE_2026-09-25.md) also passes ordinary Windows/cloud Android controls in both directions, including matching paused 3:54 and 4:58 positions; Windows uses an unchanged downloaded copy after remote-source failure. Failed-decoder recovery passes 36101860905 on identical product code. On September 27 a physical OnePlus phone (`0.1.1` Test Store build) and MeowWatch for Windows `v0.51.0-alpha` shared a public-server room in one continuous screen recording: phone play, desktop pause, phone resume, phone +10 s skip and phone reactions all appear on both screens (see [film footage](../showcase/remotion/source-media/README.md)). Physical two-Android behavior and frame identity are not claimed |
 | 5 | Real-session chat/reactions/presence | Verified on two emulators | Ordinary-APK 36137630270 visibly passes presence, chat in both directions and a peer reaction on the independent phone/tablet emulators. Earlier Together and Test Store journeys also pass; 36103033131 verifies a premium reaction received by a headless TLS peer |
 | 6 | Disconnect/reconnect/lifecycle recovery | Verified within stated runtime limits | Failed-decoder profile 36101860905 and current-head normal network 36131237104 pass. The latter uses one API 35 AVD, two real STARTTLS clients/decoders and one rendered MainApp. It verifies actual emulator radio loss, paused same-room recovery, unchanged quota and explicit replay/seek. Hosted lifecycle and physical Local/Nearby restart also pass; physical Together radio-loss recovery is not claimed |
 | 7 | Local Mode and Continue Watching | Verified on physical phone and emulators | Ordinary APK `67d0206` plays Sintel on physical OnePlus Android 16 and restores 19 seconds paused after process restart. Hosted lifecycle preserves 69 seconds; SAF and independent-device history checks also pass |
@@ -70,7 +64,7 @@ sources remain labeled.
 | 12 | Reliable Cast or exact blocker and fallback | Hardware blocker documented | Android sender and same-room handoff are implemented. The owner confirmed no Google Cast receiver is available on September 25. Physical receiver discovery/playback/reconnect are unverified; the physically exercised phone playback path is the fallback. No receiver success is claimed |
 | 13 | No placeholders, dead ends or silent failures | Verified for the rehearsed demo path | Ordinary-APK 36137630270 completes the visible first-install path through two-client Together playback, history, quota paywall, native purchase, Restore and Local resume without a dead end. Earlier onboarding, recovery and failure-path checks retain their separate scope; physical acceptance and its corrected UI defects are recorded below |
 | 14 | Clean-install full demo rehearsal | Verified on two API 35 emulators | Ordinary `lib/main.dart` debug/Test Store APK run [36137630270](https://github.com/PeterShanxin/MeowWatch-Mobile/actions/runs/36137630270) at `b5b9f77` completes on fresh independent phone/tablet emulators. It passes onboarding, visible invitation-code join, the same controlled URL and advancing native playback, two-way controls/chat, reaction, fullscreen/Back, both histories, free-host quota paywall, native Test Store success, a distinct Plus host, Settings Restore and Local leave/resume. This is emulator evidence, not physical two-device or production Google Play billing proof |
-| 15 | Shipaton submission confidence | Submitted and verified | Mobile PR #1 and desktop PR #279 are merged. Android `v0.1.0` and signed Windows `v0.51.0-alpha` are public. Complete ordinary-APK and Windows/cloud rehearsals pass. The 94-second film is Unlisted with HD processing complete and saved in the actual competition form. Devpost's public page includes the video, APK link, artwork, new mobile work/provenance and validation limits. The academic account email is verified. After owner authorization, Devpost confirms submission `1196850` and the form shows Submitted, 5/5 steps |
+| 15 | Shipaton submission confidence | Submitted and verified | Mobile PR #1 and desktop PR #279 are merged. Android `v0.1.0` and signed Windows `v0.51.0-alpha` are public. Complete ordinary-APK and Windows/cloud rehearsals pass. The re-cut 70-second film ([YouTube, Public](https://youtu.be/17fDf58Xyxc)) is saved in the project and the competition form; earlier cuts are Private. Android `v0.1.1` is the latest release. Devpost's public page includes the video, APK link, artwork, new mobile work/provenance and validation limits. The academic account email is verified. After owner authorization, Devpost confirms submission `1196850` and the form shows Submitted, 5/5 steps |
 
 ## Current verification
 
@@ -164,6 +158,16 @@ Application code is unchanged from `0df32c6`; none of these test changes alters
 purchase, playback or quota behavior. Mobile PR #1 is now merged; the original
 failed runs remain part of the evidence record.
 
+### Post-submission update, September 26–27
+
+- `0.1.1`: a room invitation carries the host's direct video link (validated
+  like a chat-shared link); the join sheet names it and the guest loads it after
+  joining. Direct links are announced to the room by full URL, so MeowWatch for
+  Windows matches the same link instead of reporting a different file. Covered
+  by unit tests and the production Together journey (PR #2).
+- Physical phone ↔ Windows Together sync is recorded as described in row 4.
+- The film is re-cut from those recordings; see [demo script](DEMO_SCRIPT.md).
+
 ### Physical acceptance and final presentation revision
 
 [Physical acceptance](PHYSICAL_ACCEPTANCE_2026-09-25.md) records the actual
@@ -216,7 +220,7 @@ mark taps. TypeScript checks and representative Studio/cloud still review pass.
 The downloaded export played to its 94.059-second ending at 1× in the browser
 without a media error; representative frames were visually inspected.
 This export replaces the earlier slow-moving editions. The final
-[YouTube video](https://youtu.be/gRUYlHb3LiI) is saved as **Unlisted**;
+[YouTube video](https://youtu.be/gRUYlHb3LiI) was saved as **Unlisted** (now Private, superseded by the re-cut film);
 SD and HD processing are complete, and the upload copyright check reports no
 issues. That automated check is not a legal determination. On September 25
 the owner requested the final video update and submission link. Studio confirms

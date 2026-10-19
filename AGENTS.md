@@ -12,3 +12,8 @@ Read `docs/GOAL_BRIEF.md`, `docs/PRODUCT_SPEC.md`, and `docs/STATUS.md` before s
 - Device/emulator evidence must name the actual runtime. Widget tests do not establish hardware, LAN, purchase, or Cast correctness.
 - Keep evidence and outstanding criteria current in `docs/STATUS.md`. Do not mark submission-ready until all practical acceptance criteria have fresh proof.
 - Do not commit credentials, local logs, signing keys, or personal test data.
+
+## Writing clarity
+
+Follow [STE-inspired clarity](docs/WRITING_GUIDE.md) for new or changed text and delivery
+notes. This project-wide standard applies to human contributors and agents.

@@ -157,3 +157,9 @@ Android adaptive and themed icons, desktop ICO, and small-size exports. The
 launcher and in-app brand marks use the selected navy, cream and blue design.
 
 [AGPL-3.0-only](LICENSE). Portable desktop code retains its original notices and provenance. Third-party packages retain their respective licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) and Settings → About & licenses in the app.
+
+## Writing clarity
+
+Human contributors and agents follow the project-wide
+[STE-inspired clarity standard](docs/WRITING_GUIDE.md) for new or changed README,
+documentation, help, error and UI text, comments, and delivery notes.
